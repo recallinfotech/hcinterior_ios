@@ -2,8 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Remix HC Interior</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>HC Interior</title>
+
+    <!-- iOS Notch & Input Zoom Fix Styles -->
+    <style>
+      /* Safe Area padding for iPhone Notch / Dynamic Island */
+      body {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+      }
+
+      /* Prevent auto zoom-in when tapping search/text inputs in iOS */
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+    </style>
+
     <script>
       (function() {
         try {
@@ -29,4 +46,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
