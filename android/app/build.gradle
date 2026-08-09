@@ -4,7 +4,7 @@ android {
     namespace = "hc.interior.operation"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "hc.interior.operation"
+        applicationId "com.HCIP.HCOperation"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

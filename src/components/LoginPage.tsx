@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Lock, Eye, EyeOff, ShieldCheck, ArrowRight, CheckCircle } from 'lucide-react';
 import { CompanyLogo } from './CompanyLogo';
+import { Capacitor } from '@capacitor/core';
 import { loginUser, UserData } from '../services/authApi';
 import { getDynamicFcmToken } from '../services/fcmService';
 
@@ -36,7 +37,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     try {
       // Dynamically acquire unique FCM Token for current physical device
       const dynamicFcmToken = await getDynamicFcmToken();
-      const res = await loginUser(username.trim(), password.trim(), dynamicFcmToken, 'android');
+      const platform = Capacitor.getPlatform();
+      const deviceType = platform === 'ios' ? 'ios' : 'android';
+      const res = await loginUser(username.trim(), password.trim(), dynamicFcmToken, deviceType);
 
       if (res && res.status && res.data) {
         const extractedToken =

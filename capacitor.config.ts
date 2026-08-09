@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'hc.interior.operation',
+  appId: 'com.HCIP.HCOperation',
   appName: 'HC Interior',
   webDir: 'dist',
   plugins: {
