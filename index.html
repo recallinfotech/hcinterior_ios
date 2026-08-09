@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remix HC Interior</title>
+    <script>
+      (function() {
+        try {
+          var fetchVal = window.fetch;
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch') || 
+                     (Object.getPrototypeOf(window) && Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch'));
+          if (!desc || !desc.set || (!desc.writable && !desc.set)) {
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return fetchVal; },
+              set: function(v) { fetchVal = v; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          console.warn('Fetch property patch:', e);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

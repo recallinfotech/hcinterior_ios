@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HC Interior</string>
+    <string name="title_activity_main">HC Interior</string>
+    <string name="package_name">hc.interior.operation</string>
+    <string name="custom_url_scheme">hc.interior.operation</string>
+</resources>

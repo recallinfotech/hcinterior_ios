@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "542165286323",
+    "project_id": "hc-interior",
+    "storage_bucket": "hc-interior.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:542165286323:android:accce9625b6762a1961fc6",
+        "android_client_info": {
+          "package_name": "com.hc_interior"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAidzj0h2SHcp14VS-jw5F2di_PLY8Xarc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

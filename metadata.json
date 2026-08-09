@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix HC Interior",
+  "description": "Mobile project management \u0026 interior design workflow application for client tracking, BOQ, approvals, and site progress.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
