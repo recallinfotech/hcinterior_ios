@@ -10,16 +10,8 @@ function isRealFcmToken(token?: string | null): boolean {
   if (!token || typeof token !== 'string') return false;
   const trimmed = token.trim();
   if (trimmed.length < 20) return false;
-  if (
-    trimmed.startsWith('fcm_android_') ||
-    trimmed.startsWith('fcm_ios_') ||
-    trimmed.startsWith('fcm_device_') ||
-    trimmed.startsWith('fcm_dev_')
-  ) {
-    return false;
-  }
-  // Raw 64-char hex APNs tokens must be converted to Google FCM format (APA91b...)
-  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+  // A real Google FCM token must contain APA91b or a colon : and must NOT start with synthetic prefixes
+  if (trimmed.startsWith('fcm_') || (!trimmed.includes('APA91b') && !trimmed.includes(':'))) {
     return false;
   }
   return true;
@@ -38,7 +30,7 @@ export async function ensureFcmFormatToken(rawToken?: string | null): Promise<st
     return trimmed;
   }
 
-  // Convert 32-64 char hex APNs token (with or without fcm_ios_ / fcm_android_ prefix) via server endpoint
+  // Convert raw hexadecimal APNs / device token to real Google FCM Token (APA91b...) via server endpoint
   try {
     const res = await fetch('/api/push/convert-token', {
       method: 'POST',
@@ -154,31 +146,29 @@ export async function getDynamicFcmToken(): Promise<string> {
  * Fallback hardware device token generator with OS platform prefix.
  */
 export async function generateUniqueDeviceToken(): Promise<string> {
-  const platform = Capacitor.getPlatform(); // 'ios', 'android', 'web'
-  const prefix = platform === 'ios' ? 'fcm_ios_' : 'fcm_android_';
-
+  let rawDeviceId = '';
   try {
     const info = await Device.getId();
     if (info && info.identifier) {
-      const dynamicToken = `${prefix}${info.identifier.replace(/[^a-zA-Z0-9]/g, '')}`;
-      // Only set in localStorage if no real token exists
-      const existing = localStorage.getItem('fcm_device_token');
-      if (!isRealFcmToken(existing)) {
-        localStorage.setItem('fcm_device_token', dynamicToken);
-      }
-      return dynamicToken;
+      rawDeviceId = info.identifier.replace(/[^a-zA-Z0-9]/g, '');
     }
   } catch (e) {
     console.warn('Device.getId fallback:', e);
   }
 
-  const randomUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
-  const dynamicToken = `${prefix}${randomUuid.replace(/-/g, '')}`;
-  const existing = localStorage.getItem('fcm_device_token');
-  if (!isRealFcmToken(existing)) {
-    localStorage.setItem('fcm_device_token', dynamicToken);
+  if (!rawDeviceId) {
+    const randomUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+    rawDeviceId = randomUuid.replace(/-/g, '');
   }
-  return dynamicToken;
+
+  // Convert raw hardware device ID directly into real Google FCM Token (APA91b...)
+  const fcmToken = await ensureFcmFormatToken(rawDeviceId);
+  if (fcmToken && isRealFcmToken(fcmToken)) {
+    localStorage.setItem('fcm_device_token', fcmToken);
+    return fcmToken;
+  }
+
+  return fcmToken || rawDeviceId;
 }
 
 /**

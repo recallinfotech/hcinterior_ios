@@ -75,18 +75,14 @@ const registeredDeviceTokens: Set<string> = new Set();
  */
 export async function convertApnsToFcmToken(apnsToken: string, isSandbox = false): Promise<string> {
   if (!apnsToken || typeof apnsToken !== 'string') return apnsToken;
-  let trimmed = apnsToken.trim();
+  const trimmed = apnsToken.trim();
 
-  // Strip prefixes if present
-  if (trimmed.startsWith('fcm_ios_')) {
-    trimmed = trimmed.replace('fcm_ios_', '');
-  } else if (trimmed.startsWith('fcm_android_')) {
-    trimmed = trimmed.replace('fcm_android_', '');
-  } else if (trimmed.startsWith('fcm_device_')) {
-    trimmed = trimmed.replace('fcm_device_', '');
+  // If already a real Google FCM token (contains : or APA91b), return as is
+  if (trimmed.includes(':') || trimmed.includes('APA91b')) {
+    return trimmed;
   }
 
-  // Only convert 32 to 64 character hexadecimal APNs tokens
+  // Convert raw 32 to 64 character hexadecimal APNs / device token
   if (trimmed.length < 32 || trimmed.length > 64 || !/^[0-9a-fA-F]+$/.test(trimmed)) {
     return apnsToken;
   }
