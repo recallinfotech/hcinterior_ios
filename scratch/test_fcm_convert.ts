@@ -1,8 +1,8 @@
 import { convertApnsToFcmToken } from '../src/services/firebaseServer.ts';
 
 async function test() {
-  const apnsToken = '561B297F147CA60C06E01B6CF44DD15C52C0D8E83087FFDC649DAD6FF16275C5';
-  console.log('Testing conversion of APNs token:', apnsToken);
+  const apnsToken = '828E708E4378B4C624F5E0ADDE90AACAE788845F16113383B6D7DF1F96B66FD6';
+  console.log('Testing conversion of NEW APNs token:', apnsToken);
   const result = await convertApnsToFcmToken(apnsToken);
   console.log('Converted FCM Token result:', result);
 }

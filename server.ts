@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { sendFCMNotification, registerFCMToken, getRegisteredTokens } from './src/services/firebaseServer.js';
+import { sendFCMNotification, registerFCMToken, getRegisteredTokens, convertApnsToFcmToken } from './src/services/firebaseServer.js';
 
 async function startServer() {
   const app = express();
@@ -65,14 +65,25 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
+  // Convert raw 64-char APNs token to FCM token endpoint
+  app.post('/api/push/convert-token', async (req, res) => {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ success: false, fcmToken: '' });
+    }
+    const converted = await convertApnsToFcmToken(token);
+    return res.json({ success: true, fcmToken: converted });
+  });
+
   // Register device FCM Token endpoint
   app.post('/api/push/register-token', async (req, res) => {
     const { token } = req.body;
     if (!token) {
       return res.status(400).json({ success: false, message: 'FCM Token is required' });
     }
-    await registerFCMToken(token);
-    return res.json({ success: true, message: 'FCM Token registered successfully', totalTokens: getRegisteredTokens().length });
+    const effective = await convertApnsToFcmToken(token);
+    await registerFCMToken(effective);
+    return res.json({ success: true, message: 'FCM Token registered successfully', fcmToken: effective, totalTokens: getRegisteredTokens().length });
   });
 
   // Send Push Notification endpoint

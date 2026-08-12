@@ -22,6 +22,38 @@ function isRealFcmToken(token?: string | null): boolean {
 }
 
 /**
+ * Ensures raw 64-character APNs device tokens are converted to real Google FCM tokens (APA91b...)
+ * via server-side Google IID exchange API.
+ */
+export async function ensureFcmFormatToken(rawToken?: string | null): Promise<string> {
+  if (!rawToken || typeof rawToken !== 'string') return '';
+  const trimmed = rawToken.trim();
+
+  // If already an FCM token (contains colon : or APA91b) or synthetic fallback, return as is
+  if (trimmed.includes(':') || trimmed.includes('APA91b') || !/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Convert 64-char APNs token to FCM token via server endpoint
+  try {
+    const res = await fetch('/api/push/convert-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: trimmed }),
+    });
+    const data = await res.json();
+    if (data && data.success && data.fcmToken) {
+      console.log('Converted APNs token to Google FCM Token:', data.fcmToken);
+      localStorage.setItem('fcm_device_token', data.fcmToken);
+      return data.fcmToken;
+    }
+  } catch (e) {
+    console.warn('Failed to call convert-token endpoint:', e);
+  }
+  return trimmed;
+}
+
+/**
  * Dynamically fetches real Firebase Cloud Messaging (FCM) token from iOS/Android OS via @capacitor/push-notifications.
  * Prioritizes real native FCM tokens (e.g. f7isD7buRU...:APA91b...) and discards synthetic fallback IDs.
  */
@@ -31,7 +63,7 @@ export async function getDynamicFcmToken(): Promise<string> {
   // 1. Check if a valid REAL native FCM token is already cached
   const cachedToken = localStorage.getItem('fcm_device_token');
   if (isRealFcmToken(cachedToken)) {
-    return cachedToken!.trim();
+    return await ensureFcmFormatToken(cachedToken);
   }
 
   // Skip native push notification registration on web browsers
@@ -103,7 +135,7 @@ export async function getDynamicFcmToken(): Promise<string> {
 
     const nativeToken = await Promise.race([fcmPromise, timeoutPromise]);
     if (isRealFcmToken(nativeToken)) {
-      return nativeToken.trim();
+      return await ensureFcmFormatToken(nativeToken.trim());
     }
   } catch (e) {
     console.warn('Native FCM Push Token exception:', e);
