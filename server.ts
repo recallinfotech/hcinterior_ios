@@ -66,12 +66,12 @@ async function startServer() {
   });
 
   // Register device FCM Token endpoint
-  app.post('/api/push/register-token', (req, res) => {
+  app.post('/api/push/register-token', async (req, res) => {
     const { token } = req.body;
     if (!token) {
       return res.status(400).json({ success: false, message: 'FCM Token is required' });
     }
-    registerFCMToken(token);
+    await registerFCMToken(token);
     return res.json({ success: true, message: 'FCM Token registered successfully', totalTokens: getRegisteredTokens().length });
   });
 

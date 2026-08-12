@@ -69,9 +69,19 @@ export function getFirebaseAdmin(): App | null {
 // Memory cache for registered device tokens
 const registeredDeviceTokens: Set<string> = new Set();
 
-export function registerFCMToken(token: string) {
+export async function registerFCMToken(token: string) {
   if (token) {
     registeredDeviceTokens.add(token);
+    const app = getFirebaseAdmin();
+    if (app) {
+      try {
+        const messaging = getMessaging(app);
+        await messaging.subscribeToTopic([token], 'global_updates');
+        await messaging.subscribeToTopic([token], 'all');
+      } catch (err) {
+        console.warn('FCM Topic subscription warning:', err);
+      }
+    }
   }
 }
 
@@ -103,6 +113,7 @@ export async function sendFCMNotification(params: {
       headers: {
         'apns-priority': '10',
         'apns-push-type': 'alert',
+        'apns-topic': 'com.HCIP.HCOperation',
       },
       payload: {
         aps: {
