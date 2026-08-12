@@ -69,15 +69,69 @@ export function getFirebaseAdmin(): App | null {
 // Memory cache for registered device tokens
 const registeredDeviceTokens: Set<string> = new Set();
 
+/**
+ * Converts a raw 64-character Apple APNs token to a real Google FCM Registration Token
+ * via Google's Instance ID (IID) batchImport API.
+ */
+export async function convertApnsToFcmToken(apnsToken: string, isSandbox = false): Promise<string> {
+  if (!apnsToken || typeof apnsToken !== 'string') return apnsToken;
+  const trimmed = apnsToken.trim();
+  // Only convert 64-character hexadecimal APNs tokens
+  if (trimmed.length !== 64 || !/^[0-9a-fA-F]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const app = getFirebaseAdmin();
+  if (!app) return trimmed;
+
+  try {
+    const credential = (app.options as any).credential;
+    if (credential && typeof credential.getAccessToken === 'function') {
+      const authObj = await credential.getAccessToken();
+      const accessToken = authObj?.access_token;
+
+      if (accessToken) {
+        const res = await fetch('https://iid.googleapis.com/iid/v1:batchImport', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+            'access_token_auth': 'true',
+          },
+          body: JSON.stringify({
+            application: 'com.HCIP.HCOperation',
+            sandbox: isSandbox,
+            apns_tokens: [trimmed],
+          }),
+        });
+
+        const data = await res.json();
+        console.log('Google FCM BatchImport IID result:', JSON.stringify(data));
+        if (data && data.results && data.results[0] && data.results[0].status === 'OK') {
+          const fcmToken = data.results[0].registration_token || data.results[0].token;
+          console.log('Successfully exchanged APNs token for Google FCM Token:', fcmToken);
+          return fcmToken;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to convert APNs token to FCM token:', err);
+  }
+  return trimmed;
+}
+
 export async function registerFCMToken(token: string) {
   if (token) {
-    registeredDeviceTokens.add(token);
+    // Automatically convert raw APNs token to FCM token if needed
+    const effectiveToken = await convertApnsToFcmToken(token);
+    registeredDeviceTokens.add(effectiveToken);
+
     const app = getFirebaseAdmin();
     if (app) {
       try {
         const messaging = getMessaging(app);
-        await messaging.subscribeToTopic([token], 'global_updates');
-        await messaging.subscribeToTopic([token], 'all');
+        await messaging.subscribeToTopic([effectiveToken], 'global_updates');
+        await messaging.subscribeToTopic([effectiveToken], 'all');
       } catch (err) {
         console.warn('FCM Topic subscription warning:', err);
       }
@@ -140,9 +194,10 @@ export async function sendFCMNotification(params: {
   };
 
   if (params.token) {
+    const effectiveToken = await convertApnsToFcmToken(params.token);
     return await messaging.send({
       ...payload,
-      token: params.token,
+      token: effectiveToken,
     });
   } else if (params.topic) {
     return await messaging.send({
