@@ -99,6 +99,32 @@ export async function sendFCMNotification(params: {
       title: params.title,
       body: params.body,
     },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert',
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: params.title,
+            body: params.body,
+          },
+          sound: 'default',
+          badge: 1,
+          'content-available': 1,
+        },
+      },
+    },
+    android: {
+      priority: 'high' as const,
+      notification: {
+        title: params.title,
+        body: params.body,
+        sound: 'default',
+        channelId: 'default',
+      },
+    },
     data: params.data || {},
   };
 
