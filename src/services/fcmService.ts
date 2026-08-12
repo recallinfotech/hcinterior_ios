@@ -18,6 +18,10 @@ function isRealFcmToken(token?: string | null): boolean {
   ) {
     return false;
   }
+  // Raw 64-char hex APNs tokens must be converted to Google FCM format (APA91b...)
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return false;
+  }
   return true;
 }
 
@@ -75,14 +79,15 @@ export async function getDynamicFcmToken(): Promise<string> {
     const fcmPromise = new Promise<string>((resolve) => {
       let isDone = false;
 
-      const regListener = PushNotifications.addListener('registration', (token) => {
+      const regListener = PushNotifications.addListener('registration', async (token) => {
         if (!isDone) {
           isDone = true;
           if (token && token.value) {
             console.log('Native FCM Push Token acquired:', token.value);
-            localStorage.setItem('fcm_device_token', token.value);
+            const converted = await ensureFcmFormatToken(token.value);
+            localStorage.setItem('fcm_device_token', converted);
             try { regListener.then(l => l.remove()).catch(() => {}); } catch(e){}
-            resolve(token.value);
+            resolve(converted);
           }
         }
       });
@@ -184,10 +189,11 @@ export function initPushNotificationListeners(onNotification?: (notification: an
 
   try {
     // Listen for FCM token registration events globally as soon as App launches
-    PushNotifications.addListener('registration', (token) => {
+    PushNotifications.addListener('registration', async (token) => {
       if (token && token.value) {
         console.log('Global listener acquired real native FCM Token:', token.value);
-        localStorage.setItem('fcm_device_token', token.value);
+        const converted = await ensureFcmFormatToken(token.value);
+        localStorage.setItem('fcm_device_token', converted);
       }
     });
 

@@ -1,3 +1,5 @@
+import { ensureFcmFormatToken } from './fcmService';
+
 export interface UserData {
   user_id: string;
   username: string;
@@ -52,7 +54,6 @@ async function safeParseJson<T>(res: Response): Promise<T | null> {
     return JSON.parse(text) as T;
   } catch (e) {
     console.warn('Error parsing JSON:', e);
-    return null;
   }
 }
 
@@ -62,10 +63,12 @@ export async function loginUser(
   fcmToken?: string,
   deviceType: string = 'android'
 ): Promise<LoginResponse> {
+  const effectiveFcmToken = await ensureFcmFormatToken(fcmToken);
+
   const payloadObj = {
     username,
     password,
-    fcm_token: fcmToken || '',
+    fcm_token: effectiveFcmToken || '',
     device_type: deviceType,
   };
 
@@ -74,13 +77,13 @@ export async function loginUser(
   const urlParams = new URLSearchParams();
   urlParams.append('username', username);
   urlParams.append('password', password);
-  if (fcmToken) urlParams.append('fcm_token', fcmToken);
+  if (effectiveFcmToken) urlParams.append('fcm_token', effectiveFcmToken);
   urlParams.append('device_type', deviceType);
 
   const formData = new FormData();
   formData.append('username', username);
   formData.append('password', password);
-  if (fcmToken) formData.append('fcm_token', fcmToken);
+  if (effectiveFcmToken) formData.append('fcm_token', effectiveFcmToken);
   formData.append('device_type', deviceType);
 
   // Candidate paths for CodeIgniter / PHP login
