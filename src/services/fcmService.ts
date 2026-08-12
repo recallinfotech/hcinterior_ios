@@ -1,6 +1,7 @@
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Device } from '@capacitor/device';
 import { Capacitor } from '@capacitor/core';
+import { FCM } from '@capacitor-community/fcm';
 
 /**
  * Checks whether a string is a real Firebase Cloud Messaging (FCM) / APNs token
@@ -17,41 +18,14 @@ function isRealFcmToken(token?: string | null): boolean {
   return true;
 }
 
-/**
- * Ensures raw 64-character APNs device tokens are converted to real Google FCM tokens (APA91b...)
- * via server-side Google IID exchange API.
- */
 export async function ensureFcmFormatToken(rawToken?: string | null): Promise<string> {
   if (!rawToken || typeof rawToken !== 'string') return '';
-  let trimmed = rawToken.trim();
-
-  // If already a real Google FCM token (contains colon : or APA91b), return as is
-  if (trimmed.includes(':') || trimmed.includes('APA91b')) {
-    return trimmed;
-  }
-
-  // Convert raw hexadecimal APNs / device token to real Google FCM Token (APA91b...) via server endpoint
-  try {
-    const res = await fetch('/api/push/convert-token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: trimmed }),
-    });
-    const data = await res.json();
-    if (data && data.success && data.fcmToken && (data.fcmToken.includes('APA91b') || data.fcmToken.includes(':'))) {
-      console.log('Converted APNs token to Google FCM Token:', data.fcmToken);
-      localStorage.setItem('fcm_device_token', data.fcmToken);
-      return data.fcmToken;
-    }
-  } catch (e) {
-    console.warn('Failed to call convert-token endpoint:', e);
-  }
-  return trimmed;
+  return rawToken.trim();
 }
 
 /**
- * Dynamically fetches real Firebase Cloud Messaging (FCM) token from iOS/Android OS via @capacitor/push-notifications.
- * Prioritizes real native FCM tokens (e.g. f7isD7buRU...:APA91b...) and discards synthetic fallback IDs.
+ * Dynamically fetches real Firebase Cloud Messaging (FCM) token from iOS/Android OS via @capacitor-community/fcm.
+ * Returns genuine Google FCM tokens (e.g. f7isD7buRU...:APA91b...) directly on both iOS and Android.
  */
 export async function getDynamicFcmToken(): Promise<string> {
   if (typeof window === 'undefined') return '';
@@ -59,7 +33,7 @@ export async function getDynamicFcmToken(): Promise<string> {
   // 1. Check if a valid REAL native FCM token is already cached
   const cachedToken = localStorage.getItem('fcm_device_token');
   if (isRealFcmToken(cachedToken)) {
-    return await ensureFcmFormatToken(cachedToken);
+    return cachedToken!.trim();
   }
 
   // Skip native push notification registration on web browsers
@@ -67,6 +41,20 @@ export async function getDynamicFcmToken(): Promise<string> {
     return await generateUniqueDeviceToken();
   }
 
+  // 2. Try fetching direct FCM Token natively via @capacitor-community/fcm
+  try {
+    await PushNotifications.register().catch(() => {});
+    const fcmRes = await FCM.getToken();
+    if (fcmRes && fcmRes.token && isRealFcmToken(fcmRes.token)) {
+      console.log('Direct Native Google FCM Token acquired:', fcmRes.token);
+      localStorage.setItem('fcm_device_token', fcmRes.token.trim());
+      return fcmRes.token.trim();
+    }
+  } catch (e) {
+    console.warn('Native FCM.getToken exception:', e);
+  }
+
+  // 3. Fallback via PushNotifications listener if FCM.getToken was waiting
   try {
     const fcmPromise = new Promise<string>((resolve) => {
       let isDone = false;
@@ -75,11 +63,17 @@ export async function getDynamicFcmToken(): Promise<string> {
         if (!isDone) {
           isDone = true;
           if (token && token.value) {
-            console.log('Native FCM Push Token acquired:', token.value);
-            const converted = await ensureFcmFormatToken(token.value);
-            localStorage.setItem('fcm_device_token', converted);
+            try {
+              const res = await FCM.getToken();
+              if (res && res.token && isRealFcmToken(res.token)) {
+                localStorage.setItem('fcm_device_token', res.token.trim());
+                resolve(res.token.trim());
+                return;
+              }
+            } catch (e) {}
+            localStorage.setItem('fcm_device_token', token.value.trim());
             try { regListener.then(l => l.remove()).catch(() => {}); } catch(e){}
-            resolve(converted);
+            resolve(token.value.trim());
           }
         }
       });
@@ -95,50 +89,28 @@ export async function getDynamicFcmToken(): Promise<string> {
 
       PushNotifications.checkPermissions().then((perm) => {
         if (perm.receive === 'granted') {
-          PushNotifications.register().catch(e => console.warn('PushNotifications.register catch:', e));
+          PushNotifications.register().catch(() => {});
         } else {
           PushNotifications.requestPermissions().then((req) => {
             if (req.receive === 'granted') {
-              PushNotifications.register().catch(e => console.warn('PushNotifications.register catch:', e));
+              PushNotifications.register().catch(() => {});
             } else {
-              if (!isDone) {
-                isDone = true;
-                resolve('');
-              }
+              if (!isDone) { isDone = true; resolve(''); }
             }
-          }).catch(e => {
-            console.warn('requestPermissions catch:', e);
-            if (!isDone) {
-              isDone = true;
-              resolve('');
-            }
-          });
+          }).catch(() => { if (!isDone) { isDone = true; resolve(''); } });
         }
-      }).catch(e => {
-        console.warn('checkPermissions catch:', e);
-        if (!isDone) {
-          isDone = true;
-          resolve('');
-        }
-      });
+      }).catch(() => { if (!isDone) { isDone = true; resolve(''); } });
     });
 
-    // Increased timeout from 6s to 12s for mobile networks / permission dialog response
-    const timeoutPromise = new Promise<string>((resolve) => {
-      setTimeout(() => {
-        resolve('');
-      }, 12000);
-    });
-
+    const timeoutPromise = new Promise<string>((resolve) => setTimeout(() => resolve(''), 10000));
     const nativeToken = await Promise.race([fcmPromise, timeoutPromise]);
     if (isRealFcmToken(nativeToken)) {
-      return await ensureFcmFormatToken(nativeToken.trim());
+      return nativeToken.trim();
     }
   } catch (e) {
     console.warn('Native FCM Push Token exception:', e);
   }
 
-  // 3. Fallback to hardware ID if native push registration is unavailable
   return await generateUniqueDeviceToken();
 }
 

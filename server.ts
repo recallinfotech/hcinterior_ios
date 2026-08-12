@@ -8,7 +8,35 @@ async function startServer() {
   const PORT = 3000;
 
   // CRM Proxy endpoint (must come before body parsers to preserve raw stream)
-  app.use('/crm-api', async (req, res) => {
+  app.use('/crm-api', async (req, res, next) => {
+    // Intercept local push API routes if routed through /crm-api prefix
+    if (req.url.includes('/api/push/convert-token')) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) { chunks.push(chunk); }
+      try {
+        const bodyStr = Buffer.concat(chunks).toString('utf8');
+        const parsed = JSON.parse(bodyStr || '{}');
+        const converted = await convertApnsToFcmToken(parsed.token || '');
+        return res.json({ success: true, fcmToken: converted });
+      } catch (e) {
+        return res.status(400).json({ success: false, fcmToken: '' });
+      }
+    }
+
+    if (req.url.includes('/api/push/register-token')) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) { chunks.push(chunk); }
+      try {
+        const bodyStr = Buffer.concat(chunks).toString('utf8');
+        const parsed = JSON.parse(bodyStr || '{}');
+        const effective = await convertApnsToFcmToken(parsed.token || '');
+        await registerFCMToken(effective);
+        return res.json({ success: true, message: 'FCM Token registered successfully', fcmToken: effective, totalTokens: getRegisteredTokens().length });
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'Invalid payload' });
+      }
+    }
+
     try {
       const targetPath = req.url;
       const targetUrl = `https://crm.hcinterior.in${targetPath}`;
