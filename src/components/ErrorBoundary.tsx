@@ -1,7 +1,7 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React from 'react';
 
 interface Props {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 interface State {
@@ -9,34 +9,38 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
+export class ErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    (this as any).state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Unhandled UI Exception caught by ErrorBoundary:', error, errorInfo);
   }
 
   private handleReset = () => {
-    this.setState({ hasError: false, error: null });
+    (this as any).setState({ hasError: false, error: null });
     window.location.reload();
   };
 
   public render() {
-    if (this.state.hasError) {
+    const { hasError, error } = (this as any).state || {};
+    if (hasError) {
       return (
         <div style={{ padding: '24px', textAlign: 'center', backgroundColor: '#111827', color: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#ef4444', marginBottom: '12px' }}>
             ⚠️ Something went wrong
           </h2>
           <p style={{ fontSize: '14px', color: '#9ca3af', maxWidth: '400px', marginBottom: '20px' }}>
-            {this.state.error?.message || 'An unexpected error occurred.'}
+            {error?.message || 'An unexpected error occurred.'}
           </p>
           <button
             onClick={this.handleReset}
@@ -48,6 +52,6 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return (this as any).props.children;
   }
 }

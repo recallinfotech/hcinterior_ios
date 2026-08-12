@@ -90,6 +90,7 @@ import {
 import { LoginPage } from './components/LoginPage';
 import { logoutUser, UserData } from './services/authApi';
 import { fetchClientList, fetchAllClientList, mapApiClientToClientProject, ClientListFilters, fetchQcDesignList, fetchEscalationList, fetchFinalValidationDesignList, fetchOnSitePurchaseList, fetchLooseFurnitureList, fetchDispatchList, fetchBOMList } from './services/clientApi';
+import { initPushNotificationListeners } from './services/fcmService';
 
 const MENU_MODULE_ITEMS = [
   {
@@ -353,6 +354,9 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Initialize push notifications on native app startup
+    initPushNotificationListeners();
+
     const handleSessionExpired = (e: Event) => {
       const customEvent = e as CustomEvent<{ message?: string }>;
       const msg = customEvent.detail?.message || 'Authorization header missing. Session expired or logged in elsewhere.';

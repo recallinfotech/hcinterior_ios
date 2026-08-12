@@ -5,6 +5,9 @@ const config: CapacitorConfig = {
   appName: 'HC Interior',
   webDir: 'dist',
   plugins: {
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
+    },
     CapacitorHttp: {
       enabled: true,
     },

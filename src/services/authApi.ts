@@ -29,14 +29,11 @@ export interface LogoutResponse {
 export function isMobileApkEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
   const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
   return (
     protocol === 'file:' ||
     protocol === 'capacitor:' ||
     protocol === 'ionic:' ||
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    !!(window as any).Capacitor ||
+    (!!(window as any).Capacitor && (window as any).Capacitor.isNativePlatform && (window as any).Capacitor.isNativePlatform()) ||
     !!(window as any).cordova
   );
 }
