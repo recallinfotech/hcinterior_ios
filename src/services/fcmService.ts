@@ -31,14 +31,14 @@ function isRealFcmToken(token?: string | null): boolean {
  */
 export async function ensureFcmFormatToken(rawToken?: string | null): Promise<string> {
   if (!rawToken || typeof rawToken !== 'string') return '';
-  const trimmed = rawToken.trim();
+  let trimmed = rawToken.trim();
 
-  // If already an FCM token (contains colon : or APA91b) or synthetic fallback, return as is
-  if (trimmed.includes(':') || trimmed.includes('APA91b') || !/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+  // If already a real Google FCM token (contains colon : or APA91b), return as is
+  if (trimmed.includes(':') || trimmed.includes('APA91b')) {
     return trimmed;
   }
 
-  // Convert 64-char APNs token to FCM token via server endpoint
+  // Convert 32-64 char hex APNs token (with or without fcm_ios_ / fcm_android_ prefix) via server endpoint
   try {
     const res = await fetch('/api/push/convert-token', {
       method: 'POST',
@@ -46,7 +46,7 @@ export async function ensureFcmFormatToken(rawToken?: string | null): Promise<st
       body: JSON.stringify({ token: trimmed }),
     });
     const data = await res.json();
-    if (data && data.success && data.fcmToken) {
+    if (data && data.success && data.fcmToken && (data.fcmToken.includes('APA91b') || data.fcmToken.includes(':'))) {
       console.log('Converted APNs token to Google FCM Token:', data.fcmToken);
       localStorage.setItem('fcm_device_token', data.fcmToken);
       return data.fcmToken;

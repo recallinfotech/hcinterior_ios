@@ -75,10 +75,20 @@ const registeredDeviceTokens: Set<string> = new Set();
  */
 export async function convertApnsToFcmToken(apnsToken: string, isSandbox = false): Promise<string> {
   if (!apnsToken || typeof apnsToken !== 'string') return apnsToken;
-  const trimmed = apnsToken.trim();
-  // Only convert 64-character hexadecimal APNs tokens
-  if (trimmed.length !== 64 || !/^[0-9a-fA-F]+$/.test(trimmed)) {
-    return trimmed;
+  let trimmed = apnsToken.trim();
+
+  // Strip prefixes if present
+  if (trimmed.startsWith('fcm_ios_')) {
+    trimmed = trimmed.replace('fcm_ios_', '');
+  } else if (trimmed.startsWith('fcm_android_')) {
+    trimmed = trimmed.replace('fcm_android_', '');
+  } else if (trimmed.startsWith('fcm_device_')) {
+    trimmed = trimmed.replace('fcm_device_', '');
+  }
+
+  // Only convert 32 to 64 character hexadecimal APNs tokens
+  if (trimmed.length < 32 || trimmed.length > 64 || !/^[0-9a-fA-F]+$/.test(trimmed)) {
+    return apnsToken;
   }
 
   const app = getFirebaseAdmin();
