@@ -330,6 +330,11 @@ export default function App() {
       if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
         const mapped = res.data.map(mapApiClientToClientProject);
         setClients(mapped);
+        clientsRef.current = mapped;
+
+        // Process any pending push notification redirection automatically!
+        processPendingNotification(mapped);
+
         if (mapped.length > 0 && !selectedClient) {
           setSelectedClient(mapped[0]);
         }
@@ -358,6 +363,79 @@ export default function App() {
     clientsRef.current = clients;
   }, [clients]);
 
+  const pendingNotificationRef = React.useRef<{ clientId: string; section?: string } | null>(null);
+
+  const processPendingNotification = React.useCallback((clientsList?: ClientProject[]) => {
+    const pending = pendingNotificationRef.current;
+    const targetList = (clientsList && clientsList.length > 0) ? clientsList : clientsRef.current;
+
+    if (!pending || !pending.clientId || targetList.length === 0) return;
+
+    const rawTargetStr = String(pending.clientId).trim();
+    const numTarget = rawTargetStr.replace(/\D/g, '');
+
+    const matchingClient = targetList.find(
+      c => (numTarget && String(c.clientIdNum) === numTarget) ||
+           c.id.toLowerCase() === rawTargetStr.toLowerCase()
+    );
+
+    if (matchingClient) {
+      console.log('Processing pending notification for client:', matchingClient.name);
+
+      setSelectedClient(matchingClient);
+      setShowAllClients(false);
+      if (!window.history.state?.clientView) {
+        window.history.pushState({ clientView: true, clientId: matchingClient.id }, '', `#client-${matchingClient.id}`);
+      }
+
+      const targetSection = pending.section;
+      if (targetSection === 'onSitePurchase' || targetSection === 'onSitePurchaseRequest') {
+        setSelectedChecklistKey('onSitePurchase');
+        setActiveTab('checklist');
+      } else if (targetSection === 'escalation') {
+        setSelectedChecklistKey('escalation');
+        setActiveTab('checklist');
+      } else if (targetSection === 'boq') {
+        handleOpenBoqModal(matchingClient);
+      } else if (targetSection === 'finalValidation') {
+        setSelectedChecklistKey('finalValidation');
+        setActiveTab('checklist');
+      } else if (targetSection === 'qcDesign') {
+        setSelectedChecklistKey('qcDesign');
+        setActiveTab('checklist');
+      } else if (targetSection === 'dispatch') {
+        setSelectedChecklistKey('dispatch');
+        setActiveTab('checklist');
+      } else if (targetSection === 'looseFurniture') {
+        setSelectedChecklistKey('looseFurniture');
+        setActiveTab('checklist');
+      } else if (targetSection === 'bom') {
+        setSelectedChecklistKey('bom');
+        setActiveTab('checklist');
+      } else if (targetSection === 'executionTimeline') {
+        setSelectedChecklistKey('executionTimeline');
+        setActiveTab('checklist');
+      } else if (targetSection === 'handover') {
+        setSelectedChecklistKey('handover');
+        setActiveTab('checklist');
+      }
+
+      showToast(`Redirected to ${matchingClient.name}`);
+      pendingNotificationRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Listen to browser / native popstate back navigation (swipe back / back button)
+    const handlePopState = (e: PopStateEvent) => {
+      if (!e.state?.clientView) {
+        setShowAllClients(true);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   useEffect(() => {
     // Initialize push notifications on native app startup
     initPushNotificationListeners((data) => {
@@ -365,52 +443,9 @@ export default function App() {
       const targetClientId = data?.client_id || data?.clientId || data?.client_sr_id;
       const targetSection = data?.section;
 
-      if (targetClientId && clientsRef.current.length > 0) {
-        const rawTargetStr = String(targetClientId).trim();
-        const numTarget = rawTargetStr.replace(/\D/g, '');
-
-        const matchingClient = clientsRef.current.find(
-          c => (numTarget && String(c.clientIdNum) === numTarget) ||
-               c.id.toLowerCase() === rawTargetStr.toLowerCase()
-        );
-
-        if (matchingClient) {
-          setSelectedClient(matchingClient);
-          setShowAllClients(false);
-
-          if (targetSection === 'onSitePurchase' || targetSection === 'onSitePurchaseRequest') {
-            setSelectedChecklistKey('onSitePurchase');
-            setActiveTab('checklist');
-          } else if (targetSection === 'escalation') {
-            setSelectedChecklistKey('escalation');
-            setActiveTab('checklist');
-          } else if (targetSection === 'boq') {
-            handleOpenBoqModal(matchingClient);
-          } else if (targetSection === 'finalValidation') {
-            setSelectedChecklistKey('finalValidation');
-            setActiveTab('checklist');
-          } else if (targetSection === 'qcDesign') {
-            setSelectedChecklistKey('qcDesign');
-            setActiveTab('checklist');
-          } else if (targetSection === 'dispatch') {
-            setSelectedChecklistKey('dispatch');
-            setActiveTab('checklist');
-          } else if (targetSection === 'looseFurniture') {
-            setSelectedChecklistKey('looseFurniture');
-            setActiveTab('checklist');
-          } else if (targetSection === 'bom') {
-            setSelectedChecklistKey('bom');
-            setActiveTab('checklist');
-          } else if (targetSection === 'executionTimeline') {
-            setSelectedChecklistKey('executionTimeline');
-            setActiveTab('checklist');
-          } else if (targetSection === 'handover') {
-            setSelectedChecklistKey('handover');
-            setActiveTab('checklist');
-          }
-
-          showToast(`Opened notification for ${matchingClient.name}`);
-        }
+      if (targetClientId) {
+        pendingNotificationRef.current = { clientId: String(targetClientId), section: targetSection };
+        processPendingNotification();
       }
     });
 
@@ -523,6 +558,9 @@ export default function App() {
     setShowAllClients(false);
     setSelectedChecklistKey('menu');
     setActiveTab('checklist');
+    if (!window.history.state?.clientView) {
+      window.history.pushState({ clientView: true, clientId: client.id }, '', `#client-${client.id}`);
+    }
     showToast(`Loaded Client Details: ${client.name} (${client.id})`);
   };
 
@@ -531,6 +569,9 @@ export default function App() {
     setShowAllClients(false);
     setSelectedChecklistKey('menu');
     setActiveTab('checklist');
+    if (!window.history.state?.clientView) {
+      window.history.pushState({ clientView: true, clientId: client.id }, '', `#client-${client.id}`);
+    }
   };
 
   const handleOpenWorkflow = (client: ClientProject) => {
@@ -538,6 +579,9 @@ export default function App() {
     setShowAllClients(false);
     setSelectedChecklistKey('menu');
     setActiveTab('checklist');
+    if (!window.history.state?.clientView) {
+      window.history.pushState({ clientView: true, clientId: client.id }, '', `#client-${client.id}`);
+    }
   };
 
   const handleRefreshFinalValidation = async () => {
