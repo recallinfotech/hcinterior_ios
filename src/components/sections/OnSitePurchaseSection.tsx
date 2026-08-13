@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { OnSitePurchaseItem, ClientProject } from '../../types';
+import { createOnSitePurchase } from '../../services/clientApi';
 import {
   User,
   FileText,
@@ -16,6 +17,12 @@ import {
   Building,
   ChevronDown,
   Filter,
+  Plus,
+  Upload,
+  X,
+  Send,
+  AlertCircle,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface OnSitePurchaseSectionProps {
@@ -37,6 +44,12 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
   showToast,
   onRefresh,
 }) => {
+  const [localItems, setLocalItems] = useState<OnSitePurchaseItem[]>(items);
+
+  React.useEffect(() => {
+    setLocalItems(items);
+  }, [items]);
+
   const [dataMode, setDataMode] = useState<'all' | 'clientWise'>(
     showAllClients ? 'all' : 'clientWise'
   );
@@ -51,6 +64,31 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
     }
     setDataMode(showAllClients ? 'all' : 'clientWise');
   }, [client, showAllClients]);
+
+  // Create Modal / Form state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createClientId, setCreateClientId] = useState<string>(() => {
+    if (client?.clientIdNum) return String(client.clientIdNum);
+    if (client?.id) return client.id.replace(/\D/g, '');
+    return '';
+  });
+  const [fileNameInput, setFileNameInput] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const numId = client?.clientIdNum
+      ? String(client.clientIdNum)
+      : client?.id
+      ? client.id.replace(/\D/g, '')
+      : selectedClientFilterId
+      ? selectedClientFilterId.replace(/\D/g, '')
+      : '';
+    if (numId) {
+      setCreateClientId(numId);
+    }
+  }, [selectedClientFilterId, client]);
 
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   const [clientIdSearch, setClientIdSearch] = useState('');
@@ -71,18 +109,22 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
 
   // Extract unique list of clients
   const uniqueClients = useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
+    const map = new Map<string, { id: string; numericId: string; name: string }>();
     if (client) {
-      map.set(client.id, { id: client.id, name: client.name });
+      const numId = client.clientIdNum ? String(client.clientIdNum) : client.id.replace(/\D/g, '');
+      map.set(client.id, { id: client.id, numericId: numId, name: client.name });
     }
     clients.forEach((c) => {
       if (c.id && !map.has(c.id)) {
-        map.set(c.id, { id: c.id, name: c.name });
+        const numId = c.clientIdNum ? String(c.clientIdNum) : c.id.replace(/\D/g, '');
+        map.set(c.id, { id: c.id, numericId: numId, name: c.name });
       }
     });
     items.forEach((item) => {
-      if (item.clientId && !map.has(item.clientId)) {
-        map.set(item.clientId, { id: item.clientId, name: item.clientName || 'Client ' + item.clientId });
+      const key = item.clientId || item.client_sr_id || String(item.client_id || '');
+      if (key && !map.has(key)) {
+        const numId = item.client_id ? String(item.client_id) : key.replace(/\D/g, '');
+        map.set(key, { id: key, numericId: numId, name: item.clientName || item.client_name || 'Client ' + numId });
       }
     });
     return Array.from(map.values());
@@ -122,8 +164,64 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
     }
   };
 
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const rawTarget = createClientId || selectedClientFilterId || client?.clientIdNum || client?.id;
+    if (!rawTarget) {
+      setFormError('Please select a client for this On-Site Purchase request.');
+      return;
+    }
+
+    const matchedClient = uniqueClients.find((c) => c.id === String(rawTarget) || c.numericId === String(rawTarget));
+    const numericClientId = matchedClient
+      ? matchedClient.numericId
+      : (client?.clientIdNum ? String(client.clientIdNum) : String(rawTarget).replace(/\D/g, ''));
+
+    if (!numericClientId) {
+      setFormError('Could not determine numeric client_id.');
+      return;
+    }
+
+    if (!fileNameInput.trim()) {
+      setFormError('Please enter a Request Title / Description.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await createOnSitePurchase(
+        authToken || '',
+        numericClientId,
+        fileNameInput.trim(),
+        selectedFile
+      );
+
+      if (res.success) {
+        showToast?.(res.message || 'On site purchase request created successfully!');
+        if (res.data) {
+          setLocalItems((prev) => [res.data!, ...prev]);
+        }
+        if (onRefresh) {
+          await onRefresh();
+        }
+        setShowCreateModal(false);
+        setFileNameInput('');
+        setSelectedFile(null);
+      } else {
+        setFormError(res.message || 'Failed to create purchase request.');
+      }
+    } catch (err: any) {
+      console.error('Error creating on site purchase:', err);
+      setFormError(err.message || 'Error submitting request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const filteredItems = useMemo(() => {
-    let list = items;
+    let list = localItems;
 
     if (dataMode === 'clientWise') {
       const activeClientObj = uniqueClients.find((c) => c.id === selectedClientFilterId) || client;
@@ -225,6 +323,29 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0 self-start sm:self-auto">
+            <button
+              onClick={() => {
+                const activeNumId = client?.clientIdNum
+                  ? String(client.clientIdNum)
+                  : client?.id
+                  ? client.id.replace(/\D/g, '')
+                  : selectedClientFilterId
+                  ? selectedClientFilterId.replace(/\D/g, '')
+                  : uniqueClients[0]?.numericId || '';
+                if (activeNumId) {
+                  setCreateClientId(activeNumId);
+                }
+                setFormError(null);
+                setShowCreateModal(true);
+              }}
+              className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Purchase Request</span>
+            </button>
           </div>
 
           {/* Segmented Mode Selector */}
@@ -567,6 +688,137 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
             >
               <ChevronsRight className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE ON-SITE PURCHASE MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-5 space-y-4 border border-slate-200 shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
+                  <ShoppingBag className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">New On-Site Purchase Request</h3>
+                  <p className="text-[10px] text-slate-500 font-mono">mobileapi/Client/new_on_site_purchase</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Error Alert */}
+            {formError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            {/* Form Body */}
+            <form onSubmit={handleCreateSubmit} className="space-y-3.5 text-xs">
+              {/* Client Selection / Display */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Client <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={createClientId}
+                  onChange={(e) => setCreateClientId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 font-bold text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 focus:bg-white shadow-2xs cursor-pointer"
+                  required
+                >
+                  <option value="">-- Select Client --</option>
+                  {uniqueClients.map((c) => (
+                    <option key={c.id} value={c.numericId}>
+                      {c.name} (ID: {c.numericId})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Request Title / Description */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Request Title / Description (file_name) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. From Postman / Hardware site materials invoice"
+                  value={fileNameInput}
+                  onChange={(e) => setFileNameInput(e.target.value)}
+                  className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs"
+                  required
+                />
+              </div>
+
+              {/* File Attachment */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Attach Document / Photo (files)
+                </label>
+                <div className="border-2 border-dashed border-slate-300 hover:border-orange-400 rounded-xl p-4 bg-slate-50 hover:bg-orange-50/40 transition-colors text-center cursor-pointer relative">
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                  />
+                  {selectedFile ? (
+                    <div className="flex items-center justify-center space-x-2 text-slate-800 font-bold">
+                      <FileText className="w-4.5 h-4.5 text-orange-600 shrink-0" />
+                      <span className="truncate max-w-[200px] text-xs">{selectedFile.name}</span>
+                      <span className="text-[10px] text-slate-500 font-normal font-mono">
+                        ({(selectedFile.size / 1024).toFixed(1)} KB)
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Upload className="w-5 h-5 text-slate-400 mx-auto" />
+                      <p className="text-xs text-slate-600 font-semibold">Click or drag file to attach photo/PDF</p>
+                      <p className="text-[10px] text-slate-400 font-mono">Supports PNG, JPG, PDF up to 10MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Submit Request</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

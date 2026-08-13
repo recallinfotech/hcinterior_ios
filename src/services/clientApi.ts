@@ -763,16 +763,24 @@ export async function fetchEscalationList(
   token: string,
   clientId?: string | number,
   page = 1,
-  limit = 20
+  limit = 50,
+  status?: string
 ): Promise<EscalationItem[]> {
   const payloadObj: Record<string, any> = {
     page,
     limit,
-    client_id: clientId || '',
-    design_style: '',
-    is_final: '',
-    status: '',
   };
+
+  if (clientId !== undefined && clientId !== null && clientId !== '') {
+    const numId = typeof clientId === 'number' ? clientId : parseInt(String(clientId).replace(/\D/g, ''), 10);
+    if (!isNaN(numId) && numId > 0) {
+      payloadObj.client_id = numId;
+    }
+  }
+
+  if (status && status.trim()) {
+    payloadObj.status = status.trim();
+  }
 
   const rawResponse = await fetchCrmEndpoint<ApiEscalationResponse>(
     ESCALATION_DIRECT_URL,
@@ -987,18 +995,26 @@ export function mapApiItemToOnSitePurchase(raw: any): OnSitePurchaseItem {
       ? `HC${raw.client_id}`
       : raw.clientId || 'N/A';
 
-  const uploadFiles: string[] = Array.isArray(raw.upload_file)
+  const uploadFiles: any[] = Array.isArray(raw.upload_file)
     ? raw.upload_file
     : typeof raw.upload_file === 'string' && raw.upload_file
     ? [raw.upload_file]
     : [];
 
-  const firstPdf = uploadFiles[0] || '';
-  const fileUrl = firstPdf || raw.upload_url || raw.fileUrl || '#';
+  const firstFileObj = uploadFiles[0];
+  let fileUrl = '#';
+  if (typeof firstFileObj === 'object' && firstFileObj) {
+    fileUrl = firstFileObj.file_url || firstFileObj.path || '#';
+  } else if (typeof firstFileObj === 'string' && firstFileObj) {
+    fileUrl = firstFileObj;
+  } else {
+    fileUrl = raw.upload_url || raw.fileUrl || '#';
+  }
+
   const fileName =
     raw.file_name ||
     raw.fileName ||
-    (firstPdf ? firstPdf.split('/').pop() : `${clientName}_OnSitePurchase.pdf`);
+    (typeof firstFileObj === 'object' && firstFileObj?.fileName ? firstFileObj.fileName : `${clientName}_OnSitePurchase`);
 
   return {
     id,
@@ -1025,6 +1041,9 @@ export function mapApiItemToOnSitePurchase(raw: any): OnSitePurchaseItem {
 const ON_SITE_PURCHASE_DIRECT_URL = 'https://crm.hcinterior.in/mobileapi/Client/on_site_purchase_list';
 const ON_SITE_PURCHASE_PROXY_URL = '/crm-api/mobileapi/Client/on_site_purchase_list';
 
+const CREATE_ON_SITE_PURCHASE_DIRECT_URL = 'https://crm.hcinterior.in/mobileapi/Client/new_on_site_purchase';
+const CREATE_ON_SITE_PURCHASE_PROXY_URL = '/crm-api/mobileapi/Client/new_on_site_purchase';
+
 export interface ApiOnSitePurchaseResponse {
   status: boolean;
   message?: string;
@@ -1032,6 +1051,75 @@ export interface ApiOnSitePurchaseResponse {
   page?: number;
   total?: number;
   total_pages?: number;
+}
+
+export async function createOnSitePurchase(
+  token: string,
+  clientId: number | string,
+  fileName: string,
+  file?: File | Blob | null
+): Promise<{ success: boolean; message: string; data?: OnSitePurchaseItem }> {
+  const { token: effectiveToken } = getEffectiveTokenAndUserId(token);
+
+  const rawIdStr = String(clientId || '').trim();
+  const cleanNumericId = rawIdStr.replace(/\D/g, '');
+  const finalClientId = cleanNumericId || rawIdStr;
+
+  const formData = new FormData();
+  formData.append('token', effectiveToken);
+  formData.append('client_id', finalClientId);
+  formData.append('file_name', fileName);
+  if (file) {
+    formData.append('files', file);
+  }
+
+  const baseHeaders: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+
+  if (effectiveToken) {
+    baseHeaders['Authorization'] = effectiveToken.startsWith('Bearer ') ? effectiveToken : `Bearer ${effectiveToken}`;
+    baseHeaders['token'] = effectiveToken;
+    baseHeaders['X-Api-Token'] = effectiveToken;
+  }
+
+  const isApk = isMobileApkEnvironment();
+  const urls = isApk
+    ? [CREATE_ON_SITE_PURCHASE_DIRECT_URL, CREATE_ON_SITE_PURCHASE_PROXY_URL]
+    : [CREATE_ON_SITE_PURCHASE_PROXY_URL, CREATE_ON_SITE_PURCHASE_DIRECT_URL];
+
+  let rawResponse: any = null;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: baseHeaders,
+        body: formData,
+      });
+      rawResponse = await safeParseJson<any>(res);
+      if (rawResponse && typeof rawResponse.status !== 'undefined') {
+        break;
+      }
+    } catch (e) {
+      console.warn(`Fetch createOnSitePurchase from ${url} failed:`, e);
+    }
+  }
+
+  if (!rawResponse || !rawResponse.status) {
+    return {
+      success: false,
+      message: rawResponse?.message || 'Failed to create On-Site Purchase request.',
+    };
+  }
+
+  const newPurchaseItem = rawResponse.data ? mapApiItemToOnSitePurchase(rawResponse.data) : undefined;
+
+  return {
+    success: true,
+    message: rawResponse.message || 'On site purchase request created successfully',
+    data: newPurchaseItem,
+  };
 }
 
 export async function fetchOnSitePurchaseList(
@@ -1046,11 +1134,20 @@ export async function fetchOnSitePurchaseList(
   const payloadObj: Record<string, any> = {
     page,
     limit,
-    client_id: clientId || '',
-    status: status || '',
-    start_date: startDate || '',
-    end_date: endDate || '',
   };
+
+  if (clientId !== undefined && clientId !== null && clientId !== '') {
+    const numId = typeof clientId === 'number' ? clientId : parseInt(String(clientId).replace(/\D/g, ''), 10);
+    if (!isNaN(numId) && numId > 0) {
+      payloadObj.client_id = numId;
+    }
+  }
+
+  if (status && status !== 'All') {
+    payloadObj.status = status;
+  }
+  if (startDate) payloadObj.start_date = startDate;
+  if (endDate) payloadObj.end_date = endDate;
 
   const rawResponse = await fetchCrmEndpoint<ApiOnSitePurchaseResponse>(
     ON_SITE_PURCHASE_DIRECT_URL,

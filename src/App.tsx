@@ -270,7 +270,7 @@ export default function App() {
       // Fetch Escalations from API
       try {
         const escList = await fetchEscalationList(activeToken);
-        if (escList && escList.length > 0) {
+        if (escList && Array.isArray(escList)) {
           setEscalations(escList);
         }
       } catch (escErr) {
@@ -950,6 +950,13 @@ export default function App() {
                     onOpenDetails={handleOpenDetails}
                     onOpenWorkflow={handleOpenWorkflow}
                     onOpenBoq={handleOpenBoqModal}
+                    onOpenFinalValidation={(c) => {
+                      setSelectedClient(c);
+                      setShowAllClients(false);
+                      setSelectedChecklistKey('finalValidation');
+                      setActiveTab('checklist');
+                      showToast(`Opened Final Production Drawing for ${c.name}`);
+                    }}
                   />
                 ))
               )}

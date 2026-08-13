@@ -111,8 +111,8 @@ export const EscalationSection: React.FC<EscalationSectionProps> = ({
         activeTab === 'All'
           ? true
           : activeTab === 'Pending'
-          ? statusStr.toLowerCase() === 'open' || statusStr.toLowerCase() === 'pending'
-          : statusStr.toLowerCase() === 'replied';
+            ? statusStr.toLowerCase() === 'open' || statusStr.toLowerCase() === 'pending'
+            : statusStr.toLowerCase() === 'replied';
 
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
@@ -269,15 +269,14 @@ export const EscalationSection: React.FC<EscalationSectionProps> = ({
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${
-              activeTab === tab ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
-            }`}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${activeTab === tab ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
           >
             {tab === 'All'
               ? `All (${countTotal})`
               : tab === 'Pending'
-              ? `Pending (${countOpen})`
-              : `Replied (${countReplied})`}
+                ? `Pending (${countOpen})`
+                : `Replied (${countReplied})`}
           </button>
         ))}
       </div>
@@ -333,13 +332,12 @@ export const EscalationSection: React.FC<EscalationSectionProps> = ({
 
                   {/* Status Badge */}
                   <span
-                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wide ${
-                      statusStr.toLowerCase() === 'replied'
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wide ${statusStr.toLowerCase() === 'replied'
                         ? 'bg-sky-50 text-sky-700 border-sky-200'
                         : statusStr.toLowerCase() === 'resolved'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
                   >
                     {statusStr}
                   </span>
@@ -532,11 +530,10 @@ export const EscalationSection: React.FC<EscalationSectionProps> = ({
                       )}
                       <button
                         onClick={() => setCurrentPage(page)}
-                        className={`min-w-[32px] h-8 rounded-lg font-bold text-xs transition-all cursor-pointer ${
-                          page === safeCurrentPage
+                        className={`min-w-[32px] h-8 rounded-lg font-bold text-xs transition-all cursor-pointer ${page === safeCurrentPage
                             ? 'bg-rose-600 text-white shadow-2xs'
                             : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                        }`}
+                          }`}
                       >
                         {page}
                       </button>

@@ -58,29 +58,7 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
 
     try {
       const list = await fetchEscalationList(authToken, activeClientId);
-      // Filter list specifically for this client ID / client SR ID / client Name
-      const clientOnlyList = list.filter((item) => {
-        const itemClientId = item.client_id ? Number(item.client_id) : null;
-        const itemSrId = (item.client_sr_id || item.clientId || '').toLowerCase();
-        const itemName = (item.client_name || item.clientName || '').toLowerCase();
-
-        const targetSrId = String(clientSrId).toLowerCase();
-        const targetNumId = Number(activeClientId);
-        const targetName = (clientName || '').toLowerCase();
-
-        if (targetNumId && itemClientId && itemClientId === targetNumId) return true;
-        if (targetSrId && itemSrId && (itemSrId === targetSrId || itemSrId.includes(targetSrId) || targetSrId.includes(itemSrId))) return true;
-        if (targetName && itemName && (itemName.includes(targetName) || targetName.includes(itemName))) return true;
-
-        const itemNumFromSr = itemSrId.replace(/\D/g, '');
-        const targetNumFromSr = targetSrId.replace(/\D/g, '');
-        if (itemNumFromSr && targetNumFromSr && itemNumFromSr === targetNumFromSr) return true;
-
-        return false;
-      });
-
-      // Strictly show client-wise list (do NOT fall back to list of all clients)
-      setEscalations(clientOnlyList);
+      setEscalations(list || []);
     } catch (err: any) {
       console.error('Failed to load client escalations:', err);
       setErrorMsg('Could not sync live client escalations.');
@@ -371,13 +349,12 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
                   </div>
 
                   <span
-                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wide ${
-                      statusStr.toLowerCase() === 'replied'
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wide ${statusStr.toLowerCase() === 'replied'
                         ? 'bg-sky-50 text-sky-700 border-sky-200'
                         : statusStr.toLowerCase() === 'resolved'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
                   >
                     {statusStr}
                   </span>

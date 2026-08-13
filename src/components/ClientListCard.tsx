@@ -8,6 +8,7 @@ interface ClientListCardProps {
   onOpenDetails: (client: ClientProject) => void;
   onOpenWorkflow: (client: ClientProject) => void;
   onOpenBoq?: (client: ClientProject) => void;
+  onOpenFinalValidation?: (client: ClientProject) => void;
 }
 
 export const ClientListCard: React.FC<ClientListCardProps> = ({
@@ -16,6 +17,7 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
   onOpenDetails,
   onOpenWorkflow,
   onOpenBoq,
+  onOpenFinalValidation,
 }) => {
   if (!client) return null;
 
@@ -129,12 +131,19 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
           )}
 
           <button
-            onClick={() => onSelectClient(client)}
-            className="p-1.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border border-zinc-200 text-xs font-semibold flex items-center space-x-1 cursor-pointer"
-            title="View Client Details"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenFinalValidation) {
+                onOpenFinalValidation(client);
+              } else {
+                onSelectClient(client);
+              }
+            }}
+            className="p-1.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
+            title="View Final Production Drawing"
           >
-            <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
-            <span className="text-[10px]">Details</span>
+            <FileText className="w-3.5 h-3.5 text-purple-600" />
+            <span className="text-[10px] font-black uppercase tracking-wider">Final Drawing</span>
           </button>
         </div>
 
