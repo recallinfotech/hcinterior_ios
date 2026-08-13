@@ -141,12 +141,14 @@ export function initPushNotificationListeners(onNotification?: (notification: an
 
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
       console.log('Push notification received in foreground:', notification);
-      if (onNotification) onNotification(notification);
+      const dataPayload = notification?.data || notification;
+      if (onNotification) onNotification(dataPayload);
     });
 
-    PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-      console.log('Push notification action performed:', notification);
-      if (onNotification) onNotification(notification);
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      console.log('Push notification action performed:', action);
+      const dataPayload = action?.notification?.data || action?.notification;
+      if (onNotification) onNotification(dataPayload);
     });
 
     // Request permissions and register immediately on native startup

@@ -353,9 +353,48 @@ export default function App() {
     }
   };
 
+  const clientsRef = React.useRef(clients);
+  useEffect(() => {
+    clientsRef.current = clients;
+  }, [clients]);
+
   useEffect(() => {
     // Initialize push notifications on native app startup
-    initPushNotificationListeners();
+    initPushNotificationListeners((data) => {
+      console.log('App received push notification data:', data);
+      const targetClientId = data?.client_id || data?.clientId || data?.client_sr_id;
+      const targetSection = data?.section;
+
+      if (targetClientId && clientsRef.current.length > 0) {
+        const rawTargetStr = String(targetClientId).trim();
+        const numTarget = rawTargetStr.replace(/\D/g, '');
+
+        const matchingClient = clientsRef.current.find(
+          c => (numTarget && String(c.clientIdNum) === numTarget) ||
+               c.id.toLowerCase() === rawTargetStr.toLowerCase()
+        );
+
+        if (matchingClient) {
+          setSelectedClient(matchingClient);
+          setShowAllClients(false);
+
+          if (targetSection === 'onSitePurchase') {
+            setSelectedChecklistKey('onSitePurchase');
+            setActiveTab('checklist');
+          } else if (targetSection === 'escalation') {
+            setSelectedChecklistKey('escalation');
+            setActiveTab('checklist');
+          } else if (targetSection === 'boq') {
+            handleOpenBoqModal(matchingClient);
+          } else if (targetSection === 'finalValidation') {
+            setSelectedChecklistKey('finalValidation');
+            setActiveTab('checklist');
+          }
+
+          showToast(`Opened notification for ${matchingClient.name}`);
+        }
+      }
+    });
 
     const handleSessionExpired = (e: Event) => {
       const customEvent = e as CustomEvent<{ message?: string }>;
