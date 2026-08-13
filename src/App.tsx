@@ -378,7 +378,7 @@ export default function App() {
           setSelectedClient(matchingClient);
           setShowAllClients(false);
 
-          if (targetSection === 'onSitePurchase') {
+          if (targetSection === 'onSitePurchase' || targetSection === 'onSitePurchaseRequest') {
             setSelectedChecklistKey('onSitePurchase');
             setActiveTab('checklist');
           } else if (targetSection === 'escalation') {
@@ -388,6 +388,24 @@ export default function App() {
             handleOpenBoqModal(matchingClient);
           } else if (targetSection === 'finalValidation') {
             setSelectedChecklistKey('finalValidation');
+            setActiveTab('checklist');
+          } else if (targetSection === 'qcDesign') {
+            setSelectedChecklistKey('qcDesign');
+            setActiveTab('checklist');
+          } else if (targetSection === 'dispatch') {
+            setSelectedChecklistKey('dispatch');
+            setActiveTab('checklist');
+          } else if (targetSection === 'looseFurniture') {
+            setSelectedChecklistKey('looseFurniture');
+            setActiveTab('checklist');
+          } else if (targetSection === 'bom') {
+            setSelectedChecklistKey('bom');
+            setActiveTab('checklist');
+          } else if (targetSection === 'executionTimeline') {
+            setSelectedChecklistKey('executionTimeline');
+            setActiveTab('checklist');
+          } else if (targetSection === 'handover') {
+            setSelectedChecklistKey('handover');
             setActiveTab('checklist');
           }
 
