@@ -1,7 +1,6 @@
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Device } from '@capacitor/device';
 import { Capacitor } from '@capacitor/core';
-import { FCM } from '@capacitor-community/fcm';
 
 /**
  * Checks whether a string is a real Firebase Cloud Messaging (FCM) / APNs token
@@ -11,8 +10,7 @@ function isRealFcmToken(token?: string | null): boolean {
   if (!token || typeof token !== 'string') return false;
   const trimmed = token.trim();
   if (trimmed.length < 20) return false;
-  // A real Google FCM token must contain APA91b or a colon : and must NOT start with synthetic prefixes
-  if (trimmed.startsWith('fcm_') || (!trimmed.includes('APA91b') && !trimmed.includes(':'))) {
+  if (trimmed.startsWith('fcm_android_') || trimmed.startsWith('fcm_ios_') || trimmed.startsWith('fcm_device_')) {
     return false;
   }
   return true;
@@ -24,13 +22,12 @@ export async function ensureFcmFormatToken(rawToken?: string | null): Promise<st
 }
 
 /**
- * Dynamically fetches real Firebase Cloud Messaging (FCM) token from iOS/Android OS via @capacitor-community/fcm.
- * Returns genuine Google FCM tokens (e.g. f7isD7buRU...:APA91b...) directly on both iOS and Android.
+ * Dynamically fetches real Push Notification Token (FCM on Android, APNs on iOS) via @capacitor/push-notifications.
  */
 export async function getDynamicFcmToken(): Promise<string> {
   if (typeof window === 'undefined') return '';
 
-  // 1. Check if a valid REAL native FCM token is already cached
+  // 1. Check if a valid native token is already cached
   const cachedToken = localStorage.getItem('fcm_device_token');
   if (isRealFcmToken(cachedToken)) {
     return cachedToken!.trim();
@@ -41,36 +38,15 @@ export async function getDynamicFcmToken(): Promise<string> {
     return await generateUniqueDeviceToken();
   }
 
-  // 2. Try fetching direct FCM Token natively via @capacitor-community/fcm
-  try {
-    await PushNotifications.register().catch(() => {});
-    const fcmRes = await FCM.getToken();
-    if (fcmRes && fcmRes.token && isRealFcmToken(fcmRes.token)) {
-      console.log('Direct Native Google FCM Token acquired:', fcmRes.token);
-      localStorage.setItem('fcm_device_token', fcmRes.token.trim());
-      return fcmRes.token.trim();
-    }
-  } catch (e) {
-    console.warn('Native FCM.getToken exception:', e);
-  }
-
-  // 3. Fallback via PushNotifications listener if FCM.getToken was waiting
   try {
     const fcmPromise = new Promise<string>((resolve) => {
       let isDone = false;
 
-      const regListener = PushNotifications.addListener('registration', async (token) => {
+      const regListener = PushNotifications.addListener('registration', (token) => {
         if (!isDone) {
           isDone = true;
           if (token && token.value) {
-            try {
-              const res = await FCM.getToken();
-              if (res && res.token && isRealFcmToken(res.token)) {
-                localStorage.setItem('fcm_device_token', res.token.trim());
-                resolve(res.token.trim());
-                return;
-              }
-            } catch (e) {}
+            console.log('Native Push Token acquired:', token.value);
             localStorage.setItem('fcm_device_token', token.value.trim());
             try { regListener.then(l => l.remove()).catch(() => {}); } catch(e){}
             resolve(token.value.trim());
@@ -79,7 +55,7 @@ export async function getDynamicFcmToken(): Promise<string> {
       });
 
       const errListener = PushNotifications.addListener('registrationError', (err) => {
-        console.warn('FCM registration error:', err);
+        console.warn('Push registration error:', err);
         if (!isDone) {
           isDone = true;
           try { errListener.then(l => l.remove()).catch(() => {}); } catch(e){}
@@ -89,11 +65,11 @@ export async function getDynamicFcmToken(): Promise<string> {
 
       PushNotifications.checkPermissions().then((perm) => {
         if (perm.receive === 'granted') {
-          PushNotifications.register().catch(() => {});
+          PushNotifications.register().catch(e => console.warn('PushNotifications.register catch:', e));
         } else {
           PushNotifications.requestPermissions().then((req) => {
             if (req.receive === 'granted') {
-              PushNotifications.register().catch(() => {});
+              PushNotifications.register().catch(e => console.warn('PushNotifications.register catch:', e));
             } else {
               if (!isDone) { isDone = true; resolve(''); }
             }
@@ -108,7 +84,7 @@ export async function getDynamicFcmToken(): Promise<string> {
       return nativeToken.trim();
     }
   } catch (e) {
-    console.warn('Native FCM Push Token exception:', e);
+    console.warn('Native Push Token exception:', e);
   }
 
   return await generateUniqueDeviceToken();
