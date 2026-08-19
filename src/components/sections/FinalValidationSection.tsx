@@ -107,7 +107,7 @@ export const FinalValidationSection: React.FC<FinalValidationSectionProps> = ({
     setIsRefreshing(true);
     try {
       await onRefresh();
-      if (showToast) showToast('Final Validation Design list refreshed from CRM API');
+      if (showToast) showToast('Final Validation Design list refreshed from CRM');
     } catch (err) {
       console.error(err);
     } finally {

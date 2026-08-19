@@ -104,7 +104,7 @@ export const ExecutionTimelineSection: React.FC<ExecutionTimelineSectionProps> =
       }
     } catch (err: any) {
       console.error('Failed to load execution timeline:', err);
-      setErrorMsg('Could not sync with live CRM timeline API. Displaying local workspace state.');
+      setErrorMsg('Could not sync with live CRM timeline. Displaying local workspace state.');
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +172,7 @@ export const ExecutionTimelineSection: React.FC<ExecutionTimelineSectionProps> =
           loadTimeline();
         }, 1500);
       } else {
-        setErrorMsg(res?.message || 'Failed to update execution timeline via CRM API.');
+        setErrorMsg(res?.message || 'Failed to update execution timeline via CRM.');
       }
     } catch (err: any) {
       console.error('Error saving execution timeline:', err);
@@ -237,10 +237,10 @@ export const ExecutionTimelineSection: React.FC<ExecutionTimelineSectionProps> =
             onClick={loadTimeline}
             disabled={isLoading}
             className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer border border-zinc-700 disabled:opacity-50"
-            title="Reload timeline from API"
+            title="Reload timeline"
           >
             <RotateCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-amber-400' : ''}`} />
-            <span>Sync API</span>
+            <span>Sync</span>
           </button>
           <button
             onClick={handleSaveTimeline}

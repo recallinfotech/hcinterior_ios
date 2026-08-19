@@ -146,7 +146,7 @@ export const ProjectWorkflowTracker: React.FC<ProjectWorkflowTrackerProps> = ({ 
           <button
             onClick={refreshDetail}
             disabled={loadingDetail}
-            title="Reload API Details"
+            title="Reload Details"
             className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
           >
             <RotateCcw className={`w-3.5 h-3.5 ${loadingDetail ? 'animate-spin text-orange-500' : ''}`} />

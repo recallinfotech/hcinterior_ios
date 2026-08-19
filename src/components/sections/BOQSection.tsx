@@ -122,7 +122,7 @@ export const BOQSection: React.FC<BOQSectionProps> = ({
               onClick={loadApiBoqs}
               disabled={loading}
               className="p-1 text-zinc-400 hover:text-amber-400 cursor-pointer"
-              title="Refresh BOQ API"
+              title="Refresh BOQ"
             >
               <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
             </button>
@@ -149,7 +149,7 @@ export const BOQSection: React.FC<BOQSectionProps> = ({
       {loading && (
         <div className="py-8 text-center space-y-2">
           <Loader2 className="w-6 h-6 text-amber-500 animate-spin mx-auto" />
-          <p className="text-xs font-semibold text-zinc-500">Loading BOQ records from CRM API...</p>
+          <p className="text-xs font-semibold text-zinc-500">Loading BOQ records from CRM...</p>
         </div>
       )}
 

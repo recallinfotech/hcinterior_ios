@@ -223,9 +223,6 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
               <Plus className="w-4 h-4 text-rose-600" />
               <span>Create Escalation</span>
             </h4>
-            <span className="text-[10px] text-rose-700 font-semibold font-mono">
-              Target API: mobileapi/Client/create_escalation
-            </span>
           </div>
 
           <form onSubmit={handleCreateEscalationSubmit} className="space-y-3 text-xs">
@@ -241,7 +238,7 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
 
               <div>
                 <label className="block text-[11px] font-bold text-zinc-700 mb-1">
-                  Assigned Manager (assigned_to)
+                  Assigned Manager
                 </label>
                 <select
                   value={assignedTo}

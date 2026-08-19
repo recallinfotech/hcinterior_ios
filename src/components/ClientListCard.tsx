@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject } from '../types';
-import { FileText, ChevronRight, CheckCircle2, Clock, Send, Users, CalendarCheck, ShieldAlert } from 'lucide-react';
+import { FileText, ChevronRight, CheckCircle2, Clock, Send, Users, CalendarCheck, ShieldAlert, ShoppingBag } from 'lucide-react';
 
 interface ClientListCardProps {
   client: ClientProject;
@@ -9,6 +9,7 @@ interface ClientListCardProps {
   onOpenWorkflow: (client: ClientProject) => void;
   onOpenBoq?: (client: ClientProject) => void;
   onOpenFinalValidation?: (client: ClientProject) => void;
+  onOpenOnSitePurchase?: (client: ClientProject) => void;
 }
 
 export const ClientListCard: React.FC<ClientListCardProps> = ({
@@ -18,6 +19,7 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
   onOpenWorkflow,
   onOpenBoq,
   onOpenFinalValidation,
+  onOpenOnSitePurchase,
 }) => {
   if (!client) return null;
 
@@ -114,8 +116,8 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
       </div>
 
       {/* Action Buttons Row */}
-      <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
-        <div className="flex items-center space-x-1.5">
+      <div className="pt-2 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {onOpenBoq && (
             <button
               onClick={(e) => {
@@ -140,18 +142,32 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
               }
             }}
             className="p-1.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
-            title="View Final Production Drawing"
+            title="View Production Drawing"
           >
             <FileText className="w-3.5 h-3.5 text-purple-600" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Final Drawing</span>
+            <span className="text-[10px] font-black uppercase tracking-wider">Drawing</span>
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onOpenOnSitePurchase) {
+                onOpenOnSitePurchase(client);
+              }
+            }}
+            className="p-1.5 rounded-md bg-orange-50 hover:bg-orange-100 text-orange-950 border border-orange-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
+            title="Create On-Site Purchase Request"
+          >
+            <ShoppingBag className="w-3.5 h-3.5 text-orange-600" />
+            <span className="text-[10px] font-black uppercase tracking-wider">On Site Purchase</span>
           </button>
         </div>
 
         <button
           onClick={() => onSelectClient(client)}
-          className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 text-zinc-950 rounded-lg text-xs font-extrabold flex items-center space-x-1 cursor-pointer shadow-xs transition-colors"
+          className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 text-zinc-950 rounded-lg text-xs font-extrabold flex items-center space-x-1 cursor-pointer shadow-xs transition-colors ml-auto"
         >
-          <span>View Details</span>
+          <span>Details</span>
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>

@@ -52,7 +52,7 @@ export const BOMSection: React.FC<BOMSectionProps> = ({
       setIsRefreshing(true);
       await onRefresh();
       setTimeout(() => setIsRefreshing(false), 500);
-      if (showToast) showToast('Refreshed BOM List from CRM API');
+      if (showToast) showToast('Refreshed BOM List from CRM');
     }
   };
 
@@ -175,7 +175,7 @@ export const BOMSection: React.FC<BOMSectionProps> = ({
                 onClick={handleRefreshClick}
                 disabled={isRefreshing}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors cursor-pointer border border-slate-700"
-                title="Refresh from CRM API"
+                title="Refresh from CRM"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-orange-400' : ''}`} />
               </button>

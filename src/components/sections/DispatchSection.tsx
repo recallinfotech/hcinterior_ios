@@ -152,7 +152,7 @@ export const DispatchSection: React.FC<DispatchSectionProps> = ({
       setIsRefreshing(true);
       try {
         await onRefresh();
-        showToast?.('Dispatch list updated from CRM API.');
+        showToast?.('Dispatch list updated from CRM.');
       } catch (err) {
         console.error('Refresh error:', err);
       } finally {

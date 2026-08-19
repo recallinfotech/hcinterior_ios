@@ -157,7 +157,7 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
       setIsRefreshing(true);
       try {
         await onRefresh();
-        showToast?.('On Site Purchase list updated from CRM API.');
+        showToast?.('On Site Purchase list updated from CRM.');
       } catch (err) {
         console.error('Refresh error:', err);
       } finally {
@@ -776,7 +776,6 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">New On-Site Purchase Request</h3>
-                  <p className="text-[10px] text-slate-500 font-mono">mobileapi/Client/new_on_site_purchase</p>
                 </div>
               </div>
               <button
@@ -821,11 +820,10 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
               {/* Request Title / Description */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Request Title / Description (file_name) <span className="text-rose-500">*</span>
+                  Request Title / Description <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. From Postman / Hardware site materials invoice"
                   value={fileNameInput}
                   onChange={(e) => setFileNameInput(e.target.value)}
                   className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs"
@@ -836,11 +834,10 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
               {/* Brand Name */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Brand Name (brand)
+                  Brand Name
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Nokia / Hettich / Godrej"
                   value={brandInput}
                   onChange={(e) => setBrandInput(e.target.value)}
                   className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs"
@@ -850,11 +847,10 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
               {/* Site Message / Note */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Site Message / Note (message)
+                  Site Message / Note
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="e.g. test msg / purchase notes..."
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
                   className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs resize-none"
@@ -864,7 +860,7 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
               {/* File Attachment */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Attach Document / Photo (files)
+                  Attach Document / Photo
                 </label>
                 <div className="border-2 border-dashed border-slate-300 hover:border-orange-400 rounded-xl p-4 bg-slate-50 hover:bg-orange-50/40 transition-colors text-center cursor-pointer relative">
                   <input

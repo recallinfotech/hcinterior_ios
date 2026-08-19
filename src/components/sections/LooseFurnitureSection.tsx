@@ -112,7 +112,7 @@ export const LooseFurnitureSection: React.FC<LooseFurnitureSectionProps> = ({
       setIsRefreshing(true);
       try {
         await onRefresh();
-        showToast?.('Loose Furniture list updated from CRM API.');
+        showToast?.('Loose Furniture list updated from CRM.');
       } catch (err) {
         console.error('Refresh error:', err);
       } finally {

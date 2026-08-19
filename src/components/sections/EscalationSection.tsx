@@ -161,7 +161,7 @@ export const EscalationSection: React.FC<EscalationSectionProps> = ({
     setIsRefreshing(true);
     try {
       await onRefreshEscalations();
-      if (showToast) showToast('Escalation list refreshed from CRM API');
+      if (showToast) showToast('Escalation list refreshed from CRM');
     } catch (err) {
       console.error(err);
     } finally {

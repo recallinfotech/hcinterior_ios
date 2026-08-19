@@ -115,7 +115,7 @@ export const ClientBoqModal: React.FC<ClientBoqModalProps> = ({
       }
     } catch (err: any) {
       console.error('Error fetching BOQ list:', err);
-      setError('Failed to connect to BOQ API endpoint.');
+      setError('Failed to connect to BOQ endpoint.');
     } finally {
       setLoading(false);
     }
@@ -212,7 +212,7 @@ export const ClientBoqModal: React.FC<ClientBoqModalProps> = ({
           {loading && (
             <div className="py-12 text-center space-y-3">
               <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
-              <p className="text-xs font-bold text-zinc-600">Fetching BOQ records from CRM API...</p>
+              <p className="text-xs font-bold text-zinc-600">Fetching BOQ records from CRM...</p>
             </div>
           )}
 

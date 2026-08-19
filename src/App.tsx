@@ -33,6 +33,7 @@ import { AddQuotationModal } from './components/modals/AddQuotationModal';
 import { AddPaymentModal } from './components/modals/AddPaymentModal';
 import { AddBOMModal } from './components/modals/AddBOMModal';
 import { ClientBoqModal } from './components/modals/ClientBoqModal';
+import { CreateOnSitePurchaseModal } from './components/modals/CreateOnSitePurchaseModal';
 
 // Mock Data
 import {
@@ -221,10 +222,17 @@ export default function App() {
   const [bomParentTargetId, setBomParentTargetId] = useState<string | undefined>(undefined);
   const [isBoqModalOpen, setIsBoqModalOpen] = useState(false);
   const [boqModalClient, setBoqModalClient] = useState<ClientProject | null>(null);
+  const [isOnSitePurchaseModalOpen, setIsOnSitePurchaseModalOpen] = useState(false);
+  const [onSitePurchaseModalClient, setOnSitePurchaseModalClient] = useState<ClientProject | null>(null);
 
   const handleOpenBoqModal = (client: ClientProject) => {
     setBoqModalClient(client);
     setIsBoqModalOpen(true);
+  };
+
+  const handleOpenOnSitePurchaseModal = (client: ClientProject) => {
+    setOnSitePurchaseModalClient(client);
+    setIsOnSitePurchaseModalOpen(true);
   };
 
   // Toast message
@@ -1055,8 +1063,9 @@ export default function App() {
                       setShowAllClients(false);
                       setSelectedChecklistKey('finalValidation');
                       setActiveTab('checklist');
-                      showToast(`Opened Final Production Drawing for ${c.name}`);
+                      showToast(`Opened Production Drawing for ${c.name}`);
                     }}
+                    onOpenOnSitePurchase={handleOpenOnSitePurchaseModal}
                   />
                 ))
               )}
@@ -1379,6 +1388,15 @@ export default function App() {
         onClose={() => setIsBoqModalOpen(false)}
         client={boqModalClient}
         token={authToken}
+      />
+
+      <CreateOnSitePurchaseModal
+        isOpen={isOnSitePurchaseModalOpen}
+        onClose={() => setIsOnSitePurchaseModalOpen(false)}
+        client={onSitePurchaseModalClient}
+        authToken={authToken}
+        showToast={showToast}
+        onSuccess={handleRefreshOnSitePurchase}
       />
     </MobileFrame>
   );

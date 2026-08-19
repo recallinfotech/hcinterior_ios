@@ -362,8 +362,8 @@ export const QCDesignSection: React.FC<QCDesignSectionProps> = ({
               <h3 className="text-base font-extrabold text-slate-900">No QC Design Data Found</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
                 {dataMode === 'clientWise' && (selectedClientFilterId || client?.name)
-                  ? `No QC design checklist items or drawings found for client "${uniqueClients.find(c => c.id === selectedClientFilterId)?.name || client?.name || 'Selected Client'}". Only live API data is rendered.`
-                  : 'No QC design checklist records found across clients. Only live data from the CRM API is displayed.'}
+                  ? `No QC design checklist items or drawings found for client "${uniqueClients.find(c => c.id === selectedClientFilterId)?.name || client?.name || 'Selected Client'}". Only live CRM data is rendered.`
+                  : 'No QC design checklist records found across clients. Only live data from CRM is displayed.'}
               </p>
             </div>
             <div className="pt-2 flex items-center justify-center space-x-2">
