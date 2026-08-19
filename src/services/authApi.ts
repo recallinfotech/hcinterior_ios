@@ -161,23 +161,118 @@ export async function loginUser(
   throw new Error('Unable to connect to CRM authentication server. Please check your network or login credentials.');
 }
 
-export async function logoutUser(userId: string): Promise<LogoutResponse> {
-  const jsonBody = JSON.stringify({ user_id: userId });
+export async function logoutUser(providedToken?: string, userId?: string): Promise<LogoutResponse> {
+  let token = providedToken || '';
+
+  // If providedToken looks like a numeric user_id, fallback to looking up stored auth_token
+  if ((!token || /^\d+$/.test(token)) && typeof localStorage !== 'undefined') {
+    const storedToken = localStorage.getItem('auth_token');
+    if (storedToken) {
+      token = storedToken;
+    }
+  }
+
+  if (!token && typeof localStorage !== 'undefined') {
+    const rawUserData = localStorage.getItem('user_data');
+    if (rawUserData) {
+      try {
+        const u = JSON.parse(rawUserData);
+        token = String(u.token || u.auth_token || u.access_token || '');
+      } catch (e) {}
+    }
+  }
+
+  const baseHeaders: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+
+  if (token) {
+    baseHeaders['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    baseHeaders['token'] = token;
+    baseHeaders['X-Api-Token'] = token;
+  }
+
+  // Pass token in payload without user_id
+  const payloadObj: Record<string, any> = {};
+  if (token) {
+    payloadObj.token = token;
+  }
+
+  const jsonBody = JSON.stringify(payloadObj);
+
+  const urlParams = new URLSearchParams();
+  if (token) urlParams.append('token', token);
+
+  const formData = new FormData();
+  if (token) formData.append('token', token);
+
+  const endpointPaths = [
+    '/login/mobile_logout',
+    '/mobileapi/Login/mobile_logout',
+    '/mobileapi/login/mobile_logout',
+    '/index.php/login/mobile_logout',
+    '/index.php/mobileapi/login/mobile_logout',
+  ];
+
   const isApk = isMobileApkEnvironment();
-  const bases = isApk ? [DIRECT_URL, CLOUD_PROXY_URL] : [PROXY_URL, CLOUD_PROXY_URL, DIRECT_URL];
+  const bases = isApk 
+    ? [DIRECT_URL, CLOUD_PROXY_URL] 
+    : [PROXY_URL, DIRECT_URL, CLOUD_PROXY_URL];
 
   for (const base of bases) {
-    const fullUrl = `${base}/login/mobile_logout`;
-    try {
-      const res = await fetch(fullUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: jsonBody,
-      });
-      const data = await safeParseJson<LogoutResponse>(res);
-      if (data) return data;
-    } catch (e) {
-      console.warn(`Logout failed on ${fullUrl}:`, e);
+    for (const path of endpointPaths) {
+      const fullUrl = `${base}${path}`;
+
+      // 1. Try JSON Body
+      try {
+        const res = await fetch(fullUrl, {
+          method: 'POST',
+          headers: {
+            ...baseHeaders,
+            'Content-Type': 'application/json',
+          },
+          body: jsonBody,
+        });
+        const data = await safeParseJson<LogoutResponse>(res);
+        if (data && typeof data.status !== 'undefined') {
+          return data;
+        }
+      } catch (e) {
+        console.warn(`JSON logout failed on ${fullUrl}:`, e);
+      }
+
+      // 2. Try URL Search Params
+      try {
+        const res = await fetch(fullUrl, {
+          method: 'POST',
+          headers: {
+            ...baseHeaders,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: urlParams.toString(),
+        });
+        const data = await safeParseJson<LogoutResponse>(res);
+        if (data && typeof data.status !== 'undefined') {
+          return data;
+        }
+      } catch (e) {
+        console.warn(`URLSearchParams logout failed on ${fullUrl}:`, e);
+      }
+
+      // 3. Try FormData
+      try {
+        const res = await fetch(fullUrl, {
+          method: 'POST',
+          headers: baseHeaders,
+          body: formData,
+        });
+        const data = await safeParseJson<LogoutResponse>(res);
+        if (data && typeof data.status !== 'undefined') {
+          return data;
+        }
+      } catch (e) {
+        console.warn(`FormData logout failed on ${fullUrl}:`, e);
+      }
     }
   }
 

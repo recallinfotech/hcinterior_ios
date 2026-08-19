@@ -905,18 +905,23 @@ export default function App() {
   }
 
   const handleLogoutApi = async () => {
-    const uid = userData?.user_id || '5';
     try {
       showToast('Logging out...');
-      const res = await logoutUser(uid);
+      const res = await logoutUser(authToken);
       setIsLoggedIn(false);
       setUserData(null);
       setAuthToken('');
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_data');
+      localStorage.removeItem('user_id');
       showToast(res.message || 'Logout successful. Token invalidated.');
     } catch (e: any) {
       setIsLoggedIn(false);
       setUserData(null);
       setAuthToken('');
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_data');
+      localStorage.removeItem('user_id');
       showToast('Logged out successfully');
     }
   };

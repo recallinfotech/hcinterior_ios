@@ -235,7 +235,7 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
                   Client Details
                 </label>
                 <div className="w-full bg-white border border-zinc-300 rounded-lg p-2 font-semibold text-zinc-900 text-xs shadow-2xs">
-                  {clientName} ({clientSrId} - ID: {activeClientId})
+                  {clientName} ({clientSrId})
                 </div>
               </div>
 
@@ -248,10 +248,10 @@ export const ClientEscalationSection: React.FC<ClientEscalationSectionProps> = (
                   onChange={(e) => setAssignedTo(Number(e.target.value))}
                   className="w-full bg-white border border-zinc-300 rounded-lg p-2 font-bold text-zinc-800 focus:outline-none focus:border-rose-500 shadow-2xs"
                 >
-                  <option value={5}>Nishant Singh (ID: 5)</option>
-                  <option value={166}>Planning Team (ID: 166)</option>
-                  <option value={10}>Site Supervisor (ID: 10)</option>
-                  <option value={12}>QC Manager (ID: 12)</option>
+                  <option value={5}>Nishant Singh</option>
+                  <option value={166}>Planning Team</option>
+                  <option value={10}>Site Supervisor</option>
+                  <option value={12}>QC Manager</option>
                 </select>
               </div>
             </div>

@@ -444,4 +444,7 @@ export interface OnSitePurchaseItem {
   uploaded_by?: string;
   upload_file?: string[];
   upload_url?: string;
+  brand?: string;
+  message?: string;
+  site_message?: string;
 }

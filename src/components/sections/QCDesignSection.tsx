@@ -252,7 +252,7 @@ export const QCDesignSection: React.FC<QCDesignSectionProps> = ({
                 <option value="">Select client</option>
                 {uniqueClients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.id}) {c.numId ? `[ID: ${c.numId}]` : ''}
+                    {c.name} ({c.id})
                   </option>
                 ))}
               </select>

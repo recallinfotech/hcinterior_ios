@@ -73,6 +73,8 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
     return '';
   });
   const [fileNameInput, setFileNameInput] = useState('');
+  const [brandInput, setBrandInput] = useState('');
+  const [messageInput, setMessageInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -195,19 +197,34 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
         authToken || '',
         numericClientId,
         fileNameInput.trim(),
-        selectedFile
+        selectedFile,
+        brandInput.trim(),
+        messageInput.trim()
       );
 
       if (res.success) {
         showToast?.(res.message || 'On site purchase request created successfully!');
         if (res.data) {
-          setLocalItems((prev) => [res.data!, ...prev]);
+          const rawDocUrl = getCleanUrl(res.data.upload_url || res.data.fileUrl || (res.data.upload_file && res.data.upload_file[0]));
+          const enrichedData: OnSitePurchaseItem = {
+            ...res.data,
+            clientName: res.data.clientName && res.data.clientName !== 'N/A' ? res.data.clientName : (matchedClient?.name || 'Client ' + numericClientId),
+            clientId: res.data.clientId && res.data.clientId !== 'N/A' ? res.data.clientId : (matchedClient?.id || 'HC' + numericClientId),
+            client_id: res.data.client_id || parseInt(numericClientId, 10),
+            client_sr_id: res.data.client_sr_id || matchedClient?.id,
+            fileUrl: rawDocUrl || res.data.fileUrl || '#',
+            upload_url: rawDocUrl || res.data.upload_url || '#',
+            upload_file: rawDocUrl ? [rawDocUrl] : (res.data.upload_file || []),
+          };
+          setLocalItems((prev) => [enrichedData, ...prev]);
         }
         if (onRefresh) {
           await onRefresh();
         }
         setShowCreateModal(false);
         setFileNameInput('');
+        setBrandInput('');
+        setMessageInput('');
         setSelectedFile(null);
       } else {
         setFormError(res.message || 'Failed to create purchase request.');
@@ -294,12 +311,28 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
     }
   };
 
-  const openFileUrl = (url: string) => {
-    if (!url || url === '#') {
+  const getCleanUrl = (f: any): string => {
+    if (!f || f === '#') return '';
+    let target = '';
+    if (typeof f === 'object' && f) {
+      target = f.file_url || f.path || f.url || '';
+    } else if (typeof f === 'string') {
+      target = f;
+    }
+    if (!target || target === '#') return '';
+    if (!target.startsWith('http://') && !target.startsWith('https://')) {
+      target = `https://crm.hcinterior.in/${target.replace(/^\//, '')}`;
+    }
+    return target;
+  };
+
+  const openFileUrl = (url: any) => {
+    const clean = getCleanUrl(url);
+    if (!clean) {
       alert('No valid file URL available.');
       return;
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(clean, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -536,8 +569,9 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
         ) : (
           currentPaginatedItems.map((item) => {
             const hasMultipleFiles = Array.isArray(item.upload_file) && item.upload_file.length > 1;
-            const primaryFileUrl =
-              (item.upload_file && item.upload_file[0]) || item.fileUrl || item.upload_url || '#';
+            const primaryRawFile = (item.upload_file && item.upload_file[0]) || item.fileUrl || item.upload_url || '#';
+            const primaryCleanUrl = getCleanUrl(primaryRawFile);
+            const isImageFile = primaryCleanUrl && /\.(png|jpe?g|gif|webp|bmp|svg)($|\?)/i.test(primaryCleanUrl);
 
             return (
               <div
@@ -575,11 +609,18 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                 </div>
 
                 {/* Details Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-2.5 border-t border-slate-200/80">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs pt-2.5 border-t border-slate-200/80">
                   <div>
-                    <span className="text-slate-400 block text-[10px] font-semibold">File / Document Name</span>
+                    <span className="text-slate-400 block text-[10px] font-semibold">File / Title</span>
                     <span className="font-semibold text-slate-900 truncate block">
                       {item.fileName}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block text-[10px] font-semibold">Brand</span>
+                    <span className="font-semibold text-slate-900 truncate block">
+                      {item.brand || 'N/A'}
                     </span>
                   </div>
 
@@ -597,6 +638,37 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {/* Attached File Preview (if Image) */}
+                {isImageFile && (
+                  <div className="p-2 bg-white rounded-xl border border-slate-200 flex items-center space-x-3">
+                    <img
+                      src={primaryCleanUrl}
+                      alt={item.fileName}
+                      className="w-16 h-16 object-cover rounded-lg border border-slate-300 shadow-2xs shrink-0 cursor-pointer"
+                      onClick={() => openFileUrl(primaryCleanUrl)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Attached Photo Preview</span>
+                      <span className="text-xs font-semibold text-slate-800 truncate block">{item.fileName}</span>
+                      <button
+                        onClick={() => openFileUrl(primaryCleanUrl)}
+                        className="mt-1 text-[11px] text-sky-600 hover:text-sky-800 font-bold flex items-center space-x-1 cursor-pointer"
+                      >
+                        <span>Open Full Image</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Site Message / Message */}
+                {(item.message || item.site_message) && (
+                  <div className="bg-sky-50/80 border border-sky-200/80 rounded-lg p-2 px-3 text-[11px] text-sky-900">
+                    <span className="font-bold mr-1">Message:</span>
+                    <span>{item.site_message || item.message}</span>
+                  </div>
+                )}
 
                 {/* Remarks */}
                 <div className="bg-amber-50/80 border border-amber-200/80 rounded-lg p-2 px-3 text-[11px] text-amber-900">
@@ -625,7 +697,7 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                       ))
                     ) : (
                       <button
-                        onClick={() => openFileUrl(primaryFileUrl)}
+                        onClick={() => openFileUrl(primaryRawFile)}
                         className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs flex items-center space-x-1.5 shadow-xs transition-colors cursor-pointer"
                       >
                         <FileText className="w-3.5 h-3.5" />
@@ -740,7 +812,7 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                   <option value="">-- Select Client --</option>
                   {uniqueClients.map((c) => (
                     <option key={c.id} value={c.numericId}>
-                      {c.name} (ID: {c.numericId})
+                      {c.name} ({c.id})
                     </option>
                   ))}
                 </select>
@@ -758,6 +830,34 @@ export const OnSitePurchaseSection: React.FC<OnSitePurchaseSectionProps> = ({
                   onChange={(e) => setFileNameInput(e.target.value)}
                   className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs"
                   required
+                />
+              </div>
+
+              {/* Brand Name */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Brand Name (brand)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Nokia / Hettich / Godrej"
+                  value={brandInput}
+                  onChange={(e) => setBrandInput(e.target.value)}
+                  className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs"
+                />
+              </div>
+
+              {/* Site Message / Note */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Site Message / Note (message)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. test msg / purchase notes..."
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  className="w-full bg-white border border-slate-300 font-medium text-slate-900 text-xs rounded-xl p-2.5 focus:outline-none focus:border-orange-500 shadow-2xs resize-none"
                 />
               </div>
 

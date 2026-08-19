@@ -995,22 +995,43 @@ export function mapApiItemToOnSitePurchase(raw: any): OnSitePurchaseItem {
       ? `HC${raw.client_id}`
       : raw.clientId || 'N/A';
 
-  const uploadFiles: any[] = Array.isArray(raw.upload_file)
+  const rawUploadFiles: any[] = Array.isArray(raw.upload_file)
     ? raw.upload_file
     : typeof raw.upload_file === 'string' && raw.upload_file
     ? [raw.upload_file]
     : [];
 
-  const firstFileObj = uploadFiles[0];
-  let fileUrl = '#';
-  if (typeof firstFileObj === 'object' && firstFileObj) {
-    fileUrl = firstFileObj.file_url || firstFileObj.path || '#';
-  } else if (typeof firstFileObj === 'string' && firstFileObj) {
-    fileUrl = firstFileObj;
-  } else {
-    fileUrl = raw.upload_url || raw.fileUrl || '#';
+  const cleanFileUrls: string[] = [];
+  for (const item of rawUploadFiles) {
+    let u = '';
+    if (typeof item === 'object' && item) {
+      u = item.file_url || item.path || item.url || '';
+    } else if (typeof item === 'string') {
+      u = item;
+    }
+    if (u && u !== '#') {
+      if (!u.startsWith('http://') && !u.startsWith('https://')) {
+        u = `https://crm.hcinterior.in/${u.replace(/^\//, '')}`;
+      }
+      cleanFileUrls.push(u);
+    }
   }
 
+  let fileUrl = cleanFileUrls[0] || '';
+  if (!fileUrl) {
+    let rawUrl = raw.upload_url || raw.fileUrl || '';
+    if (rawUrl && rawUrl !== '#') {
+      if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+        fileUrl = `https://crm.hcinterior.in/${rawUrl.replace(/^\//, '')}`;
+      } else {
+        fileUrl = rawUrl;
+      }
+    } else {
+      fileUrl = '#';
+    }
+  }
+
+  const firstFileObj = rawUploadFiles[0];
   const fileName =
     raw.file_name ||
     raw.fileName ||
@@ -1033,8 +1054,11 @@ export function mapApiItemToOnSitePurchase(raw: any): OnSitePurchaseItem {
     status_approve_by: raw.status_approve_by,
     remark: raw.remark || '',
     uploaded_by: raw.uploaded_by,
-    upload_file: uploadFiles,
-    upload_url: raw.upload_url || '',
+    upload_file: cleanFileUrls,
+    upload_url: fileUrl,
+    brand: raw.brand || '',
+    message: raw.site_message || raw.message || '',
+    site_message: raw.site_message || raw.message || '',
   };
 }
 
@@ -1057,7 +1081,9 @@ export async function createOnSitePurchase(
   token: string,
   clientId: number | string,
   fileName: string,
-  file?: File | Blob | null
+  file?: File | Blob | null,
+  brand?: string,
+  message?: string
 ): Promise<{ success: boolean; message: string; data?: OnSitePurchaseItem }> {
   const { token: effectiveToken } = getEffectiveTokenAndUserId(token);
 
@@ -1069,6 +1095,12 @@ export async function createOnSitePurchase(
   formData.append('token', effectiveToken);
   formData.append('client_id', finalClientId);
   formData.append('file_name', fileName);
+  if (brand !== undefined && brand !== null && brand.trim() !== '') {
+    formData.append('brand', brand.trim());
+  }
+  if (message !== undefined && message !== null && message.trim() !== '') {
+    formData.append('message', message.trim());
+  }
   if (file) {
     formData.append('files', file);
   }
