@@ -1,4 +1,4 @@
-import { ClientProject, PhaseType, QCDesignItem, EscalationItem, EscalationComment, FinalValidationItem, OnSitePurchaseItem, LooseFurnitureItem, DispatchItem, DispatchQuery, BOMRecord, ApiBoqItem, ApiBoqListResponse, ApiExecutionTask, ApiExecutionTimelineResponse, ApiUpdateTimelineTaskPayload, ApiUpdateTimelineResponse } from '../types';
+import { ClientProject, PhaseType, QCDesignItem, EscalationItem, EscalationComment, FinalValidationItem, OnSitePurchaseItem, OnSitePurchaseRequestItem, OnSitePurchaseLineItem, OnSitePurchasePhoto, OnSitePurchaseFormRow, PurchaseItemCategory, PurchaseItemBrand, PurchaseItemCategoryResponse, PurchaseItemBrandResponse, LooseFurnitureItem, DispatchItem, DispatchQuery, BOMRecord, ApiBoqItem, ApiBoqListResponse, ApiExecutionTask, ApiExecutionTimelineResponse, ApiUpdateTimelineTaskPayload, ApiUpdateTimelineResponse } from '../types';
 import { isMobileApkEnvironment } from './authApi';
 
 export interface ApiAssignedTeamMember {
@@ -261,6 +261,17 @@ async function fetchCrmEndpoint<T>(
       if (data && (data as any).status !== false) return data;
     } catch (e) {
       console.warn(`FormData fetch from ${url} failed:`, e);
+    }
+
+    // 4. Try GET with query params
+    try {
+      const queryString = urlParams.toString();
+      const getUrl = queryString ? `${url}?${queryString}` : url;
+      const res = await fetch(getUrl, { method: 'GET', headers: baseHeaders });
+      const data = await safeParseJson<T>(res);
+      if (data && (data as any).status !== false) return data;
+    } catch (e) {
+      console.warn(`GET fetch from ${url} failed:`, e);
     }
   }
 
@@ -1206,6 +1217,627 @@ export async function fetchOnSitePurchaseList(
   }
 
   return list.map(mapApiItemToOnSitePurchase);
+}
+
+// ============================================================================
+// ON SITE PURCHASE REQUEST (NEW) - WITH LINE ITEMS APIS
+// ============================================================================
+
+const OSP_LIST_NEW_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/on_site_purchase_list_new';
+const OSP_LIST_NEW_PROXY = '/crm-api/mobileapi/client/on_site_purchase_list_new';
+
+const OSP_CREATE_NEW_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/create_on_site_purchase_request_new';
+const OSP_CREATE_NEW_PROXY = '/crm-api/mobileapi/client/create_on_site_purchase_request_new';
+
+const OSP_ACCEPT_REJECT_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/accept_reject_purchase_request_new';
+const OSP_ACCEPT_REJECT_PROXY = '/crm-api/mobileapi/client/accept_reject_purchase_request_new';
+
+const OSP_UPDATE_PARENT_STATUS_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/update_parent_request_status_new';
+const OSP_UPDATE_PARENT_STATUS_PROXY = '/crm-api/mobileapi/client/update_parent_request_status_new';
+
+const OSP_ITEM_ORDER_TOGGLE_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/on_site_purchase_item_order_toggle_new';
+const OSP_ITEM_ORDER_TOGGLE_PROXY = '/crm-api/mobileapi/client/on_site_purchase_item_order_toggle_new';
+
+const OSP_ITEM_STATUS_UPDATE_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/on_site_purchase_item_status_update_new';
+const OSP_ITEM_STATUS_UPDATE_PROXY = '/crm-api/mobileapi/client/on_site_purchase_item_status_update_new';
+
+const OSP_UPLOAD_PHOTOS_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/upload_on_site_purchase_photos_new';
+const OSP_UPLOAD_PHOTOS_PROXY = '/crm-api/mobileapi/client/upload_on_site_purchase_photos_new';
+
+const OSP_DELETE_PHOTO_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/delete_on_site_purchase_photo_new';
+const OSP_DELETE_PHOTO_PROXY = '/crm-api/mobileapi/client/delete_on_site_purchase_photo_new';
+
+const OSP_DELETE_REQUEST_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/delete_on_site_purchase_request_new';
+const OSP_DELETE_REQUEST_PROXY = '/crm-api/mobileapi/client/delete_on_site_purchase_request_new';
+
+const OSP_CATEGORY_LIST_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/get_purchase_item_category_list';
+const OSP_CATEGORY_LIST_PROXY = '/crm-api/mobileapi/client/get_purchase_item_category_list';
+
+const OSP_BRAND_LIST_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/get_purchase_item_brand_list';
+const OSP_BRAND_LIST_PROXY = '/crm-api/mobileapi/client/get_purchase_item_brand_list';
+
+export interface ApiOnSitePurchaseListNewResponse {
+  status: boolean;
+  message?: string;
+  total_records?: number;
+  page?: number;
+  limit?: number;
+  data?: any[];
+}
+
+export function mapApiItemToOnSitePurchaseRequest(raw: any): OnSitePurchaseRequestItem {
+  const id = Number(raw.id || raw.purchase_id || 0);
+  const client_id = Number(raw.client_id || 0);
+  const client_name = raw.client_name || raw.clientName || '';
+  const client_sr_id = raw.client_sr_id || (client_id ? `HC${client_id}` : '');
+  const purchase_no = raw.purchase_no || raw.purchaseNo || `OSPR-${String(id).padStart(4, '0')}`;
+  const request_status = raw.request_status || raw.status || 'Pending';
+  const status = raw.status || request_status;
+  const remark = raw.remark || '';
+  const uploaded_by = raw.uploaded_by || '';
+  const creator_name = raw.creator_name || raw.requested_by || 'Staff';
+  const created_date = raw.created_date || raw.created_at || raw.date || '';
+
+  // Process items
+  const rawItems = Array.isArray(raw.items) ? raw.items : [];
+  const items: OnSitePurchaseLineItem[] = rawItems.map((it: any, index: number) => ({
+    id: Number(it.id || index + 1),
+    purchase_id: Number(it.purchase_id || id),
+    item_category: it.item_category || it.category || 'General',
+    item: it.item || it.item_name || it.description || '',
+    qty: it.qty || it.quantity || 1,
+    unit: it.unit || 'Pcs',
+    brand: it.brand || '',
+    remarks: it.remarks || it.remark || '',
+    status: it.status || 'Pending',
+    is_ordered: typeof it.is_ordered !== 'undefined' ? Number(it.is_ordered) : (it.status === 'Ordered' || it.status === 'Send' || it.status === 'Recieved' ? 1 : 0),
+    approver_name: it.approver_name || '',
+    status_approve_date: it.status_approve_date || it.approve_date || '',
+    approve_date: it.approve_date || it.status_approve_date || '',
+    approval_remarks: it.approval_remarks || '',
+  }));
+
+  // Process photos
+  const rawPhotos = Array.isArray(raw.photos) ? raw.photos : [];
+  const photos: OnSitePurchasePhoto[] = rawPhotos.map((p: any) => {
+    let url = p.file_url || p.url || p.path || '';
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://crm.hcinterior.in/${url.replace(/^\//, '')}`;
+    }
+    return {
+      fileName: p.fileName || p.file_name || p.name || 'photo.jpg',
+      path: p.path || '',
+      is_image: typeof p.is_image !== 'undefined' ? Boolean(p.is_image) : true,
+      file_url: url,
+    };
+  });
+
+  let pdf_url = raw.pdf_url || '';
+  if (!pdf_url && id) {
+    pdf_url = `https://crm.hcinterior.in/admin/client/on_site_purchase_pdf/${id}/0`;
+  }
+  let pdf_download = raw.pdf_download || '';
+  if (!pdf_download && id) {
+    pdf_download = `https://crm.hcinterior.in/admin/client/on_site_purchase_pdf/${id}/1`;
+  }
+
+  return {
+    id,
+    client_id,
+    client_name,
+    client_sr_id,
+    purchase_no,
+    request_status,
+    status,
+    remark,
+    uploaded_by,
+    creator_name,
+    created_date,
+    items_count: items.length || Number(raw.items_count || 0),
+    items,
+    photos_count: photos.length || Number(raw.photos_count || 0),
+    photos,
+    pdf_url,
+    pdf_download,
+  };
+}
+
+// 1. GET ON SITE PURCHASE REQUESTS LIST
+export async function fetchOnSitePurchaseListNew(
+  token: string,
+  clientId?: number | string,
+  requestStatus = '',
+  page = 1,
+  limit = 50
+): Promise<{ list: OnSitePurchaseRequestItem[]; total: number; message?: string }> {
+  const payload: Record<string, any> = {
+    page,
+    limit,
+  };
+
+  if (clientId !== undefined && clientId !== null && clientId !== '') {
+    const numId = typeof clientId === 'number' ? clientId : parseInt(String(clientId).replace(/\D/g, ''), 10);
+    if (!isNaN(numId) && numId > 0) {
+      payload.client_id = numId;
+    }
+  }
+
+  if (requestStatus && requestStatus !== 'All') {
+    payload.request_status = requestStatus;
+  }
+
+  const rawResponse = await fetchCrmEndpoint<ApiOnSitePurchaseListNewResponse>(
+    OSP_LIST_NEW_DIRECT,
+    OSP_LIST_NEW_PROXY,
+    token,
+    payload
+  );
+
+  if (!rawResponse || !rawResponse.status) {
+    console.warn('On Site Purchase List (New) API failed/empty:', rawResponse?.message);
+    return { list: [], total: 0, message: rawResponse?.message };
+  }
+
+  let rawList: any[] = [];
+  if (Array.isArray(rawResponse.data)) {
+    rawList = rawResponse.data;
+  } else if (rawResponse.data && Array.isArray((rawResponse.data as any).data)) {
+    rawList = (rawResponse.data as any).data;
+  }
+
+  const list = rawList.map(mapApiItemToOnSitePurchaseRequest);
+  const total = rawResponse.total_records || list.length;
+
+  return { list, total, message: rawResponse.message };
+}
+
+// 2. CREATE NEW ON SITE PURCHASE REQUEST
+export async function createOnSitePurchaseRequestNew(
+  token: string,
+  clientId: number | string,
+  items: Array<{
+    item_category: string;
+    item: string;
+    qty: string | number;
+    unit: string;
+    brand?: string;
+    remarks?: string;
+  }>
+): Promise<{ success: boolean; message: string; purchase_id?: number; purchase_no?: string; data?: any }> {
+  const { token: effectiveToken, userId } = getEffectiveTokenAndUserId(token);
+  const numId = typeof clientId === 'number' ? clientId : parseInt(String(clientId).replace(/\D/g, ''), 10);
+
+  const payload = {
+    token: effectiveToken,
+    user_id: userId,
+    client_id: numId,
+    items,
+  };
+
+  const isApk = isMobileApkEnvironment();
+  const urls = isApk ? [OSP_CREATE_NEW_DIRECT, OSP_CREATE_NEW_PROXY] : [OSP_CREATE_NEW_PROXY, OSP_CREATE_NEW_DIRECT];
+
+  const baseHeaders: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+
+  if (effectiveToken) {
+    baseHeaders['Authorization'] = effectiveToken.startsWith('Bearer ') ? effectiveToken : `Bearer ${effectiveToken}`;
+    baseHeaders['token'] = effectiveToken;
+    baseHeaders['X-Api-Token'] = effectiveToken;
+  }
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: baseHeaders,
+        body: JSON.stringify(payload),
+      });
+      const data = await safeParseJson<any>(res);
+      if (data && typeof data.status !== 'undefined') {
+        if (data.status) {
+          return {
+            success: true,
+            message: data.message || 'On site purchase request created successfully',
+            purchase_id: data.purchase_id,
+            purchase_no: data.purchase_no,
+            data: data.data || data,
+          };
+        } else {
+          return {
+            success: false,
+            message: data.message || 'Failed to create on site purchase request',
+          };
+        }
+      }
+    } catch (e: any) {
+      console.warn(`Create on site purchase request failed via ${url}:`, e);
+    }
+  }
+
+  // Fallback to form-data format if json endpoint returns error or fails
+  try {
+    const formData = new FormData();
+    formData.append('token', effectiveToken);
+    formData.append('user_id', userId);
+    formData.append('client_id', String(numId));
+    items.forEach((it) => {
+      formData.append('item_category[]', it.item_category);
+      formData.append('item[]', it.item);
+      formData.append('qty[]', String(it.qty));
+      formData.append('unit[]', it.unit || 'Pcs');
+      formData.append('brand[]', it.brand || '');
+      formData.append('remarks[]', it.remarks || '');
+    });
+
+    for (const url of urls) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          ...(effectiveToken ? { 'Authorization': `Bearer ${effectiveToken}`, 'token': effectiveToken } : {}),
+        },
+        body: formData,
+      });
+      const data = await safeParseJson<any>(res);
+      if (data && data.status) {
+        return {
+          success: true,
+          message: data.message || 'On site purchase request created successfully',
+          purchase_id: data.purchase_id,
+          purchase_no: data.purchase_no,
+          data: data.data || data,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn('FormData fallback failed:', err);
+  }
+
+  return { success: false, message: 'Server connection error while creating purchase request' };
+}
+
+// 3. ACCEPT OR REJECT PURCHASE REQUEST (PARENT LEVEL)
+export async function acceptRejectPurchaseRequestNew(
+  token: string,
+  purchaseId: number,
+  action: 'accept' | 'reject',
+  remark = ''
+): Promise<{ success: boolean; message: string; request_status?: string; data?: any }> {
+  const payload: Record<string, any> = {
+    purchase_id: purchaseId,
+    action,
+    remark,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_ACCEPT_REJECT_DIRECT,
+    OSP_ACCEPT_REJECT_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || `Purchase request ${action}ed successfully`,
+      request_status: rawResponse.request_status,
+      data: rawResponse,
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || `Failed to ${action} purchase request`,
+  };
+}
+
+// 4. UPDATE PARENT REQUEST STATUS
+export async function updateParentRequestStatusNew(
+  token: string,
+  purchaseId: number,
+  requestStatus: 'Accepted' | 'Completed' | 'Partial' | string
+): Promise<{ success: boolean; message: string; request_status?: string; data?: any }> {
+  const payload: Record<string, any> = {
+    purchase_id: purchaseId,
+    request_status: requestStatus,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_UPDATE_PARENT_STATUS_DIRECT,
+    OSP_UPDATE_PARENT_STATUS_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || `Request status updated to ${requestStatus}`,
+      request_status: rawResponse.request_status || requestStatus,
+      data: rawResponse,
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || 'Failed to update request status',
+  };
+}
+
+// 5. TOGGLE ITEM MATERIAL ORDER STATUS (LINE ITEM LEVEL)
+export async function toggleItemMaterialOrderNew(
+  token: string,
+  itemId: number,
+  isOrdered: 1 | 0
+): Promise<{ success: boolean; message: string; item_status?: string; data?: any }> {
+  const payload: Record<string, any> = {
+    item_id: itemId,
+    is_ordered: isOrdered,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_ITEM_ORDER_TOGGLE_DIRECT,
+    OSP_ITEM_ORDER_TOGGLE_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || `Item status updated`,
+      item_status: rawResponse.item_status || (isOrdered === 1 ? 'Ordered' : 'Pending'),
+      data: rawResponse,
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || 'Failed to update item order status',
+  };
+}
+
+// 6. UPDATE ITEM RECEIVING / REJECTION STATUS (LINE ITEM LEVEL)
+export async function updateItemStatusNew(
+  token: string,
+  requestId: number,
+  status: 'Recieved' | 'Reject',
+  approvalRemarks = ''
+): Promise<{ success: boolean; message: string; item_status?: string; approver_name?: string; approve_date?: string; data?: any }> {
+  const payload: Record<string, any> = {
+    request_id: requestId,
+    status,
+    approval_remarks: approvalRemarks,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_ITEM_STATUS_UPDATE_DIRECT,
+    OSP_ITEM_STATUS_UPDATE_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || `Item status updated to ${status}`,
+      item_status: rawResponse.item_status || status,
+      approver_name: rawResponse.approver_name,
+      approve_date: rawResponse.approve_date,
+      data: rawResponse,
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || `Failed to update item status to ${status}`,
+  };
+}
+
+// 7. UPLOAD SITE PHOTOS FOR PURCHASE REQUEST
+export async function uploadOnSitePurchasePhotosNew(
+  token: string,
+  purchaseId: number,
+  files: File[] | FileList
+): Promise<{ success: boolean; message: string; photos?: OnSitePurchasePhoto[]; uploaded_count?: number }> {
+  const { token: effectiveToken, userId } = getEffectiveTokenAndUserId(token);
+  const formData = new FormData();
+  formData.append('token', effectiveToken);
+  formData.append('user_id', userId);
+  formData.append('purchase_id', String(purchaseId));
+
+  const fileArray = Array.from(files);
+  fileArray.forEach((f) => {
+    formData.append('photos[]', f);
+    formData.append('files[]', f);
+  });
+
+  const baseHeaders: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (effectiveToken) {
+    baseHeaders['Authorization'] = effectiveToken.startsWith('Bearer ') ? effectiveToken : `Bearer ${effectiveToken}`;
+    baseHeaders['token'] = effectiveToken;
+  }
+
+  const isApk = isMobileApkEnvironment();
+  const urls = isApk ? [OSP_UPLOAD_PHOTOS_DIRECT, OSP_UPLOAD_PHOTOS_PROXY] : [OSP_UPLOAD_PHOTOS_PROXY, OSP_UPLOAD_PHOTOS_DIRECT];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: baseHeaders,
+        body: formData,
+      });
+      const data = await safeParseJson<any>(res);
+      if (data && data.status) {
+        const rawPhotos = Array.isArray(data.photos) ? data.photos : [];
+        const photos: OnSitePurchasePhoto[] = rawPhotos.map((p: any) => {
+          let u = p.file_url || p.url || p.path || '';
+          if (u && !u.startsWith('http://') && !u.startsWith('https://')) {
+            u = `https://crm.hcinterior.in/${u.replace(/^\//, '')}`;
+          }
+          return {
+            fileName: p.fileName || p.file_name || 'photo.jpg',
+            path: p.path || '',
+            is_image: true,
+            file_url: u,
+          };
+        });
+        return {
+          success: true,
+          message: data.message || `${fileArray.length} photos uploaded successfully`,
+          photos,
+          uploaded_count: data.uploaded_count || fileArray.length,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`Upload photos failed via ${url}:`, e);
+    }
+  }
+
+  return { success: false, message: 'Failed to upload photos' };
+}
+
+// 8. DELETE SITE PHOTO
+export async function deleteOnSitePurchasePhotoNew(
+  token: string,
+  purchaseId: number,
+  fileName: string
+): Promise<{ success: boolean; message: string; photos?: OnSitePurchasePhoto[] }> {
+  const payload: Record<string, any> = {
+    purchase_id: purchaseId,
+    file_name: fileName,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_DELETE_PHOTO_DIRECT,
+    OSP_DELETE_PHOTO_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    const rawPhotos = Array.isArray(rawResponse.photos) ? rawResponse.photos : [];
+    const photos: OnSitePurchasePhoto[] = rawPhotos.map((p: any) => {
+      let u = p.file_url || p.url || p.path || '';
+      if (u && !u.startsWith('http://') && !u.startsWith('https://')) {
+        u = `https://crm.hcinterior.in/${u.replace(/^\//, '')}`;
+      }
+      return {
+        fileName: p.fileName || p.file_name || '',
+        path: p.path || '',
+        is_image: true,
+        file_url: u,
+      };
+    });
+    return {
+      success: true,
+      message: rawResponse.message || 'Photo deleted successfully',
+      photos,
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || 'Failed to delete photo',
+  };
+}
+
+// 9. DELETE ON SITE PURCHASE REQUEST
+export async function deleteOnSitePurchaseRequestNew(
+  token: string,
+  purchaseId: number
+): Promise<{ success: boolean; message: string }> {
+  const payload: Record<string, any> = {
+    purchase_id: purchaseId,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_DELETE_REQUEST_DIRECT,
+    OSP_DELETE_REQUEST_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || 'Purchase request deleted successfully',
+    };
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || 'Failed to delete purchase request',
+  };
+}
+
+// 10. GET PURCHASE ITEM CATEGORIES LIST
+export async function fetchPurchaseItemCategories(
+  token?: string
+): Promise<{ success: boolean; data: PurchaseItemCategory[]; message: string }> {
+  const { token: effectiveToken } = getEffectiveTokenAndUserId(token);
+  const rawResponse = await fetchCrmEndpoint<PurchaseItemCategoryResponse>(
+    OSP_CATEGORY_LIST_DIRECT,
+    OSP_CATEGORY_LIST_PROXY,
+    effectiveToken,
+    {}
+  );
+
+  if (!rawResponse || !rawResponse.status || !Array.isArray(rawResponse.data)) {
+    console.warn('Purchase item categories API response:', rawResponse?.message);
+    return {
+      success: false,
+      data: [],
+      message: rawResponse?.message || 'Failed to fetch purchase item categories',
+    };
+  }
+
+  return {
+    success: true,
+    data: rawResponse.data,
+    message: rawResponse.message || 'Purchase item categories fetched successfully',
+  };
+}
+
+// 11. GET PURCHASE ITEM BRANDS LIST (Optionally Filtered by Category ID)
+export async function fetchPurchaseItemBrands(
+  token?: string,
+  categoryId?: number | string
+): Promise<{ success: boolean; data: PurchaseItemBrand[]; message: string }> {
+  const { token: effectiveToken } = getEffectiveTokenAndUserId(token);
+  const payload: Record<string, any> = {};
+  if (categoryId !== undefined && categoryId !== null && categoryId !== '') {
+    payload.category_id = categoryId;
+    payload.purchase_item_category_id = categoryId;
+  }
+
+  const rawResponse = await fetchCrmEndpoint<PurchaseItemBrandResponse>(
+    OSP_BRAND_LIST_DIRECT,
+    OSP_BRAND_LIST_PROXY,
+    effectiveToken,
+    payload
+  );
+
+  if (!rawResponse || !rawResponse.status || !Array.isArray(rawResponse.data)) {
+    console.warn('Purchase item brands API response:', rawResponse?.message);
+    return {
+      success: false,
+      data: [],
+      message: rawResponse?.message || 'Failed to fetch purchase item brands',
+    };
+  }
+
+  return {
+    success: true,
+    data: rawResponse.data,
+    message: rawResponse.message || 'Purchase item brands fetched successfully',
+  };
 }
 
 export function mapApiItemToLooseFurniture(raw: any): LooseFurnitureItem {

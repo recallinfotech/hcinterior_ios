@@ -78,11 +78,18 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       icon: ShieldCheck,
       color: 'bg-teal-500/10 text-teal-500 border-teal-500/20',
     },
+    // {
+    //   key: 'onSitePurchaseRequest',
+    //   title: 'On Site Purchase Request',
+    //   desc: 'Local material purchase logs & drawings',
+    //   icon: ShoppingCart,
+    //   color: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+    // },
     {
-      key: 'onSitePurchaseRequest',
-      title: 'On Site Purchase',
-      desc: 'Local material purchase logs',
-      icon: ShoppingCart,
+      key: 'onSitePurchaseWithItem',
+      title: 'On site Purchase with Item',
+      desc: 'On-site item purchase requests & receiving logs',
+      icon: Package,
       color: 'bg-rose-500/10 text-rose-500 border-rose-500/20',
     },
   ];

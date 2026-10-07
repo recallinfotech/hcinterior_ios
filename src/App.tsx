@@ -21,6 +21,7 @@ import { FinalProductionDrawingSection } from './components/sections/FinalProduc
 import { QCDesignSection } from './components/sections/QCDesignSection';
 import { FinalValidationSection } from './components/sections/FinalValidationSection';
 import { OnSitePurchaseSection } from './components/sections/OnSitePurchaseSection';
+import { OnSitePurchaseWithItemSection } from './components/sections/OnSitePurchaseWithItemSection';
 import { AssignedTeamSection } from './components/sections/AssignedTeamSection';
 import { ExecutionTimelineSection } from './components/sections/ExecutionTimelineSection';
 import { HandoverSection } from './components/sections/HandoverSection';
@@ -55,11 +56,12 @@ import {
   INITIAL_QC_DESIGNS,
   INITIAL_FINAL_VALIDATIONS,
   INITIAL_ON_SITE_PURCHASES,
+  INITIAL_ON_SITE_PURCHASE_REQUESTS_NEW,
   INITIAL_LOOSE_FURNITURE_ITEMS,
 } from './mockData';
 
 import { ClientFilterPanel, FilterState, INITIAL_FILTERS } from './components/ClientFilterPanel';
-import { ClientProject, BOQItem, PaymentRecord, BOMRecord, DetailSectionItem, EscalationItem, QCDesignItem, FinalValidationItem, OnSitePurchaseItem, LooseFurnitureItem, DispatchItem } from './types';
+import { ClientProject, BOQItem, PaymentRecord, BOMRecord, DetailSectionItem, EscalationItem, QCDesignItem, FinalValidationItem, OnSitePurchaseItem, OnSitePurchaseRequestItem, LooseFurnitureItem, DispatchItem } from './types';
 import {
   SlidersHorizontal,
   ChevronRight,
@@ -90,7 +92,7 @@ import {
 } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import { logoutUser, UserData } from './services/authApi';
-import { fetchClientList, fetchAllClientList, mapApiClientToClientProject, ClientListFilters, fetchQcDesignList, fetchEscalationList, fetchFinalValidationDesignList, fetchOnSitePurchaseList, fetchLooseFurnitureList, fetchDispatchList, fetchBOMList } from './services/clientApi';
+import { fetchClientList, fetchAllClientList, mapApiClientToClientProject, ClientListFilters, fetchQcDesignList, fetchEscalationList, fetchFinalValidationDesignList, fetchOnSitePurchaseList, fetchOnSitePurchaseListNew, fetchLooseFurnitureList, fetchDispatchList, fetchBOMList } from './services/clientApi';
 import { initPushNotificationListeners } from './services/fcmService';
 
 const MENU_MODULE_ITEMS = [
@@ -136,11 +138,18 @@ const MENU_MODULE_ITEMS = [
     icon: ShieldCheck,
     color: 'text-zinc-900 bg-zinc-100 border-zinc-300',
   },
+  // {
+  //   key: 'onSitePurchaseRequest',
+  //   title: 'On Site Purchase Request',
+  //   desc: 'Local material purchase logs & drawings',
+  //   icon: ShoppingCart,
+  //   color: 'text-amber-600 bg-amber-50 border-amber-200',
+  // },
   {
-    key: 'onSitePurchaseRequest',
-    title: 'On Site Purchase Request',
-    desc: 'Local material purchase logs',
-    icon: ShoppingCart,
+    key: 'onSitePurchaseWithItem',
+    title: 'On site Purchase with Item',
+    desc: 'On-site itemized purchase requests & receiving logs',
+    icon: Package,
     color: 'text-rose-600 bg-rose-50 border-rose-200',
   },
   {
@@ -197,6 +206,7 @@ export default function App() {
   const [escalations, setEscalations] = useState<EscalationItem[]>(INITIAL_ESCALATIONS);
   const [finalValidations, setFinalValidations] = useState<FinalValidationItem[]>(INITIAL_FINAL_VALIDATIONS);
   const [onSitePurchases, setOnSitePurchases] = useState<OnSitePurchaseItem[]>(INITIAL_ON_SITE_PURCHASES);
+  const [onSitePurchaseRequests, setOnSitePurchaseRequests] = useState<OnSitePurchaseRequestItem[]>(INITIAL_ON_SITE_PURCHASE_REQUESTS_NEW);
   const [looseFurnitures, setLooseFurnitures] = useState<LooseFurnitureItem[]>(INITIAL_LOOSE_FURNITURE_ITEMS);
   const [dispatchItems, setDispatchItems] = useState<DispatchItem[]>(INITIAL_DISPATCH_ITEMS);
   const [boqList, setBoqList] = useState<BOQItem[]>(INITIAL_BOQ_LIST);
@@ -295,14 +305,24 @@ export default function App() {
         console.warn('Failed to fetch Final Validation Design list:', fvErr);
       }
 
-      // Fetch On Site Purchase list from API
+      // Fetch Previous On Site Purchase list from API
       try {
         const ospList = await fetchOnSitePurchaseList(activeToken);
         if (ospList && ospList.length > 0) {
           setOnSitePurchases(ospList);
         }
       } catch (ospErr) {
-        console.warn('Failed to fetch On Site Purchase list:', ospErr);
+        console.warn('Failed to fetch Previous On Site Purchase list:', ospErr);
+      }
+
+      // Fetch New On Site Purchase with Items list from API
+      try {
+        const ospRes = await fetchOnSitePurchaseListNew(activeToken);
+        if (ospRes && Array.isArray(ospRes.list)) {
+          setOnSitePurchaseRequests(ospRes.list);
+        }
+      } catch (ospErr) {
+        console.warn('Failed to fetch On Site Purchase with Items list:', ospErr);
       }
 
       // Fetch Loose Furniture list from API
@@ -400,8 +420,8 @@ export default function App() {
       }
 
       const targetSection = pending.section;
-      if (targetSection === 'onSitePurchase' || targetSection === 'onSitePurchaseRequest') {
-        setSelectedChecklistKey('onSitePurchase');
+      if (targetSection === 'onSitePurchase' || targetSection === 'onSitePurchaseRequest' || targetSection === 'onSitePurchaseWithItem') {
+        setSelectedChecklistKey('onSitePurchaseWithItem');
       } else if (targetSection === 'escalation') {
         setSelectedChecklistKey('escalation');
       } else if (targetSection === 'boq') {
@@ -601,9 +621,9 @@ export default function App() {
   const handleRefreshOnSitePurchase = async () => {
     if (!authToken) return;
     try {
-      const ospList = await fetchOnSitePurchaseList(authToken);
-      if (ospList) {
-        setOnSitePurchases(ospList);
+      const ospRes = await fetchOnSitePurchaseListNew(authToken);
+      if (ospRes && ospRes.list && ospRes.list.length > 0) {
+        setOnSitePurchaseRequests(ospRes.list);
       }
     } catch (err) {
       console.error('Error refreshing On Site Purchase list:', err);
@@ -815,10 +835,24 @@ export default function App() {
             onRefresh={handleRefreshFinalValidation}
           />
         );
+      // case 'onSitePurchaseRequest':
+      //   return (
+      //     <OnSitePurchaseSection
+      //       items={onSitePurchases}
+      //       clients={clients}
+      //       client={selectedClient}
+      //       showAllClients={showAllClients}
+      //       authToken={authToken}
+      //       showToast={showToast}
+      //       onRefresh={handleRefreshOnSitePurchase}
+      //     />
+      //   );
       case 'onSitePurchaseRequest':
+      case 'onSitePurchaseWithItem':
         return (
-          <OnSitePurchaseSection
+          <OnSitePurchaseWithItemSection
             items={onSitePurchases}
+            requestItems={onSitePurchaseRequests}
             clients={clients}
             client={selectedClient}
             showAllClients={showAllClients}

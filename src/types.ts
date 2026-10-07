@@ -448,3 +448,86 @@ export interface OnSitePurchaseItem {
   message?: string;
   site_message?: string;
 }
+
+export interface OnSitePurchaseFormRow {
+  id: string;
+  item_category: string;
+  item: string;
+  qty: string | number;
+  unit: string;
+  brand: string;
+  remarks: string;
+}
+
+export interface OnSitePurchaseLineItem {
+  id: number;
+  purchase_id: number;
+  item_category: string;
+  item: string;
+  qty: string | number;
+  unit: string;
+  brand?: string;
+  remarks?: string;
+  status?: 'Pending' | 'Send' | 'Recieved' | 'Reject' | string;
+  is_ordered?: number; // 1 for Ordered/Sent, 0 for Pending
+  approver_name?: string;
+  status_approve_date?: string;
+  approve_date?: string;
+  approval_remarks?: string;
+}
+
+export interface OnSitePurchasePhoto {
+  fileName: string;
+  path?: string;
+  is_image?: boolean;
+  file_url: string;
+}
+
+export interface OnSitePurchaseRequestItem {
+  id: number;
+  client_id: number;
+  client_name?: string;
+  client_sr_id?: string;
+  purchase_no: string;
+  request_status: 'Pending' | 'Accepted' | 'Rejected' | 'Completed' | 'Partial' | string;
+  status?: string;
+  remark?: string;
+  uploaded_by?: number | string;
+  creator_name?: string;
+  created_date?: string;
+  items_count: number;
+  items: OnSitePurchaseLineItem[];
+  photos_count: number;
+  photos: OnSitePurchasePhoto[];
+  pdf_url?: string;
+  pdf_download?: string;
+}
+
+export interface PurchaseItemCategory {
+  id: string | number;
+  category_name: string;
+  status?: string;
+  createdate?: string;
+}
+
+export interface PurchaseItemBrand {
+  id: string | number;
+  purchase_item_category_id?: string | number;
+  brand_name: string;
+  status?: string;
+  createdate?: string;
+}
+
+export interface PurchaseItemCategoryResponse {
+  status: boolean;
+  message: string;
+  data: PurchaseItemCategory[];
+}
+
+export interface PurchaseItemBrandResponse {
+  status: boolean;
+  message: string;
+  category_id?: number | string;
+  data: PurchaseItemBrand[];
+}
+
