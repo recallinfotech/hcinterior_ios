@@ -1235,6 +1235,11 @@ const OSP_ACCEPT_REJECT_PROXY = '/crm-api/mobileapi/client/accept_reject_purchas
 const OSP_UPDATE_PARENT_STATUS_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/update_parent_request_status_new';
 const OSP_UPDATE_PARENT_STATUS_PROXY = '/crm-api/mobileapi/client/update_parent_request_status_new';
 
+const OSP_UPDATE_DELIVERY_STATUS_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/update_on_site_purchase_delivery_status_new';
+const OSP_UPDATE_DELIVERY_STATUS_PROXY = '/crm-api/mobileapi/client/update_on_site_purchase_delivery_status_new';
+const OSP_UPDATE_DELIVERY_STATUS_ALIAS_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/on_site_purchase_delivery_status_update_new';
+const OSP_UPDATE_DELIVERY_STATUS_ALIAS_PROXY = '/crm-api/mobileapi/client/on_site_purchase_delivery_status_update_new';
+
 const OSP_ITEM_ORDER_TOGGLE_DIRECT = 'https://crm.hcinterior.in/mobileapi/client/on_site_purchase_item_order_toggle_new';
 const OSP_ITEM_ORDER_TOGGLE_PROXY = '/crm-api/mobileapi/client/on_site_purchase_item_order_toggle_new';
 
@@ -1272,6 +1277,7 @@ export function mapApiItemToOnSitePurchaseRequest(raw: any): OnSitePurchaseReque
   const client_sr_id = raw.client_sr_id || (client_id ? `HC${client_id}` : '');
   const purchase_no = raw.purchase_no || raw.purchaseNo || `OSPR-${String(id).padStart(4, '0')}`;
   const request_status = raw.request_status || raw.status || 'Pending';
+  const delivery_status = raw.delivery_status || raw.deliveryStatus || '';
   const status = raw.status || request_status;
   const remark = raw.remark || '';
   const uploaded_by = raw.uploaded_by || '';
@@ -1328,6 +1334,7 @@ export function mapApiItemToOnSitePurchaseRequest(raw: any): OnSitePurchaseReque
     client_sr_id,
     purchase_no,
     request_status,
+    delivery_status,
     status,
     remark,
     uploaded_by,
@@ -1564,6 +1571,76 @@ export async function updateParentRequestStatusNew(
   return {
     success: false,
     message: rawResponse?.message || 'Failed to update request status',
+  };
+}
+
+// 4b. UPDATE ON SITE PURCHASE DELIVERY STATUS
+export async function updateOnSitePurchaseDeliveryStatusNew(
+  token: string,
+  purchaseId: number,
+  deliveryStatus: 'Partial' | 'Completed' | string
+): Promise<{
+  success: boolean;
+  message: string;
+  delivery_status?: string;
+  request_status?: string;
+  approver_name?: string;
+  approve_date?: string;
+  items?: any[];
+  data?: any;
+}> {
+  const payload: Record<string, any> = {
+    purchase_id: purchaseId,
+    delivery_status: deliveryStatus,
+  };
+
+  const rawResponse = await fetchCrmEndpoint<any>(
+    OSP_UPDATE_DELIVERY_STATUS_DIRECT,
+    OSP_UPDATE_DELIVERY_STATUS_PROXY,
+    token,
+    payload
+  );
+
+  if (rawResponse && rawResponse.status) {
+    return {
+      success: true,
+      message: rawResponse.message || `Delivery status updated to ${deliveryStatus}`,
+      delivery_status: rawResponse.delivery_status || deliveryStatus,
+      request_status: rawResponse.request_status,
+      approver_name: rawResponse.approver_name,
+      approve_date: rawResponse.approve_date,
+      items: rawResponse.items,
+      data: rawResponse,
+    };
+  }
+
+  // Fallback to alias endpoint if primary fails
+  try {
+    const aliasResponse = await fetchCrmEndpoint<any>(
+      OSP_UPDATE_DELIVERY_STATUS_ALIAS_DIRECT,
+      OSP_UPDATE_DELIVERY_STATUS_ALIAS_PROXY,
+      token,
+      payload
+    );
+    if (aliasResponse && aliasResponse.status) {
+      return {
+        success: true,
+        message: aliasResponse.message || `Delivery status updated to ${deliveryStatus}`,
+        delivery_status: aliasResponse.delivery_status || deliveryStatus,
+        request_status: aliasResponse.request_status,
+        approver_name: aliasResponse.approver_name,
+        approve_date: aliasResponse.approve_date,
+        items: aliasResponse.items,
+        data: aliasResponse,
+      };
+    }
+  } catch (err) {
+    console.warn('Fallback alias for update delivery status failed:', err);
+  }
+
+  return {
+    success: false,
+    message: rawResponse?.message || 'Failed to update delivery status',
   };
 }
 

@@ -68,7 +68,7 @@ export const MOCK_DETAILS_CHECKLIST: DetailSectionItem[] = [
   { id: '7', title: 'QC Design', key: 'qcDesign', completed: true },
   { id: '8', title: 'Final Production Drawing', key: 'finalValidation', completed: true },
   // { id: '9', title: 'On Site Purchase Request', key: 'onSitePurchaseRequest', completed: true },
-  { id: '10', title: 'On site Purchase with Item', key: 'onSitePurchaseWithItem', completed: true },
+  { id: '10', title: 'On Site Purchase Request', key: 'onSitePurchaseWithItem', completed: true },
   { id: '11', title: 'Execution Timeline', key: 'executionTimeline', completed: true },
   { id: '12', title: 'Handover', key: 'handover', completed: true },
 ];

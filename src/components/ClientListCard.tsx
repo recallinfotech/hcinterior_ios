@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject } from '../types';
-import { FileText, ChevronRight, CheckCircle2, Clock, Send, Users, CalendarCheck, ShieldAlert, ShoppingBag } from 'lucide-react';
+import { FileText, ChevronRight, CheckCircle2, Clock, Send, Users, CalendarCheck, ShieldAlert, Package } from 'lucide-react';
 
 interface ClientListCardProps {
   client: ClientProject;
@@ -9,7 +9,7 @@ interface ClientListCardProps {
   onOpenWorkflow: (client: ClientProject) => void;
   onOpenBoq?: (client: ClientProject) => void;
   onOpenFinalValidation?: (client: ClientProject) => void;
-  onOpenOnSitePurchase?: (client: ClientProject) => void;
+  onOpenOnSitePurchaseWithItem?: (client: ClientProject) => void;
 }
 
 export const ClientListCard: React.FC<ClientListCardProps> = ({
@@ -19,7 +19,7 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
   onOpenWorkflow,
   onOpenBoq,
   onOpenFinalValidation,
-  onOpenOnSitePurchase,
+  onOpenOnSitePurchaseWithItem,
 }) => {
   if (!client) return null;
 
@@ -151,15 +151,15 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (onOpenOnSitePurchase) {
-                onOpenOnSitePurchase(client);
+              if (onOpenOnSitePurchaseWithItem) {
+                onOpenOnSitePurchaseWithItem(client);
               }
             }}
-            className="p-1.5 rounded-md bg-orange-50 hover:bg-orange-100 text-orange-950 border border-orange-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
-            title="Create On-Site Purchase Request"
+            className="p-1.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-950 border border-rose-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
+            title="On Site Purchase Request"
           >
-            <ShoppingBag className="w-3.5 h-3.5 text-orange-600" />
-            <span className="text-[10px] font-black uppercase tracking-wider">On Site Purchase</span>
+            <Package className="w-3.5 h-3.5 text-rose-600" />
+            <span className="text-[10px] font-black uppercase tracking-wider">On Site Purchase Request</span>
           </button>
         </div>
 

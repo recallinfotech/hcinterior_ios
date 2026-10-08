@@ -147,7 +147,7 @@ const MENU_MODULE_ITEMS = [
   // },
   {
     key: 'onSitePurchaseWithItem',
-    title: 'On site Purchase with Item',
+    title: 'On Site Purchase Request',
     desc: 'On-site itemized purchase requests & receiving logs',
     icon: Package,
     color: 'text-rose-600 bg-rose-50 border-rose-200',
@@ -1099,7 +1099,13 @@ export default function App() {
                       setActiveTab('checklist');
                       showToast(`Opened Production Drawing for ${c.name}`);
                     }}
-                    onOpenOnSitePurchase={handleOpenOnSitePurchaseModal}
+                    onOpenOnSitePurchaseWithItem={(c) => {
+                      setSelectedClient(c);
+                      setShowAllClients(false);
+                      setSelectedChecklistKey('onSitePurchaseWithItem');
+                      setActiveTab('checklist');
+                      showToast(`Opened On Site Purchase Request for ${c.name}`);
+                    }}
                   />
                 ))
               )}

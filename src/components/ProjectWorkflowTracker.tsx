@@ -186,7 +186,7 @@ export const ProjectWorkflowTracker: React.FC<ProjectWorkflowTrackerProps> = ({ 
               { key: 'qcDesign', label: 'QC Design' },
               { key: 'finalValidation', label: 'Final Production Drawing' },
               // { key: 'onSitePurchaseRequest', label: 'On Site Purchase Request' },
-              { key: 'onSitePurchaseWithItem', label: 'On site Purchase with Item' },
+              { key: 'onSitePurchaseWithItem', label: 'On Site Purchase Request' },
               { key: 'executionTimeline', label: 'Execution Timeline' },
               { key: 'handover', label: 'Handover' },
               { key: 'pushNotification', label: 'Push Notifications' },

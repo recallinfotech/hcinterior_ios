@@ -87,7 +87,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     // },
     {
       key: 'onSitePurchaseWithItem',
-      title: 'On site Purchase with Item',
+      title: 'On Site Purchase Request',
       desc: 'On-site item purchase requests & receiving logs',
       icon: Package,
       color: 'bg-rose-500/10 text-rose-500 border-rose-500/20',

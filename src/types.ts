@@ -490,6 +490,7 @@ export interface OnSitePurchaseRequestItem {
   client_sr_id?: string;
   purchase_no: string;
   request_status: 'Pending' | 'Accepted' | 'Rejected' | 'Completed' | 'Partial' | string;
+  delivery_status?: 'Partial Recived at site' | 'Complete Recvied at site' | 'Partial' | 'Completed' | string;
   status?: string;
   remark?: string;
   uploaded_by?: number | string;

@@ -14,6 +14,7 @@ import {
   createOnSitePurchaseRequestNew,
   acceptRejectPurchaseRequestNew,
   updateParentRequestStatusNew,
+  updateOnSitePurchaseDeliveryStatusNew,
   toggleItemMaterialOrderNew,
   updateItemStatusNew,
   uploadOnSitePurchasePhotosNew,
@@ -106,6 +107,9 @@ const COMMON_BRANDS = [
   'Ebco',
   'Hafele',
 ];
+
+const DELIVERY_STATUS_PARTIAL = 'Partial Recived at site';
+const DELIVERY_STATUS_COMPLETE = 'Complete Recvied at site';
 
 interface OnSitePurchaseWithItemSectionProps {
   items?: OnSitePurchaseItem[];
@@ -310,6 +314,18 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
   const [selectedRequestForModal, setSelectedRequestForModal] =
     useState<OnSitePurchaseRequestItem | null>(null);
   const [isItemModalOpen, setIsItemModalOpen] = useState<boolean>(false);
+  const [modalDeliveryStatus, setModalDeliveryStatus] = useState<string>(DELIVERY_STATUS_PARTIAL);
+  const [isUpdatingDeliveryStatus, setIsUpdatingDeliveryStatus] = useState<boolean>(false);
+
+  // Check if all items in the selected request are received
+  const areAllItemsReceived = useMemo(() => {
+    if (!selectedRequestForModal?.items || selectedRequestForModal.items.length === 0) {
+      return false;
+    }
+    return selectedRequestForModal.items.every(
+      (it) => (it.status || '').trim().toLowerCase() === 'recieved'
+    );
+  }, [selectedRequestForModal]);
 
   // Photo Gallery / Upload Modal State
   const [isPhotosModalOpen, setIsPhotosModalOpen] = useState<boolean>(false);
@@ -756,7 +772,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
     }
   };
 
-  // Update Parent Request Status from Dropdown inside Modal (Screenshot 3 header)
+  // Update Parent Request Status from Dropdown inside Modal
   const handleUpdateParentStatus = async (newStatus: string) => {
     if (!selectedRequestForModal) return;
     try {
@@ -781,6 +797,47 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
       }
     } catch (e: any) {
       showToast?.(e.message || 'Error updating status');
+    }
+  };
+
+  // Save Delivery Status from Manual Button at the bottom of Modal
+  const handleSaveDeliveryStatus = async () => {
+    if (!selectedRequestForModal) return;
+
+    if (modalDeliveryStatus === DELIVERY_STATUS_COMPLETE && !areAllItemsReceived) {
+      showToast?.('Cannot set Complete Recvied at site because some items are not yet received.');
+      setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
+      return;
+    }
+
+    setIsUpdatingDeliveryStatus(true);
+    try {
+      const res = await updateOnSitePurchaseDeliveryStatusNew(
+        authToken || '',
+        selectedRequestForModal.id,
+        modalDeliveryStatus
+      );
+      if (res.success) {
+        showToast?.(res.message || `Delivery status updated to ${modalDeliveryStatus}`);
+        const updatedDeliveryStatus = res.delivery_status || modalDeliveryStatus;
+        const updated = {
+          ...selectedRequestForModal,
+          delivery_status: updatedDeliveryStatus,
+          ...(res.request_status ? { request_status: res.request_status } : {}),
+        };
+        setSelectedRequestForModal(updated);
+        setRequests((prev) =>
+          prev.map((r) => (r.id === selectedRequestForModal.id ? updated : r))
+        );
+        // Automatically close modal on successful delivery status update
+        setIsItemModalOpen(false);
+      } else {
+        showToast?.(res.message || 'Failed to update delivery status');
+      }
+    } catch (e: any) {
+      showToast?.(e.message || 'Error updating delivery status');
+    } finally {
+      setIsUpdatingDeliveryStatus(false);
     }
   };
 
@@ -834,7 +891,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
 
   // Submit Item Receive/Reject Status
   const handleSubmitItemStatus = async () => {
-    if (!itemStatusModalState.itemId) return;
+    if (!itemStatusModalState.itemId || !selectedRequestForModal) return;
     try {
       const res = await updateItemStatusNew(
         authToken || '',
@@ -849,7 +906,39 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
         const approveDate =
           res.approve_date || new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-        const updateItemInRequest = (r: OnSitePurchaseRequestItem) => ({
+        // Calculate updated items array
+        const currentItems = selectedRequestForModal.items || [];
+        const nextItems = currentItems.map((it) =>
+          it.id === itemStatusModalState.itemId
+            ? {
+                ...it,
+                status: updatedStatus,
+                approver_name: approverName,
+                status_approve_date: approveDate,
+                approve_date: approveDate,
+                approval_remarks: itemStatusModalState.remarks.trim(),
+              }
+            : it
+        );
+
+        // Auto-calculate Delivery Status:
+        // If ALL items are received -> "Completed" ("Complete Received")
+        // If some items are received -> "Partial" ("Partial Received")
+        let nextDeliveryStatus = selectedRequestForModal.delivery_status || 'Partial';
+        const totalItemsCount = nextItems.length;
+        const receivedItemsCount = nextItems.filter(
+          (it) => (it.status || '').toLowerCase() === 'recieved'
+        ).length;
+
+        if (totalItemsCount > 0) {
+          if (receivedItemsCount === totalItemsCount) {
+            nextDeliveryStatus = 'Completed';
+          } else if (receivedItemsCount > 0) {
+            nextDeliveryStatus = 'Partial';
+          }
+        }
+
+        const updateItemInRequest = (r: OnSitePurchaseRequestItem): OnSitePurchaseRequestItem => ({
           ...r,
           items: r.items.map((it) =>
             it.id === itemStatusModalState.itemId
@@ -865,14 +954,24 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
           ),
         });
 
-        if (selectedRequestForModal) {
-          setSelectedRequestForModal((prev) => (prev ? updateItemInRequest(prev) : null));
-        }
+        const updatedReq = updateItemInRequest(selectedRequestForModal);
+        setSelectedRequestForModal(updatedReq);
         setRequests((prev) =>
           prev.map((r) =>
-            r.id === selectedRequestForModal?.id ? updateItemInRequest(r) : r
+            r.id === selectedRequestForModal.id ? updateItemInRequest(r) : r
           )
         );
+
+        // Adjust modal delivery status selection based on whether all items are now received
+        const allRec =
+          nextItems.length > 0 &&
+          nextItems.every((it) => (it.status || '').trim().toLowerCase() === 'recieved');
+
+        if (allRec) {
+          setModalDeliveryStatus(DELIVERY_STATUS_COMPLETE);
+        } else {
+          setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
+        }
 
         setItemStatusModalState({
           isOpen: false,
@@ -896,6 +995,16 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
 
     const targetReq = selectedRequestForModal || selectedRequestForPhotos;
     if (!targetReq) return;
+
+    // Validation: Photos can only be added after item list is added
+    const hasItems =
+      (targetReq.items && targetReq.items.length > 0) ||
+      (targetReq.items_count && targetReq.items_count > 0);
+    if (!hasItems) {
+      showToast?.('Please add items to the item list before uploading photos.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     setIsUploadingPhotos(true);
     try {
@@ -979,9 +1088,20 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
   const handleOpenItemListModal = (req: OnSitePurchaseRequestItem) => {
     setSelectedRequestForModal(req);
     setIsItemModalOpen(true);
+    const allRec =
+      Boolean(req.items &&
+      req.items.length > 0 &&
+      req.items.every((it) => (it.status || '').trim().toLowerCase() === 'recieved'));
+
+    const currentDelStatus = (req.delivery_status || '').toLowerCase();
+    if (allRec && (currentDelStatus.includes('complete') || currentDelStatus === 'completed')) {
+      setModalDeliveryStatus(DELIVERY_STATUS_COMPLETE);
+    } else {
+      setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
+    }
   };
 
-  // Open Photos Modal
+  // Open Photos Modal (View Only)
   const handleOpenPhotosModal = (req: OnSitePurchaseRequestItem) => {
     setSelectedRequestForPhotos(req);
     setIsPhotosModalOpen(true);
@@ -1053,6 +1173,31 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
     );
   };
 
+  // Delivery Status badge styling helper
+  const getDeliveryStatusBadge = (deliveryStatus?: string) => {
+    if (!deliveryStatus) return null;
+    const s = deliveryStatus.toLowerCase();
+    if (s.includes('complete')) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+          Complete Recvied at site
+        </span>
+      );
+    }
+    if (s.includes('partial')) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+          Partial Recived at site
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+        {deliveryStatus}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-4 text-slate-800">
       {/* 1. SECTION CARD HEADER */}
@@ -1065,11 +1210,8 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-base font-bold text-slate-900 leading-none">
-                  On Site Purchase Request (New)
+                  On Site Purchase Request
                 </h2>
-                <span className="hidden md:inline-block text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold border border-slate-200">
-                  On site Purchase with Item
-                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 {currentActiveClient
@@ -1629,8 +1771,9 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                       </div>
 
                       {/* Status Badge */}
-                      <div className="shrink-0">
+                      <div className="shrink-0 flex items-center space-x-1.5 flex-wrap justify-end gap-1">
                         {getStatusBadge(req.request_status || req.status || 'Pending')}
+                        {req.delivery_status && getDeliveryStatusBadge(req.delivery_status)}
                       </div>
                     </div>
 
@@ -1743,6 +1886,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                           type="button"
                           onClick={() => handleOpenPhotosModal(req)}
                           className="flex-1 sm:flex-initial px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 font-bold text-xs rounded-lg shadow-2xs flex items-center justify-center space-x-1 cursor-pointer transition-colors"
+                          title="View Photos"
                         >
                           <Camera className="w-3.5 h-3.5 text-blue-600" />
                           <span>Photos ({req.photos_count || req.photos?.length || 0})</span>
@@ -1856,48 +2000,33 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
 
       {/* 6. MODAL: PURCHASE REQUEST ITEMS & ATTACHMENTS (Screenshot 3) */}
       {isItemModalOpen && selectedRequestForModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full my-auto overflow-hidden border border-slate-300 animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-blue-600 text-white p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center space-x-2">
-                <FileText className="w-5 h-5 text-amber-300" />
-                <div>
-                  <h3 className="font-extrabold text-sm sm:text-base leading-tight">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3.5">
+          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-300 animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 text-white px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-3 shrink-0 shadow-xs">
+              <div className="flex items-center space-x-2 min-w-0">
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-extrabold text-xs sm:text-sm md:text-base leading-tight truncate">
                     Purchase Request Items: {selectedRequestForModal.purchase_no}
                   </h3>
-                  <p className="text-[11px] text-blue-100">
+                  <p className="text-[10px] sm:text-[11px] text-blue-100 truncate">
                     Client: {selectedRequestForModal.client_name} ({selectedRequestForModal.client_sr_id}) | Requested By: {selectedRequestForModal.creator_name}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
-                <div className="flex items-center space-x-2 bg-blue-700/80 px-2.5 py-1 rounded-lg border border-blue-400/40">
-                  <span className="text-xs font-bold text-white shrink-0">Request Status:</span>
-                  <select
-                    value={selectedRequestForModal.request_status || 'Accepted'}
-                    onChange={(e) => handleUpdateParentStatus(e.target.value)}
-                    className="bg-white text-slate-900 font-bold text-xs rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
-                  >
-                    <option value="Accepted">Accepted</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Rejected">Rejected</option>
-                  </select>
-                </div>
-
+              <div className="flex items-center space-x-3">
                 <button
                   type="button"
                   onClick={() => setIsItemModalOpen(false)}
-                  className="text-white hover:text-amber-300 p-1 rounded-lg transition-colors cursor-pointer"
+                  className="text-white hover:text-amber-300 p-1 rounded-lg transition-colors cursor-pointer shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="p-4 space-y-6 max-h-[75vh] overflow-y-auto">
+            <div className="p-3 sm:p-4 space-y-4 sm:space-y-5 flex-1 overflow-y-auto">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
@@ -2004,33 +2133,37 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                               <td className="p-2.5 text-center">
                                 {isOrdered ? (
                                   <div className="flex items-center justify-center space-x-1.5">
-                                    <button
-                                      type="button"
-                                      disabled={isReceived}
-                                      onClick={() => handleOpenItemStatusModal(it, 'Recieved')}
-                                      className={`px-2 py-0.5 rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                        isReceived
-                                          ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
-                                          : 'bg-green-600 hover:bg-green-700 text-white'
-                                      }`}
-                                    >
-                                      <Check className="w-3 h-3" />
-                                      <span>{isReceived ? 'Received' : 'Receive'}</span>
-                                    </button>
+                                    {isReceived ? (
+                                      <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 bg-green-50 text-green-700 border border-green-300 rounded text-[11px] font-bold">
+                                        <Check className="w-3.5 h-3.5 text-green-600" />
+                                        <span>Received</span>
+                                      </span>
+                                    ) : isRejected ? (
+                                      <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-300 rounded text-[11px] font-bold">
+                                        <X className="w-3.5 h-3.5 text-rose-600" />
+                                        <span>Rejected</span>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenItemStatusModal(it, 'Recieved')}
+                                          className="px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs bg-green-600 hover:bg-green-700 text-white"
+                                        >
+                                          <Check className="w-3 h-3" />
+                                          <span>Receive</span>
+                                        </button>
 
-                                    <button
-                                      type="button"
-                                      disabled={isRejected}
-                                      onClick={() => handleOpenItemStatusModal(it, 'Reject')}
-                                      className={`px-2 py-0.5 rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                        isRejected
-                                          ? 'bg-rose-100 text-rose-700 border border-rose-300 cursor-default'
-                                          : 'bg-rose-600 hover:bg-rose-700 text-white'
-                                      }`}
-                                    >
-                                      <X className="w-3 h-3" />
-                                      <span>{isRejected ? 'Rejected' : 'Reject'}</span>
-                                    </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenItemStatusModal(it, 'Reject')}
+                                          className="px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs bg-rose-600 hover:bg-rose-700 text-white"
+                                        >
+                                          <X className="w-3 h-3" />
+                                          <span>Reject</span>
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="text-slate-400 text-[11px] italic font-medium">
@@ -2117,33 +2250,37 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
 
                             {isOrdered && (
                               <div className="flex items-center space-x-1.5">
-                                <button
-                                  type="button"
-                                  disabled={isReceived}
-                                  onClick={() => handleOpenItemStatusModal(it, 'Recieved')}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                    isReceived
-                                      ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
-                                      : 'bg-green-600 hover:bg-green-700 text-white'
-                                  }`}
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>{isReceived ? 'Received' : 'Receive'}</span>
-                                </button>
+                                {isReceived ? (
+                                  <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-green-50 text-green-700 border border-green-300 rounded-lg text-xs font-bold">
+                                    <Check className="w-3.5 h-3.5 text-green-600" />
+                                    <span>Received</span>
+                                  </span>
+                                ) : isRejected ? (
+                                  <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold">
+                                    <X className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Rejected</span>
+                                  </span>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenItemStatusModal(it, 'Recieved')}
+                                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs bg-green-600 hover:bg-green-700 text-white"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Receive</span>
+                                    </button>
 
-                                <button
-                                  type="button"
-                                  disabled={isRejected}
-                                  onClick={() => handleOpenItemStatusModal(it, 'Reject')}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                    isRejected
-                                      ? 'bg-rose-100 text-rose-700 border border-rose-300 cursor-default'
-                                      : 'bg-rose-600 hover:bg-rose-700 text-white'
-                                  }`}
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                  <span>{isRejected ? 'Rejected' : 'Reject'}</span>
-                                </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenItemStatusModal(it, 'Reject')}
+                                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs bg-rose-600 hover:bg-rose-700 text-white"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>Reject</span>
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2178,36 +2315,46 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleUploadPhotos}
-                    multiple
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    id="modal-photo-upload"
-                  />
-                  <label
-                    htmlFor="modal-photo-upload"
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
-                  >
-                    {isUploadingPhotos ? (
-                      <>
-                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Uploading...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="w-4 h-4" />
-                        <span>Click / Upload Photos</span>
-                      </>
-                    )}
-                  </label>
-                  <span className="text-[11px] text-slate-500">
-                    ℹ Multiple images (JPG, PNG, WEBP) supported.
-                  </span>
-                </div>
+                {(!selectedRequestForModal.items || selectedRequestForModal.items.length === 0) &&
+                (!selectedRequestForModal.items_count || selectedRequestForModal.items_count === 0) ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span className="font-semibold">
+                      Please add items to the item list before uploading photos.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleUploadPhotos}
+                      multiple
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      id="modal-photo-upload"
+                    />
+                    <label
+                      htmlFor="modal-photo-upload"
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                    >
+                      {isUploadingPhotos ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-4 h-4" />
+                          <span>Click / Upload Photos</span>
+                        </>
+                      )}
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      ℹ Multiple images (JPG, PNG, WEBP) supported.
+                    </span>
+                  </div>
+                )}
 
                 {(!selectedRequestForModal.photos || selectedRequestForModal.photos.length === 0) ? (
                   <div className="p-6 text-center border-2 border-dashed border-slate-200 rounded-lg text-slate-400 text-xs">
@@ -2258,11 +2405,58 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
               </div>
             </div>
 
-            <div className="p-3 bg-slate-100 border-t border-slate-300 flex justify-end">
+            <div className="p-2.5 sm:p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+              {/* Delivery Status Selector & Manual Update Button */}
+              <div className="flex items-center flex-wrap gap-2">
+                <span className="text-xs font-bold text-slate-700 shrink-0">
+                  Delivery Status:
+                </span>
+                <select
+                  value={
+                    modalDeliveryStatus.toLowerCase().includes('complete')
+                      ? DELIVERY_STATUS_COMPLETE
+                      : DELIVERY_STATUS_PARTIAL
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === DELIVERY_STATUS_COMPLETE && !areAllItemsReceived) {
+                      showToast?.('Cannot select Complete Recvied at site: All items must be marked as Received first.');
+                      return;
+                    }
+                    setModalDeliveryStatus(val);
+                  }}
+                  className="bg-white text-slate-900 border border-slate-300 font-bold text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
+                >
+                  <option value={DELIVERY_STATUS_PARTIAL}>Partial Recived at site</option>
+                  <option value={DELIVERY_STATUS_COMPLETE} disabled={!areAllItemsReceived}>
+                    Complete Recvied at site {!areAllItemsReceived ? '(Pending items remain)' : ''}
+                  </option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={handleSaveDeliveryStatus}
+                  disabled={isUpdatingDeliveryStatus}
+                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer shrink-0"
+                >
+                  {isUpdatingDeliveryStatus ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Update Delivery Status</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setIsItemModalOpen(false)}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer"
+                className="px-4 py-1 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer self-end sm:self-auto shrink-0"
               >
                 Close
               </button>
@@ -2296,35 +2490,48 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <input
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleUploadPhotos}
-                className="hidden"
-                id="quick-photo-upload"
-              />
-              <label
-                htmlFor="quick-photo-upload"
-                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
-              >
-                {isUploadingPhotos ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Uploading...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    <span>Upload New Photos</span>
-                  </>
-                )}
-              </label>
-              <span className="text-[11px] text-slate-500">
-                Select one or multiple photos to attach.
-              </span>
-            </div>
+            {/* Upload New Photos in Quick Photos Modal (Commented out - View only from list) */}
+            {/*
+            {(!selectedRequestForPhotos.items || selectedRequestForPhotos.items.length === 0) &&
+            (!selectedRequestForPhotos.items_count || selectedRequestForPhotos.items_count === 0) ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="font-semibold">
+                  Please add items to the item list before uploading photos.
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleUploadPhotos}
+                  className="hidden"
+                  id="quick-photo-upload"
+                />
+                <label
+                  htmlFor="quick-photo-upload"
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  {isUploadingPhotos ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Upload New Photos</span>
+                    </>
+                  )}
+                </label>
+                <span className="text-[11px] text-slate-500">
+                  Select one or multiple photos to attach.
+                </span>
+              </div>
+            )}
+            */}
 
             {(!selectedRequestForPhotos.photos || selectedRequestForPhotos.photos.length === 0) ? (
               <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-lg text-slate-400 text-xs">
