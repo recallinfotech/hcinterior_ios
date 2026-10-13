@@ -375,9 +375,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
 
                                     <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 5px;">
                                         <span class="text-muted font-bold" style="font-size: 12px; margin-right: 5px;">Field Dispatch Action:</span>
-                                        <button type="button" class="btn btn-sm btn-info field_action_btn" data-action="accept" title="Accept Field Request">
-                                            <i class="fa fa-check"></i> Accept
-                                        </button>
+                                        
                                         <button type="button" class="btn btn-sm btn-danger field_action_btn" data-action="reject" title="Reject Field Request">
                                             <i class="fa fa-times"></i> Reject
                                         </button>
@@ -2227,7 +2225,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
         });
     });
 
-    // Field Dispatch Actions (Accept / Reject / Received)
+    // Field Dispatch Actions (Reject / Received)
     $(document).on('click', '.field_action_btn', function(e) {
         e.preventDefault();
         var action = $(this).data('action');
@@ -2239,7 +2237,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
             return;
         }
 
-        var confirmMsg = (action === 'received') ? 'Mark this purchase dispatch as Received & Completed?' : ((action === 'accept') ? 'Accept this field dispatch request?' : 'Reject this field dispatch request?');
+        var confirmMsg = (action === 'received') ? 'Mark this purchase dispatch as Received & Completed?' : 'Reject this field dispatch request?';
         if (!confirm(confirmMsg)) return;
 
         var btn = $(this);
