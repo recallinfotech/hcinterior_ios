@@ -483,14 +483,14 @@ $deleted = can_action('4', 'deleted');
                                         <th><?= lang('name') ?> </th>
                                         <th><?= lang('Date') ?></th>
                                         <?php if ($assign_team->member_profile != 'Operation Team') { ?>
-                                            <?php if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 54 || $designation_id  == 126) {
+                                            <?php if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 54 || $designation_id  == 126 || $designation_id  == 152) {
                                             ?>
                                                 <th><?= lang('Freeze BOQ Amount') ?> </th>
                                             <?php } ?>
                                             <!-- <th><?= lang('Discount Modular') ?> </th>
                                     <th><?= lang('Discount Civil') ?> </th>-->
 
-                                            <?php if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50) { ?>
+                                            <?php if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 152) { ?>
                                                 <th><?= lang('Amount Recived') ?> </th>
                                             <?php } ?>
 

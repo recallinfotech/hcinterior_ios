@@ -835,10 +835,10 @@ class Client extends Admin_Controller
                 $sub_array[] = $client_details->date_added;
 
                 if (empty($logged_user_assign_team) || $logged_user_assign_team->member_profile != 'Operation Team') {
-                    if ($user_type == 1 || $designation_id == 72 || $designation_id == 45 || $designation_id == 48 || $designation_id == 49 || $designation_id == 50 || $designation_id == 54 || $designation_id == 126) {
+                    if ($user_type == 1 || $designation_id == 72 || $designation_id == 45 || $designation_id == 48 || $designation_id == 49 || $designation_id == 50 || $designation_id == 54 || $designation_id == 126 || $designation_id  == 152) {
                         $sub_array[] = $freeze_boq_amount;
                     }
-                    if ($user_type == 1 || $designation_id == 72 || $designation_id == 45 || $designation_id == 48 || $designation_id == 49 || $designation_id == 50) {
+                    if ($user_type == 1 || $designation_id == 72 || $designation_id == 45 || $designation_id == 48 || $designation_id == 49 || $designation_id == 50 || $designation_id  == 152) {
                         $raw_amount_received = !empty($client_details->amount_received) ? str_replace(',', '', (string)$client_details->amount_received) : 0;
                         $clean_amount_received = floatval($raw_amount_received);
 
@@ -6510,6 +6510,383 @@ class Client extends Admin_Controller
         ]);
     }
 
+    public function get_on_site_purchase_dispatch_ajax()
+    {
+        $purchase_id = $this->input->post('purchase_id', true);
+        if (empty($purchase_id)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid Purchase ID']);
+            return;
+        }
+
+        $purchase = $this->db->where('id', $purchase_id)->get('tbl_client_on_site_purchase')->row();
+        if (!$purchase) {
+            echo json_encode(['success' => false, 'message' => 'Purchase request not found']);
+            return;
+        }
+
+        $dispatch = $this->db->where('purchase_id', $purchase_id)->order_by('id', 'DESC')->get('tbl_client_on_site_purchase_dispatch')->row();
+
+        $this->load->helper('permission_helper');
+        $user_type = $this->session->userdata('user_type');
+        $can_site_dispatch = ($user_type == 1 || check_permission('site_dispatch'));
+        $can_field_dispatch = ($user_type == 1 || check_permission('field_dispatch') || check_permission('site_dispatch'));
+
+        $dispatch_data = null;
+        if ($dispatch) {
+            $dispatched_by_name = !empty($dispatch->dispatched_by) ? get_any_field('tbl_account_details', array('user_id' => $dispatch->dispatched_by), 'fullname') : '';
+            $site_by_name       = !empty($dispatch->site_dispatch_by) ? get_any_field('tbl_account_details', array('user_id' => $dispatch->site_dispatch_by), 'fullname') : '';
+            $field_by_name      = !empty($dispatch->field_dispatch_by) ? get_any_field('tbl_account_details', array('user_id' => $dispatch->field_dispatch_by), 'fullname') : '';
+
+            $dispatch_photos = !empty($dispatch->dispatch_photos) ? json_decode($dispatch->dispatch_photos, true) : [];
+            $field_photos    = !empty($dispatch->field_dispatch_photos) ? json_decode($dispatch->field_dispatch_photos, true) : [];
+
+            $dispatch_data = [
+                'id'                     => $dispatch->id,
+                'purchase_id'            => $dispatch->purchase_id,
+                'no_of_boxes'            => $dispatch->no_of_boxes,
+                'dispatch_photos'        => is_array($dispatch_photos) ? $dispatch_photos : [],
+                'dispatch_remarks'       => $dispatch->dispatch_remarks,
+                'dispatched_by'          => $dispatch->dispatched_by,
+                'dispatched_by_name'     => $dispatched_by_name,
+                'dispatched_date'        => !empty($dispatch->dispatched_date) ? date('d M Y, h:i A', strtotime($dispatch->dispatched_date)) : '',
+                'site_dispatch_status'   => $dispatch->site_dispatch_status ?: 'Pending',
+                'site_dispatch_by'       => $dispatch->site_dispatch_by,
+                'site_dispatch_by_name'  => $site_by_name,
+                'site_dispatch_date'     => !empty($dispatch->site_dispatch_date) ? date('d M Y, h:i A', strtotime($dispatch->site_dispatch_date)) : '',
+                'site_dispatch_remark'   => $dispatch->site_dispatch_remark,
+                'field_dispatch_status'  => $dispatch->field_dispatch_status ?: 'Pending',
+                'field_dispatch_by'      => $dispatch->field_dispatch_by,
+                'field_dispatch_by_name' => $field_by_name,
+                'field_dispatch_date'    => !empty($dispatch->field_dispatch_date) ? date('d M Y, h:i A', strtotime($dispatch->field_dispatch_date)) : '',
+                'field_dispatch_remark'  => $dispatch->field_dispatch_remark,
+                'field_dispatch_photos'  => is_array($field_photos) ? $field_photos : [],
+                'overall_status'         => $dispatch->overall_status ?: 'Dispatched'
+            ];
+        }
+
+        echo json_encode([
+            'success'            => true,
+            'purchase_id'        => $purchase_id,
+            'purchase_no'        => !empty($purchase->purchase_no) ? $purchase->purchase_no : 'OSPR-' . sprintf('%04d', $purchase_id),
+            'has_dispatch'       => !empty($dispatch_data),
+            'dispatch'           => $dispatch_data,
+            'can_site_dispatch'  => $can_site_dispatch,
+            'can_field_dispatch' => $can_field_dispatch
+        ]);
+    }
+
+    public function save_on_site_purchase_dispatch_ajax()
+    {
+        $purchase_id = $this->input->post('purchase_id', true);
+        $no_of_boxes = intval($this->input->post('no_of_boxes', true));
+        $remarks     = $this->input->post('dispatch_remarks', true);
+
+        if (empty($purchase_id)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid Purchase ID']);
+            return;
+        }
+
+        if ($no_of_boxes <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Please enter a valid number of boxes (minimum 1).']);
+            return;
+        }
+
+        $purchase = $this->db->where('id', $purchase_id)->get('tbl_client_on_site_purchase')->row();
+        if (!$purchase) {
+            echo json_encode(['success' => false, 'message' => 'Purchase request not found']);
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+
+        // Check if existing record exists
+        $existing = $this->db->where('purchase_id', $purchase_id)->get('tbl_client_on_site_purchase_dispatch')->row();
+        $uploaded_files = [];
+        if ($existing && !empty($existing->dispatch_photos)) {
+            $decoded = json_decode($existing->dispatch_photos, true);
+            if (is_array($decoded)) {
+                $uploaded_files = $decoded;
+            }
+        }
+
+        // Upload any attached photos
+        $target_dir = getcwd() . "/uploads/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+
+        if (!empty($_FILES['dispatch_photos']['name'])) {
+            $files_count = is_array($_FILES['dispatch_photos']['name']) ? count($_FILES['dispatch_photos']['name']) : 1;
+            if (is_array($_FILES['dispatch_photos']['name'])) {
+                for ($i = 0; $i < $files_count; $i++) {
+                    if ($_FILES['dispatch_photos']['error'][$i] == 0) {
+                        $tmp_name = $_FILES['dispatch_photos']['tmp_name'][$i];
+                        $orig_name = $_FILES['dispatch_photos']['name'][$i];
+                        $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+
+                        $allowed_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'];
+                        if (!in_array($file_ext, $allowed_exts)) continue;
+
+                        $new_filename = 'osp_disp_' . $purchase_id . '_' . time() . '_' . rand(100, 999) . '.' . $file_ext;
+                        $dest_path = $target_dir . $new_filename;
+
+                        if (move_uploaded_file($tmp_name, $dest_path)) {
+                            $uploaded_files[] = [
+                                'fileName' => $new_filename,
+                                'path'     => 'uploads/' . $new_filename,
+                                'ext'      => '.' . $file_ext,
+                                'is_image' => in_array($file_ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                                'date'     => date('d M Y, h:i A')
+                            ];
+                        }
+                    }
+                }
+            } else if ($_FILES['dispatch_photos']['error'] == 0) {
+                $tmp_name = $_FILES['dispatch_photos']['tmp_name'];
+                $orig_name = $_FILES['dispatch_photos']['name'];
+                $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+                $allowed_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'];
+                if (in_array($file_ext, $allowed_exts)) {
+                    $new_filename = 'osp_disp_' . $purchase_id . '_' . time() . '_' . rand(100, 999) . '.' . $file_ext;
+                    $dest_path = $target_dir . $new_filename;
+                    if (move_uploaded_file($tmp_name, $dest_path)) {
+                        $uploaded_files[] = [
+                            'fileName' => $new_filename,
+                            'path'     => 'uploads/' . $new_filename,
+                            'ext'      => '.' . $file_ext,
+                            'is_image' => in_array($file_ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                            'date'     => date('d M Y, h:i A')
+                        ];
+                    }
+                }
+            }
+        }
+
+        $dispatch_record = [
+            'purchase_id'          => $purchase_id,
+            'client_id'            => $purchase->client_id,
+            'no_of_boxes'          => $no_of_boxes,
+            'dispatch_photos'      => json_encode($uploaded_files),
+            'dispatch_remarks'     => $remarks,
+            'dispatched_by'        => $user_id,
+            'dispatched_date'      => date('Y-m-d H:i:s'),
+            'site_dispatch_status' => 'Pending',
+            'overall_status'       => 'Dispatched'
+        ];
+
+        if ($existing) {
+            $this->db->where('id', $existing->id)->update('tbl_client_on_site_purchase_dispatch', $dispatch_record);
+        } else {
+            $this->db->insert('tbl_client_on_site_purchase_dispatch', $dispatch_record);
+        }
+
+        $this->db->where('id', $purchase_id)->update('tbl_client_on_site_purchase', [
+            'dispatch_status' => 'Dispatched'
+        ]);
+
+        echo json_encode([
+            'success'        => true,
+            'message'        => 'Dispatch initiated successfully!',
+            'purchase_id'    => $purchase_id,
+            'overall_status' => 'Dispatched'
+        ]);
+    }
+
+    public function site_dispatch_action_ajax()
+    {
+        $this->load->helper('permission_helper');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && !check_permission('site_dispatch')) {
+            echo json_encode(['success' => false, 'message' => 'Permission Denied: Site Dispatch permission required.']);
+            return;
+        }
+
+        $purchase_id = $this->input->post('purchase_id', true);
+        $action      = $this->input->post('action', true); // 'accept' or 'reject'
+        $remark      = trim($this->input->post('remark', true));
+
+        if (empty($purchase_id) || empty($action)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid Parameters']);
+            return;
+        }
+
+        if ($action == 'reject' && empty($remark)) {
+            echo json_encode(['success' => false, 'message' => 'Remark is required in case of rejection.']);
+            return;
+        }
+
+        $dispatch = $this->db->where('purchase_id', $purchase_id)->get('tbl_client_on_site_purchase_dispatch')->row();
+        if (!$dispatch) {
+            echo json_encode(['success' => false, 'message' => 'Dispatch record not found. Please initiate dispatch first.']);
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+        $approver_name = get_any_field('tbl_account_details', array('user_id' => $user_id), 'fullname');
+
+        if ($action == 'accept') {
+            $site_status = 'Accepted';
+            $overall_status = 'Processed to Field Dispatcher';
+            $field_status = 'Pending';
+        } else {
+            $site_status = 'Rejected';
+            $overall_status = 'Site Dispatch Rejected';
+            $field_status = 'Rejected';
+        }
+
+        $update_data = [
+            'site_dispatch_status'  => $site_status,
+            'site_dispatch_by'      => $user_id,
+            'site_dispatch_date'    => date('Y-m-d H:i:s'),
+            'site_dispatch_remark'  => $remark,
+            'field_dispatch_status' => $field_status,
+            'overall_status'        => $overall_status
+        ];
+
+        $this->db->where('id', $dispatch->id)->update('tbl_client_on_site_purchase_dispatch', $update_data);
+        $this->db->where('id', $purchase_id)->update('tbl_client_on_site_purchase', [
+            'dispatch_status' => $overall_status
+        ]);
+
+        echo json_encode([
+            'success'              => true,
+            'message'              => ($action == 'accept') ? 'Dispatch processed to Field Dispatcher successfully!' : 'Dispatch rejected successfully.',
+            'site_dispatch_status' => $site_status,
+            'overall_status'       => $overall_status,
+            'approver_name'        => $approver_name,
+            'approve_date'         => date('d M Y, h:i A'),
+            'remark'               => $remark
+        ]);
+    }
+
+    public function field_dispatch_action_ajax()
+    {
+        $this->load->helper('permission_helper');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && !check_permission('field_dispatch') && !check_permission('site_dispatch')) {
+            echo json_encode(['success' => false, 'message' => 'Permission Denied: Field Dispatch permission required.']);
+            return;
+        }
+
+        $purchase_id = $this->input->post('purchase_id', true);
+        $action      = $this->input->post('action', true); // 'accept', 'reject', or 'received'
+        $remark      = trim($this->input->post('remark', true));
+
+        if (empty($purchase_id) || empty($action)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid Parameters']);
+            return;
+        }
+
+        if ($action == 'reject' && empty($remark)) {
+            echo json_encode(['success' => false, 'message' => 'Remark is required in case of rejection.']);
+            return;
+        }
+
+        $dispatch = $this->db->where('purchase_id', $purchase_id)->get('tbl_client_on_site_purchase_dispatch')->row();
+        if (!$dispatch) {
+            echo json_encode(['success' => false, 'message' => 'Dispatch record not found.']);
+            return;
+        }
+
+        $user_id = $this->session->userdata('user_id');
+        $approver_name = get_any_field('tbl_account_details', array('user_id' => $user_id), 'fullname');
+
+        // Handle field photo uploads if any
+        $field_photos = !empty($dispatch->field_dispatch_photos) ? json_decode($dispatch->field_dispatch_photos, true) : [];
+        if (!is_array($field_photos)) $field_photos = [];
+
+        $target_dir = getcwd() . "/uploads/";
+        if (!file_exists($target_dir)) {
+            mkdir($target_dir, 0777, true);
+        }
+
+        if (!empty($_FILES['field_photos']['name'])) {
+            $files_count = is_array($_FILES['field_photos']['name']) ? count($_FILES['field_photos']['name']) : 1;
+            if (is_array($_FILES['field_photos']['name'])) {
+                for ($i = 0; $i < $files_count; $i++) {
+                    if ($_FILES['field_photos']['error'][$i] == 0) {
+                        $tmp_name = $_FILES['field_photos']['tmp_name'][$i];
+                        $orig_name = $_FILES['field_photos']['name'][$i];
+                        $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+
+                        $allowed_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'];
+                        if (!in_array($file_ext, $allowed_exts)) continue;
+
+                        $new_filename = 'osp_field_' . $purchase_id . '_' . time() . '_' . rand(100, 999) . '.' . $file_ext;
+                        $dest_path = $target_dir . $new_filename;
+
+                        if (move_uploaded_file($tmp_name, $dest_path)) {
+                            $field_photos[] = [
+                                'fileName' => $new_filename,
+                                'path'     => 'uploads/' . $new_filename,
+                                'ext'      => '.' . $file_ext,
+                                'is_image' => in_array($file_ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                                'date'     => date('d M Y, h:i A')
+                            ];
+                        }
+                    }
+                }
+            } else if ($_FILES['field_photos']['error'] == 0) {
+                $tmp_name = $_FILES['field_photos']['tmp_name'];
+                $orig_name = $_FILES['field_photos']['name'];
+                $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+                $allowed_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'];
+                if (in_array($file_ext, $allowed_exts)) {
+                    $new_filename = 'osp_field_' . $purchase_id . '_' . time() . '_' . rand(100, 999) . '.' . $file_ext;
+                    $dest_path = $target_dir . $new_filename;
+                    if (move_uploaded_file($tmp_name, $dest_path)) {
+                        $field_photos[] = [
+                            'fileName' => $new_filename,
+                            'path'     => 'uploads/' . $new_filename,
+                            'ext'      => '.' . $file_ext,
+                            'is_image' => in_array($file_ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']),
+                            'date'     => date('d M Y, h:i A')
+                        ];
+                    }
+                }
+            }
+        }
+
+        if ($action == 'accept') {
+            $field_status = 'Accepted';
+            $overall_status = 'Field Dispatch Accepted';
+        } else if ($action == 'received') {
+            $field_status = 'Received';
+            $overall_status = 'Received';
+        } else {
+            $field_status = 'Rejected';
+            $overall_status = 'Field Dispatch Rejected';
+        }
+
+        $update_data = [
+            'field_dispatch_status' => $field_status,
+            'field_dispatch_by'     => $user_id,
+            'field_dispatch_date'   => date('Y-m-d H:i:s'),
+            'field_dispatch_remark' => $remark,
+            'field_dispatch_photos' => json_encode($field_photos),
+            'overall_status'        => $overall_status
+        ];
+
+        $this->db->where('id', $dispatch->id)->update('tbl_client_on_site_purchase_dispatch', $update_data);
+        
+        $main_update = ['dispatch_status' => $overall_status];
+        if ($action == 'received') {
+            $main_update['delivery_status'] = 'Completed';
+        }
+        $this->db->where('id', $purchase_id)->update('tbl_client_on_site_purchase', $main_update);
+
+        echo json_encode([
+            'success'               => true,
+            'message'               => 'Field dispatch request updated successfully!',
+            'field_dispatch_status' => $field_status,
+            'overall_status'        => $overall_status,
+            'approver_name'         => $approver_name,
+            'approve_date'          => date('d M Y, h:i A'),
+            'remark'                => $remark,
+            'field_photos'          => $field_photos
+        ]);
+    }
+
     public function on_site_purchase_request_status()
     {
         // Security check
@@ -10412,12 +10789,12 @@ class Client extends Admin_Controller
                 $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row();
                 if ($assign_team->member_profile != 'Operation Team') {
 
-                    if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 54 || $designation_id  == 126) {
+                    if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 54 || $designation_id  == 126 || $designation_id  == 152) {
 
                         // $sub_array[] = $freeze_boq_amount;
 
                     }
-                    if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50) {
+                    if ($user_type == 1 || $designation_id  == 72 || $designation_id  == 45 || $designation_id  == 48  || $designation_id  == 49 || $designation_id  == 50 || $designation_id  == 152) {
 
 
 
