@@ -743,7 +743,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
 </div>
 
 <!-- Rejection Remark Bootstrap Modal -->
-<div class="modal fade" id="rejection_remark_modal" tabindex="-1" role="dialog">
+<div class="modal fade" id="rejection_remark_modal" tabindex="-1" role="dialog" style="z-index: 1060;">
     <div class="modal-dialog" role="document" style="max-width: 500px;">
         <div class="modal-content">
             <div class="modal-header bg-danger" style="background-color: #d9534f; color: white; padding: 12px 15px;">
@@ -1026,9 +1026,9 @@ $brand_options_html .= '<option value="Other">Other</option>';
     // Accept / Partial Approve Request Handler
     $(document).on('click', '.req_accept_btn', function(e) {
         e.preventDefault();
-        var btn = $(this);
-        var purchaseId = btn.data('purchase_id') || currentActivePurchaseId;
-        var actionType = btn.data('action') || 'accept';
+        var btn = $(this).closest('.req_accept_btn');
+        var purchaseId = btn.data('purchase_id') || btn.attr('data-purchase_id') || currentActivePurchaseId;
+        var actionType = btn.data('action') || btn.attr('data-action') || 'accept';
 
         btn.prop('disabled', true);
 
@@ -1043,16 +1043,14 @@ $brand_options_html .= '<option value="Other">Other</option>';
             success: function(response) {
                 btn.prop('disabled', false);
                 if (response.success) {
-                    var masterBtn = $('.view_items_btn[data-purchase_id="' + purchaseId + '"]');
-                    if (masterBtn.length) {
-                        masterBtn.data('req_status', response.request_status);
-                        masterBtn.data('items', response.items);
-                        masterBtn.data('photos', JSON.stringify(response.photos));
-                        masterBtn.data('approver_name', response.approver_name);
-                        masterBtn.data('approve_date', response.approve_date);
+                    var targetRow = $('tr[data-purchase-row-id="' + purchaseId + '"]');
+                    var parentCell = targetRow.find('.parent-status-cell');
+                    var masterBtn = targetRow.find('.view_items_btn');
 
-                        var parentBadgeClass = response.request_status === 'Completed' ? 'label-success' : (response.request_status === 'Partial' ? 'label-info' : 'label-success');
-                        var parentStatusText = response.request_status === 'Partial' ? 'Partial Approved' : (response.request_status === 'Accepted' ? 'Accepted' : response.request_status);
+                    var parentBadgeClass = response.request_status === 'Completed' ? 'label-success' : (response.request_status === 'Partial' ? 'label-info' : 'label-success');
+                    var parentStatusText = response.request_status === 'Partial' ? 'Partial Approved' : (response.request_status === 'Accepted' ? 'Accepted' : response.request_status);
+
+                    if (parentCell.length) {
                         parentCell.html(`
                             <span class="label ${parentBadgeClass}">${parentStatusText}</span>
                             <small class="text-success" style="display:block; margin-top:2px; font-weight: 600;">
@@ -1061,12 +1059,19 @@ $brand_options_html .= '<option value="Other">Other</option>';
                         `);
                     }
 
+                    if (masterBtn.length) {
+                        masterBtn.data('req_status', response.request_status);
+                        masterBtn.data('items', response.items);
+                        masterBtn.data('photos', JSON.stringify(response.photos));
+                        masterBtn.data('approver_name', response.approver_name);
+                        masterBtn.data('approve_date', response.approve_date);
+                        masterBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled');
+                    }
+
                     if ($('#purchase_items_modal').is(':visible') && currentActivePurchaseId == purchaseId) {
                         updateModalHeaderStatus(response.request_status, purchaseId, response.remark, response.approver_name, response.approve_date);
                         renderModalItems(response.items, response.request_status);
                         renderModalPhotos(response.photos);
-                    } else {
-                        masterBtn.trigger('click');
                     }
                 } else {
                     alert(response.message || 'Error processing request');
@@ -1082,12 +1087,20 @@ $brand_options_html .= '<option value="Other">Other</option>';
     // Open Reject Modal Handler
     $(document).on('click', '.req_reject_btn', function(e) {
         e.preventDefault();
-        var purchaseId = $(this).data('purchase_id') || currentActivePurchaseId;
+        var btn = $(this).closest('.req_reject_btn');
+        var purchaseId = btn.data('purchase_id') || btn.attr('data-purchase_id') || currentActivePurchaseId;
         $('#reject_target_type').val('request');
         $('#reject_target_id').val(purchaseId);
         $('#reject_remark_text').val('');
         $('#rejection_remark_modal .modal-title').html('<i class="fa fa-times-circle"></i> Reject Purchase Request');
         $('#rejection_remark_modal').modal('show');
+    });
+
+    // Nested modal backdrop/scroll fix
+    $('#rejection_remark_modal').on('hidden.bs.modal', function () {
+        if ($('#purchase_items_modal').is(':visible')) {
+            $('body').addClass('modal-open');
+        }
     });
 
     // Submit Rejection Modal Form Handler
@@ -1118,16 +1131,21 @@ $brand_options_html .= '<option value="Other">Other</option>';
                     $('#submit_rejection_btn').prop('disabled', false);
                     $('#rejection_remark_modal').modal('hide');
                     if (response.success) {
-                        var masterBtn = $('.view_items_btn[data-purchase_id="' + targetId + '"]');
-                        if (masterBtn.length) {
-                            masterBtn.data('req_status', response.request_status);
-                            masterBtn.data('items', response.items);
+                        var targetRow = $('tr[data-purchase-row-id="' + targetId + '"]');
+                        var parentCell = targetRow.find('.parent-status-cell');
+                        var masterBtn = targetRow.find('.view_items_btn');
 
-                            var parentCell = masterBtn.closest('tr').find('.parent-status-cell');
+                        if (parentCell.length) {
                             parentCell.html(`
                                 <span class="label label-danger">Rejected</span>
                                 <small class="text-danger" style="display:block; font-style:italic;">Reason: ${response.remark}</small>
                             `);
+                        }
+
+                        if (masterBtn.length) {
+                            masterBtn.data('req_status', response.request_status);
+                            masterBtn.data('items', response.items);
+                            masterBtn.prop('disabled', true).addClass('disabled').attr('disabled', 'disabled');
                         }
 
                         if ($('#purchase_items_modal').is(':visible') && currentActivePurchaseId == targetId) {
