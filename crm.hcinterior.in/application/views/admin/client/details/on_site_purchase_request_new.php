@@ -662,52 +662,62 @@ $brand_options_html .= '<option value="Other">Other</option>';
                                           <span class="label <?= $del_badge_class ?>"><?= html_escape($del_status) ?></span>
                                       </td>
                                       <td>
-                                          <?php
-                                          $is_req_accepted = !empty($curr_req_status) && !in_array($curr_req_status, array('Pending', 'Reject', 'Rejected', 'Unaccepted'));
-                                          $disabled_btn_attr = $is_req_accepted ? '' : 'disabled="disabled"';
-                                          $disabled_btn_class = $is_req_accepted ? '' : ' disabled';
-                                          ?>
-                                          <!-- Items List Button -->
-                                          <button type="button"
-                                              class="btn btn-xs btn-info view_items_btn<?= $disabled_btn_class ?>"
-                                              <?= $disabled_btn_attr ?>
-                                              data-purchase_id="<?= $req->id ?>"
-                                              data-req_no="<?= $req_no_str ?>"
-                                              data-req_status="<?= html_escape($curr_req_status) ?>"
-                                              data-delivery_status="<?= html_escape($del_status) ?>"
-                                              data-remark="<?= html_escape($req->remark ?: '') ?>"
-                                              data-approver_name="<?= html_escape($parent_approver) ?>"
-                                              data-approve_date="<?= html_escape($parent_approve_date_str) ?>"
-                                              data-items='<?= json_encode($items, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'
-                                              data-photos='<?= html_escape($req->upload_file ?: '[]') ?>'
-                                              title="<?= $is_req_accepted ? 'View Item List & Photos' : 'Accept request to view items' ?>">
-                                              <i class="fa fa-list"></i> Item List
-                                          </button>
+                                           <?php
+                                           $is_req_accepted = !empty($curr_req_status) && !in_array($curr_req_status, array('Pending', 'Reject', 'Rejected', 'Unaccepted'));
 
-                                          <!-- Photos Gallery Badge Button -->
-                                            <button type="button"
-                                                class="btn btn-xs btn-default view_items_btn<?= $disabled_btn_class ?>"
-                                                <?= $disabled_btn_attr ?>
-                                                data-purchase_id="<?= $req->id ?>"
-                                                data-req_no="<?= $req_no_str ?>"
-                                                data-req_status="<?= html_escape($curr_req_status) ?>"
-                                                data-delivery_status="<?= html_escape($del_status) ?>"
-                                                data-remark="<?= html_escape($req->remark ?: '') ?>"
-                                                data-items='<?= json_encode($items, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'
-                                                data-photos='<?= html_escape($req->upload_file ?: '[]') ?>'
-                                                title="<?= $is_req_accepted ? 'View / Upload Site Photos' : 'Accept request to view photos' ?>">
-                                                <i class="fa fa-camera text-primary"></i> Photos (<span class="photo_count_badge"><?= $photo_count ?></span>)
-                                            </button>
+                                           // Dispatchers can ONLY view PDF and Dispatch section; Item list & Photos must be disabled
+                                           $is_dispatcher_user = ($user_type != 1 && (check_permission('site_dispatch') || check_permission('field_dispatch')) && !check_permission('onsite_purchase_request_edit'));
 
-                                            <!-- Dispatch Process Button -->
-                                            <button type="button"
-                                                class="btn btn-xs btn-warning open_dispatch_modal_btn<?= $disabled_btn_class ?>"
-                                                <?= $disabled_btn_attr ?>
-                                                data-purchase_id="<?= $req->id ?>"
-                                                data-req_no="<?= $req_no_str ?>"
-                                                title="<?= $is_req_accepted ? 'Dispatch Process & Management' : 'Accept request to enable dispatch' ?>">
-                                                <i class="fa fa-truck"></i> Dispatch
-                                            </button>
+                                           $can_access_items_photos = ($is_req_accepted && !$is_dispatcher_user);
+                                           $items_btn_attr = $can_access_items_photos ? '' : 'disabled="disabled"';
+                                           $items_btn_class = $can_access_items_photos ? '' : ' disabled';
+                                           $items_btn_title = $is_dispatcher_user ? 'Disabled for Dispatcher' : ($is_req_accepted ? 'View Item List & Photos' : 'Accept request to view items');
+                                           $photos_btn_title = $is_dispatcher_user ? 'Disabled for Dispatcher' : ($is_req_accepted ? 'View / Upload Site Photos' : 'Accept request to view photos');
+
+                                           $disabled_dispatch_attr = $is_req_accepted ? '' : 'disabled="disabled"';
+                                           $disabled_dispatch_class = $is_req_accepted ? '' : ' disabled';
+                                           ?>
+                                           <!-- Items List Button -->
+                                           <button type="button"
+                                               class="btn btn-xs btn-info view_items_btn<?= $items_btn_class ?>"
+                                               <?= $items_btn_attr ?>
+                                               data-purchase_id="<?= $req->id ?>"
+                                               data-req_no="<?= $req_no_str ?>"
+                                               data-req_status="<?= html_escape($curr_req_status) ?>"
+                                               data-delivery_status="<?= html_escape($del_status) ?>"
+                                               data-remark="<?= html_escape($req->remark ?: '') ?>"
+                                               data-approver_name="<?= html_escape($parent_approver) ?>"
+                                               data-approve_date="<?= html_escape($parent_approve_date_str) ?>"
+                                               data-items='<?= json_encode($items, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'
+                                               data-photos='<?= html_escape($req->upload_file ?: '[]') ?>'
+                                               title="<?= $items_btn_title ?>">
+                                               <i class="fa fa-list"></i> Item List
+                                           </button>
+
+                                           <!-- Photos Gallery Badge Button -->
+                                             <button type="button"
+                                                 class="btn btn-xs btn-default view_items_btn<?= $items_btn_class ?>"
+                                                 <?= $items_btn_attr ?>
+                                                 data-purchase_id="<?= $req->id ?>"
+                                                 data-req_no="<?= $req_no_str ?>"
+                                                 data-req_status="<?= html_escape($curr_req_status) ?>"
+                                                 data-delivery_status="<?= html_escape($del_status) ?>"
+                                                 data-remark="<?= html_escape($req->remark ?: '') ?>"
+                                                 data-items='<?= json_encode($items, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'
+                                                 data-photos='<?= html_escape($req->upload_file ?: '[]') ?>'
+                                                 title="<?= $photos_btn_title ?>">
+                                                 <i class="fa fa-camera text-primary"></i> Photos (<span class="photo_count_badge"><?= $photo_count ?></span>)
+                                             </button>
+
+                                             <!-- Dispatch Process Button -->
+                                             <button type="button"
+                                                 class="btn btn-xs btn-warning open_dispatch_modal_btn<?= $disabled_dispatch_class ?>"
+                                                 <?= $disabled_dispatch_attr ?>
+                                                 data-purchase_id="<?= $req->id ?>"
+                                                 data-req_no="<?= $req_no_str ?>"
+                                                 title="<?= $is_req_accepted ? 'Dispatch Process & Management' : 'Accept request to enable dispatch' ?>">
+                                                 <i class="fa fa-truck"></i> Dispatch
+                                             </button>
 
                                         <!-- PDF Preview / Download Button -->
                                         <button type="button"
@@ -1112,6 +1122,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
     var isCreateAllowed = <?= ($user_type == 1 || check_permission('create_on_site_purchase_request')) ? 'true' : 'false' ?>;
     var isAcceptRejectAllowed = <?= ($user_type == 1 || check_permission('on_site_request_accept_reject')) ? 'true' : 'false' ?>;
     var isItemApproveAllowed = <?= ($user_type == 1 || check_permission('item_received_approved')) ? 'true' : 'false' ?>;
+    var isDispatcherUser = <?= ($user_type != 1 && (check_permission('site_dispatch') || check_permission('field_dispatch')) && !check_permission('onsite_purchase_request_edit')) ? 'true' : 'false' ?>;
     var currentActivePurchaseId = 0;
 
     function updateModalHeaderStatus(reqStatus, purchaseId, remark, approverName, approveDate, deliveryStatus, hasItems) {
@@ -1326,7 +1337,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
 
     // View Item List Modal Handler
     $(document).on('click', '.view_items_btn', function(e) {
-        if ($(this).is(':disabled') || $(this).hasClass('disabled') || $(this).attr('disabled')) {
+        if (isDispatcherUser || $(this).is(':disabled') || $(this).hasClass('disabled') || $(this).attr('disabled')) {
             e.preventDefault();
             return false;
         }
@@ -1398,15 +1409,19 @@ $brand_options_html .= '<option value="Other">Other</option>';
                         masterBtn.data('photos', JSON.stringify(response.photos));
                         masterBtn.data('approver_name', response.approver_name);
                         masterBtn.data('approve_date', response.approve_date);
-                        masterBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled');
+                        if (!isDispatcherUser) {
+                            masterBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled');
+                        }
+                    }
                     var dispatchBtn = targetRow.find('.open_dispatch_modal_btn');
                     if (dispatchBtn.length) {
                         dispatchBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled').attr('title', 'Dispatch Process & Management');
                     }
-                    var photoBtn = targetRow.find('.photo_count_badge').closest('button');
-                    if (photoBtn.length) {
-                        photoBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled').attr('title', 'View / Upload Site Photos');
-                    }
+                    if (!isDispatcherUser) {
+                        var photoBtn = targetRow.find('.photo_count_badge').closest('button');
+                        if (photoBtn.length) {
+                            photoBtn.prop('disabled', false).removeClass('disabled').removeAttr('disabled').attr('title', 'View / Upload Site Photos');
+                        }
                     }
 
                     if ($('#purchase_items_modal').is(':visible') && currentActivePurchaseId == purchaseId) {
