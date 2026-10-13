@@ -72,22 +72,12 @@ const CATEGORY_OPTIONS = [
 ];
 
 const UNIT_OPTIONS = [
-  'Pcs',
   'Nos',
-  'Rft',
-  'Sqft',
   'Kg',
   'Ltr',
   'Box',
   'Set',
-  'Packet',
   'Meter',
-  'Bundle',
-  'Bag',
-  'Roll',
-  'Sheet',
-  'Pair',
-  'Other',
 ];
 
 const COMMON_BRANDS = [
@@ -301,7 +291,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
     item_category: categories.length > 0 ? categories[0].category_name : 'Civil',
     item: '',
     qty: '',
-    unit: 'Pcs',
+    unit: 'Nos',
     brand: '',
     remarks: '',
   });
@@ -326,6 +316,17 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
       (it) => (it.status || '').trim().toLowerCase() === 'recieved'
     );
   }, [selectedRequestForModal]);
+
+  // Keep modalDeliveryStatus reactive to areAllItemsReceived when modal is open
+  useEffect(() => {
+    if (selectedRequestForModal && isItemModalOpen) {
+      if (areAllItemsReceived) {
+        setModalDeliveryStatus(DELIVERY_STATUS_COMPLETE);
+      } else {
+        setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
+      }
+    }
+  }, [areAllItemsReceived, selectedRequestForModal?.id, isItemModalOpen]);
 
   // Photo Gallery / Upload Modal State
   const [isPhotosModalOpen, setIsPhotosModalOpen] = useState<boolean>(false);
@@ -618,7 +619,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
         item_category: r.item_category,
         item: r.item.trim(),
         qty: r.qty,
-        unit: r.unit || 'Pcs',
+        unit: r.unit || 'Nos',
         brand: r.brand.trim() || undefined,
         remarks: r.remarks.trim() || undefined,
       }));
@@ -804,9 +805,23 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
   const handleSaveDeliveryStatus = async () => {
     if (!selectedRequestForModal) return;
 
+    let targetStatusToSave = modalDeliveryStatus;
+
+    if (areAllItemsReceived) {
+      targetStatusToSave = DELIVERY_STATUS_COMPLETE;
+    } else {
+      targetStatusToSave = DELIVERY_STATUS_PARTIAL;
+    }
+
     if (modalDeliveryStatus === DELIVERY_STATUS_COMPLETE && !areAllItemsReceived) {
       showToast?.('Cannot set Complete Recvied at site because some items are not yet received.');
       setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
+      return;
+    }
+
+    if (modalDeliveryStatus === DELIVERY_STATUS_PARTIAL && areAllItemsReceived) {
+      showToast?.('All items are received. Delivery status must be Complete Recvied at site.');
+      setModalDeliveryStatus(DELIVERY_STATUS_COMPLETE);
       return;
     }
 
@@ -815,11 +830,11 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
       const res = await updateOnSitePurchaseDeliveryStatusNew(
         authToken || '',
         selectedRequestForModal.id,
-        modalDeliveryStatus
+        targetStatusToSave
       );
       if (res.success) {
-        showToast?.(res.message || `Delivery status updated to ${modalDeliveryStatus}`);
-        const updatedDeliveryStatus = res.delivery_status || modalDeliveryStatus;
+        showToast?.(res.message || `Delivery status updated to ${targetStatusToSave}`);
+        const updatedDeliveryStatus = res.delivery_status || targetStatusToSave;
         const updated = {
           ...selectedRequestForModal,
           delivery_status: updatedDeliveryStatus,
@@ -1093,8 +1108,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
       req.items.length > 0 &&
       req.items.every((it) => (it.status || '').trim().toLowerCase() === 'recieved'));
 
-    const currentDelStatus = (req.delivery_status || '').toLowerCase();
-    if (allRec && (currentDelStatus.includes('complete') || currentDelStatus === 'completed')) {
+    if (allRec) {
       setModalDeliveryStatus(DELIVERY_STATUS_COMPLETE);
     } else {
       setModalDeliveryStatus(DELIVERY_STATUS_PARTIAL);
@@ -2219,7 +2233,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                             <div>
                               <span className="text-slate-400 block font-semibold">Qty &amp; Unit:</span>
                               <span className="font-bold text-slate-800">
-                                {it.qty} {it.unit || 'Pcs'}
+                                {it.qty} {it.unit || 'Nos'}
                               </span>
                             </div>
                             <div>
@@ -2413,7 +2427,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                 </span>
                 <select
                   value={
-                    modalDeliveryStatus.toLowerCase().includes('complete')
+                    areAllItemsReceived || modalDeliveryStatus.toLowerCase().includes('complete')
                       ? DELIVERY_STATUS_COMPLETE
                       : DELIVERY_STATUS_PARTIAL
                   }
@@ -2423,11 +2437,17 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                       showToast?.('Cannot select Complete Recvied at site: All items must be marked as Received first.');
                       return;
                     }
+                    if (val === DELIVERY_STATUS_PARTIAL && areAllItemsReceived) {
+                      showToast?.('All items are received. Delivery status must be Complete Recvied at site.');
+                      return;
+                    }
                     setModalDeliveryStatus(val);
                   }}
                   className="bg-white text-slate-900 border border-slate-300 font-bold text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs cursor-pointer"
                 >
-                  <option value={DELIVERY_STATUS_PARTIAL}>Partial Recived at site</option>
+                  <option value={DELIVERY_STATUS_PARTIAL} disabled={areAllItemsReceived}>
+                    Partial Recived at site {areAllItemsReceived ? '(All items received)' : ''}
+                  </option>
                   <option value={DELIVERY_STATUS_COMPLETE} disabled={!areAllItemsReceived}>
                     Complete Recvied at site {!areAllItemsReceived ? '(Pending items remain)' : ''}
                   </option>
@@ -2437,7 +2457,7 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                   type="button"
                   onClick={handleSaveDeliveryStatus}
                   disabled={isUpdatingDeliveryStatus}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer shrink-0"
+                  className="px-3.5 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer shrink-0"
                 >
                   {isUpdatingDeliveryStatus ? (
                     <>
@@ -2452,14 +2472,6 @@ export const OnSitePurchaseWithItemSection: React.FC<OnSitePurchaseWithItemSecti
                   )}
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setIsItemModalOpen(false)}
-                className="px-4 py-1 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer self-end sm:self-auto shrink-0"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>

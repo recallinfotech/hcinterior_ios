@@ -1,0 +1,73 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+/**
+ * Generate a new API token for a user
+ * 
+ * @param int $user_id
+ * @param int $expiry_in_hours Optional, default 24 hours
+ * @return string $token
+ */
+function generate_api_token($user_id, $expiry_in_hours = 24)
+{
+    $CI =& get_instance();
+
+    $token = bin2hex(random_bytes(32)); // 64-char random string
+    $expiry = date('Y-m-d H:i:s', strtotime("+$expiry_in_hours hours"));
+
+    $CI->db->where('user_id', $user_id);
+    $CI->db->update('tbl_users', [
+        'api_token'       => $token,
+        'token_expiry'    => $expiry
+    ]);
+
+    return $token;
+}
+
+/**
+ * Validate the token from request headers
+ * 
+ * @return object $user
+ */
+function validate_api_token()
+{
+    $CI =& get_instance();
+
+    $headers = $CI->input->request_headers();
+    if (empty($headers['Authorization'])) {
+        echo json_encode(['status' => false, 'message' => 'Authorization header missing']);
+        exit;
+    }
+
+    $token = str_replace('Bearer ', '', $headers['Authorization']);
+
+    $user = $CI->db->get_where('tbl_users', ['api_token' => $token])->row();
+
+    if (!$user) {
+        echo json_encode(['status' => false, 'message' => 'Invalid token']);
+        exit;
+    }
+
+    // Check token expiry
+    if (!empty($user->token_expiry) && strtotime($user->token_expiry) < time()) {
+        echo json_encode(['status' => false, 'message' => 'Token expired']);
+        exit;
+    }
+
+    return $user;
+}
+
+/**
+ * Revoke a token (logout)
+ * 
+ * @param int $user_id
+ */
+function revoke_api_token($user_id)
+{
+    $CI =& get_instance();
+    $CI->db->where('user_id', $user_id);
+    $CI->db->update('tbl_users', [
+        'api_token'    => null,
+        'token_expiry' => null
+    ]);
+}

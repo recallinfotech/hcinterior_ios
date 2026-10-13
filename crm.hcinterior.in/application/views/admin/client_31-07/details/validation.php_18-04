@@ -1,0 +1,210 @@
+<?php 
+$this->db->select('start_date');
+$this->db->from('tbl_client_timeline');
+$this->db->where('task_name', 'validation');
+$this->db->where('client_id', $client_details->client_id);
+$query = $this->db->get()->row();
+
+$validation_start_date = $query ? $query->start_date : '';
+
+?>
+
+
+<?php
+$validation_files = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->order_by('id','desc')
+    ->get('tbl_client_validation_files')
+    ->row();
+?>
+
+
+<section class="panel panel-custom">
+    <div class="request">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <strong>
+                <?= lang('Validation ') ?>
+            </strong>
+
+<?php if (!empty($validation_start_date)) { ?>
+    <p style="float:right"><strong>Date:</strong> <?= date('d M Y', strtotime($validation_start_date)); ?></p>
+<?php } ?>
+        </div>
+    </div>
+<div class="panel-body">
+
+
+<form action="<?= base_url('admin/client/save_validation_files') ?>" method="post" enctype="multipart/form-data">
+
+    <input type="hidden" name="client_id" value="<?= $client_details->client_id ?>">
+
+    
+    
+ <div class="form-group">
+    <label>Validation Checklist File</label>
+
+    <input type="file" name="validation_checklist" class="form-control"
+           accept=".jpg,.jpeg,.png,.pdf,.xls,.xlsx">
+
+    <!-- Preview -->
+    <?php if(!empty($validation_files->validation_checklist)) { ?>
+
+        <?php 
+            $filePath = base_url($validation_files->validation_checklist);
+            $ext = pathinfo($validation_files->validation_checklist, PATHINFO_EXTENSION);
+            $is_image = in_array(strtolower($ext), ['jpg','jpeg','png']);
+        ?>
+
+        <div class="file-preview mt-sm">
+            <?php if($is_image) { ?>
+                <img src="<?= $filePath ?>" 
+                     width="70"
+                     class="preview-design"
+                     data-path="<?= $filePath ?>"
+                     data-type="image">
+            <?php } else { ?>
+                <a href="javascript:void(0)" 
+                   class="btn btn-xs btn-info preview-design"
+                   data-path="<?= $filePath ?>"
+                   data-type="pdf">
+                   View Checklist
+                </a>
+            <?php } ?>
+        </div>
+
+    <?php } ?>
+
+</div>
+
+
+
+ <div class="form-group">
+    <label>Manual Correction File</label>
+
+    <input type="file" name="manual_correction_file" class="form-control"
+           accept=".jpg,.jpeg,.png,.pdf,.xls,.xlsx">
+
+    <!-- Preview -->
+    <?php if(!empty($validation_files->manual_correction_file)) { ?>
+
+        <?php 
+            $filePath = base_url($validation_files->manual_correction_file);
+            $ext = pathinfo($validation_files->manual_correction_file, PATHINFO_EXTENSION);
+            $is_image = in_array(strtolower($ext), ['jpg','jpeg','png']);
+        ?>
+
+        <div class="file-preview mt-sm">
+            <?php if($is_image) { ?>
+                <img src="<?= $filePath ?>" 
+                     width="70"
+                     class="preview-design"
+                     data-path="<?= $filePath ?>"
+                     data-type="image">
+            <?php } else { ?>
+                <a href="javascript:void(0)" 
+                   class="btn btn-xs btn-warning preview-design"
+                   data-path="<?= $filePath ?>"
+                   data-type="pdf">
+                   View Manual File
+                </a>
+            <?php } ?>
+        </div>
+
+    <?php } ?>
+
+</div>
+
+    <button type="submit" class="btn btn-primary">Upload</button>
+
+</form>
+
+
+
+</div>
+
+
+</div>
+</section>
+
+
+    <div class="remark_section">
+        <?php 
+$module = $this->uri->segment(5) ?: 'details';
+
+$data['remarks'] = get_module_remarks($client_details->client_id, $module);
+
+$this->load->view('admin/client/details/remarks_component', [
+    'remarks'   => $data['remarks'],
+    'client_id' => $client_details->client_id,
+    'module'    => $module,
+]);
+?>
+</div>
+<style>
+   .remarks-box {
+    background: #ffffff;
+    padding: 10px;
+}
+
+hr {
+    display:none; 
+}
+.remarks-box h3{
+    display:none;
+}
+
+     </style>
+
+      
+
+<!-- 2D Design Preview Modal -->
+<div class="modal fade" id="designPreviewModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">2D Design Preview</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body text-center" id="designPreviewContent">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).on('click', '.preview-design', function() {
+
+    var filePath = $(this).data('path');
+    var fileType = $(this).data('type');
+    var html = '';
+
+    if (fileType === 'image') {
+        html = '<img src="' + filePath + '" class="img-fluid" style="width:100%;">';
+    } else if (filePath.toLowerCase().endsWith('.pdf')) {
+        html = '<iframe src="' + filePath + '" width="100%" height="600px"></iframe>';
+    } else {
+        html = '<a href="' + filePath + '" target="_blank" class="btn btn-primary">Download File</a>';
+    }
+
+    $('#designPreviewContent').html(html);
+    $('#designPreviewModal').modal('show');
+});
+</script>
+
+ 
+<style>
+    .file-preview {
+    margin-top: 8px;
+}
+
+.file-preview img {
+    border: 1px solid #ddd;
+    padding: 2px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+</style>

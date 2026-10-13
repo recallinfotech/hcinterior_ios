@@ -1,0 +1,275 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+class Reminder_cron extends MY_Controller {
+
+     public function __construct()
+    {
+        
+        parent::__construct();
+        $this->load->model('user_model');
+        $this->load->library('email');
+              date_default_timezone_set('Asia/Kolkata'); // Set timezone here
+
+    
+    }
+
+    public function send_reminder_emails()
+    {
+
+        // Load necessary models
+        $this->load->database();
+        echo date('Y-m-d H:i:s');
+       // Step 1: Get overdue reminders (30 mins past and not notified)
+          $this->db->where('notified !=', 'Yes'); // <- important line
+        $this->db->where('DATE_ADD(date, INTERVAL 30 MINUTE) <=', date('Y-m-d H:i:s'));
+        $reminders = $this->db->get('tbl_reminders')->result();
+
+        foreach ($reminders as $reminder) {
+            // Step 2: Get user details from tbl_account_details
+            $this->db->where('user_id', $reminder->created_by);
+            $user = $this->db->get('tbl_account_details')->row();
+          
+
+            if ($user) {
+
+            $this->db->select('phone, contact_name');
+            $this->db->from('tbl_leads');
+            $this->db->like('permission', '"' . $user->user_id . '"');
+            $lead = $this->db->get()->row();
+            
+ 
+                // Step 3: Get regional_manager and team_leader emails from tbl_users
+                $emails = [];
+
+                // if ($user->regional_manager_id) {
+                    // $this->db->where('user_id', $user->regional_manager_id);
+                    // $rm = $this->db->get('tbl_users')->row();
+                    // if ($rm) $emails[] = $rm->email;
+                // }
+
+                // if ($user->team_leader_id) {
+                    // $this->db->where('user_id', $user->team_leader_id);
+                    // $tl = $this->db->get('tbl_users')->row();
+                    // if ($tl) $emails[] = $tl->email;
+                // }
+				
+				    if ($user->user_id) {
+                    $this->db->where('user_id', $user->user_id);
+                    $own = $this->db->get('tbl_users')->row();
+                    if ($own) $emails[] = $own->email;
+                }
+ 
+
+                // Step 4: Send email if emails exist
+                if (!empty($emails)) {
+
+                $lead_name = $lead->contact_name ?? 'N/A';
+                $lead_phone = $lead->phone ?? 'N/A';
+                $description = $reminder->description ?? 'No description';
+                $reminder_id = $reminder->reminder_id ?? 'No description';
+                print_r($reminder_id );
+                echo '<hr>';
+
+                    $subject = "Followup Reminder Missed by {$user->fullname} ";
+                   $message = "User: {$user->fullname} missed a reminder:<br><strong>{$description}</strong><br>Date: {$reminder->date} of {$lead_name} ({$lead_phone})";
+ 
+                    $this->load->library('email');
+                    foreach ($emails as $email) {
+                    $params['subject'] = $subject;
+                    $params['message'] = $message;
+                    $params['resourceed_file'] = '';
+                     $params['recipient'] = $email;
+                    $this->email->set_mailtype("html"); // Ensure HTML email
+                      $this->user_model->send_email($params);
+                    echo $email;
+                    echo '<br>';
+                    echo 'Mail Sent';
+                       
+                    }
+                }
+
+                // Step 5: Mark reminder as notified
+                $this->db->where('reminder_id', $reminder->reminder_id);
+               $this->db->update('tbl_reminders', ['notified' => 'Yes']);
+
+            }
+        }
+
+        echo "Checked and processed reminders.";
+    }
+
+
+     public function send_reminder_emails_after_90_minutes()
+    {
+
+        // Load necessary models
+        $this->load->database();
+        echo date('Y-m-d H:i:s');
+       // Step 1: Get overdue reminders (30 mins past and not notified)
+          $this->db->where('after_notify !=', 'Yes'); // <- important line
+        $this->db->where('DATE_ADD(date, INTERVAL 90 MINUTE) <=', date('Y-m-d H:i:s'));
+        $reminders = $this->db->get('tbl_reminders')->result();
+
+        foreach ($reminders as $reminder) {
+            // Step 2: Get user details from tbl_account_details
+            $this->db->where('user_id', $reminder->created_by);
+            $user = $this->db->get('tbl_account_details')->row();
+          
+
+            if ($user) {
+
+            $this->db->select('phone, contact_name');
+            $this->db->from('tbl_leads');
+            $this->db->like('permission', '"' . $user->user_id . '"');
+            $lead = $this->db->get()->row();
+            
+ 
+                // Step 3: Get regional_manager and team_leader emails from tbl_users
+                $emails = [];
+
+                if ($user->regional_manager_id) {
+                    $this->db->where('user_id', $user->regional_manager_id);
+                    $rm = $this->db->get('tbl_users')->row();
+                    if ($rm) $emails[] = $rm->email;
+                }
+
+                if ($user->team_leader_id) {
+                    $this->db->where('user_id', $user->team_leader_id);
+                    $tl = $this->db->get('tbl_users')->row();
+                    if ($tl) $emails[] = $tl->email;
+                }
+				
+				    if ($user->user_id) {
+                    $this->db->where('user_id', $user->user_id);
+                    $own = $this->db->get('tbl_users')->row();
+					
+                    if ($own) $emails[] = $own->email;
+                }
+ 
+  $emails[] = "vinitasingh@hcinterior.in";
+                // Step 4: Send email if emails exist
+                if (!empty($emails)) {
+
+                $lead_name = $lead->contact_name ?? 'N/A';
+                $lead_phone = $lead->phone ?? 'N/A';
+                $description = $reminder->description ?? 'No description';
+                $reminder_id = $reminder->reminder_id ?? 'No description';
+                print_r($reminder_id );
+                echo '<hr>';
+
+                    $subject = "Followup Reminder Missed by {$user->fullname} ";
+                   $message = "User: {$user->fullname} missed a reminder:<br><strong>{$description}</strong><br>Date: {$reminder->date} of {$lead_name} ({$lead_phone})";
+ 
+                    $this->load->library('email');
+                    foreach ($emails as $email) {
+                    $params['subject'] = $subject;
+                    $params['message'] = $message;
+                    $params['resourceed_file'] = '';
+                    $params['recipient'] = $email;
+                    $this->email->set_mailtype("html"); // Ensure HTML email
+                    $this->user_model->send_email($params);
+                    echo $email;
+                    echo '<br>';
+                    echo 'Mail Sent';
+                       
+                    }
+                }
+
+                // Step 5: Mark reminder as notified
+                $this->db->where('reminder_id', $reminder->reminder_id);
+               $this->db->update('tbl_reminders', ['after_notify' => 'Yes']);
+
+            }
+        }
+
+        echo "Checked and processed reminders.";
+    }
+
+      public function send_reminder_emails_before_15_minutes()
+    {
+
+        // Load necessary models
+        $this->load->database();
+        echo date('Y-m-d H:i:s');
+       // Step 1: Get overdue reminders (30 mins past and not notified)
+        $this->db->where('before_notify !=', 'Yes'); // <- important line
+        $this->db->where('DATE_SUB(date, INTERVAL 15 MINUTE) <=', date('Y-m-d H:i:s'));
+        $reminders = $this->db->get('tbl_reminders')->result();
+
+        foreach ($reminders as $reminder) {
+            // Step 2: Get user details from tbl_account_details
+            $this->db->where('user_id', $reminder->created_by);
+            $user = $this->db->get('tbl_account_details')->row();
+          
+
+            if ($user) {
+
+            $this->db->select('phone, contact_name');
+            $this->db->from('tbl_leads');
+            $this->db->like('permission', '"' . $user->user_id . '"');
+            $lead = $this->db->get()->row();
+            
+ 
+                // Step 3: Get regional_manager and team_leader emails from tbl_users
+                $emails = [];
+
+                // if ($user->regional_manager_id) {
+                    // $this->db->where('user_id', $user->regional_manager_id);
+                    // $rm = $this->db->get('tbl_users')->row();
+                    // if ($rm) $emails[] = $rm->email;
+                // }
+
+                // if ($user->team_leader_id) {
+                    // $this->db->where('user_id', $user->team_leader_id);
+                    // $tl = $this->db->get('tbl_users')->row();
+                    // if ($tl) $emails[] = $tl->email;
+                // }
+				
+				    if ($user->user_id) {
+                    $this->db->where('user_id', $user->user_id);
+                    $own = $this->db->get('tbl_users')->row();
+					
+                    if ($own) $emails[] = $own->email;
+                }
+ 
+
+                // Step 4: Send email if emails exist
+                if (!empty($emails)) {
+
+                $lead_name = $lead->contact_name ?? 'N/A';
+                $lead_phone = $lead->phone ?? 'N/A';
+                $description = $reminder->description ?? 'No description';
+                $reminder_id = $reminder->reminder_id ?? 'No description';
+                print_r($reminder_id );
+                echo '<hr>';
+
+                    $subject = "Followup Reminder by  {$reminder->date} ";
+                   $message = "User: {$user->fullname} have a reminder: <br><strong>{$description}</strong><br>Date: {$reminder->date} of {$lead_name} ({$lead_phone})";
+ 
+                    $this->load->library('email');
+                    foreach ($emails as $email) {
+                    $params['subject'] = $subject;
+                    $params['message'] = $message;
+                    $params['resourceed_file'] = '';
+                     $params['recipient'] = $email;
+                    $this->email->set_mailtype("html"); // Ensure HTML email
+                 $this->user_model->send_email($params);
+                    echo $email;
+                    echo '<br>';
+                    echo 'Mail Sent';
+                       
+                    }
+                }
+
+                // Step 5: Mark reminder as notified
+                $this->db->where('reminder_id', $reminder->reminder_id);
+               $this->db->update('tbl_reminders', ['before_notify' => 'Yes']);
+
+            }
+        }
+
+        echo "Checked and processed reminders.";
+    }
+
+}

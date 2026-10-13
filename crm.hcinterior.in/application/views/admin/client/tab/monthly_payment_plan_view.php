@@ -1,0 +1,337 @@
+<?php
+$user_id   = $this->session->userdata('user_id');
+$user_type = $this->session->userdata('user_type');
+
+$all_tabs_config = [
+    ['active_id' => 1,  'label' => lang('client_list'),                    'url' => base_url('admin/client/manage_client'),         'permission' => true],
+    ['active_id' => 2,  'label' => lang('Esclation'),                      'url' => base_url('admin/client/esclation'),             'permission' => ($user_type == 1 || check_permission('tab_escalation'))],
+    ['active_id' => 3,  'label' => lang('Pending Esclation'),              'url' => base_url('admin/client/esclation_pending'),     'permission' => ($user_type == 1 || check_permission('tab_pending_escalation'))],
+    ['active_id' => 4,  'label' => lang('QC Design'),                      'url' => base_url('admin/client/qc_design'),             'permission' => ($user_type == 1 || check_permission('tab_qc_design'))],
+    ['active_id' => 5,  'label' => lang('Final Validation Design'),        'url' => base_url('admin/client/final_validation_design'), 'permission' => ($user_type == 1 || check_permission('tab_final_validation_design'))],
+    ['active_id' => 6,  'label' => lang('MOM / Checklist List'),           'url' => base_url('admin/client/mom_checklist'),         'permission' => ($user_type == 1 || check_permission('tab_mom_checklist_list'))],
+    ['active_id' => 7,  'label' => lang('Civil Drawing'),                  'url' => base_url('admin/client/civil_drawing_list'),    'permission' => ($user_type == 1 || check_permission('tab_civil_drawing'))],
+    ['active_id' => 8,  'label' => lang('KT Request List'),                'url' => base_url('admin/client/kt_request_list'),        'permission' => ($user_type == 1 || check_permission('tab_kt_request_list'))],
+    ['active_id' => 9,  'label' => lang('3D Design List'),                 'url' => base_url('admin/client/three_d_design_list'),    'permission' => ($user_type == 1 || check_permission('tab_design_3d_list'))],
+    ['active_id' => 10, 'label' => lang('BOM / Cutting List'),           'url' => base_url('admin/client/bom_list'),               'permission' => ($user_type == 1 || check_permission('tab_bom_checklist_list'))],
+    ['active_id' => 11, 'label' => lang('Purchase Request List'),          'url' => base_url('admin/client/purchase_request_list'),  'permission' => ($user_type == 1 || check_permission('tab_purchase_request_list'))],
+    ['active_id' => 12, 'label' => lang('On Site Purchase Request List'),  'url' => base_url('admin/client/on_site_purchase_list'),  'permission' => ($user_type == 1 || check_permission('tab_onsite_purchase_request_list'))],
+    ['active_id' => 13, 'label' => lang('Dispatch Items & Photos'),        'url' => base_url('admin/client/dispatch_list'),          'permission' => ($user_type == 1 || check_permission('tab_dispatch_items_photos'))],
+    ['active_id' => 14, 'label' => lang('Loose Furniture List'),         'url' => base_url('admin/client/loose_furniture_list'),   'permission' => ($user_type == 1 || check_permission('tab_loose_furniture_list'))],
+    ['active_id' => 15, 'label' => 'Monthly Payment Plan',                 'url' => base_url('admin/client/monthly_payment_plan'),   'permission' => ($user_type == 1 || check_permission('tab_monthly_payment_plan'))],
+    ['active_id' => 16, 'label' => 'Payment Section',                      'url' => base_url('admin/client/payment_section'),        'permission' => ($user_type == 1 || check_permission('tab_payment_section'))],
+];
+
+$allowed_tabs = array_values(array_filter($all_tabs_config, function ($t) {
+    return !empty($t['permission']);
+}));
+
+$total_tabs = count($allowed_tabs);
+$limit = 7;
+$visible_tabs = [];
+$more_tabs = [];
+
+if ($total_tabs > $limit) {
+    $visible_tabs = array_slice($allowed_tabs, 0, $limit);
+    $more_tabs    = array_slice($allowed_tabs, $limit);
+} else {
+    $visible_tabs = $allowed_tabs;
+}
+
+$active = 15;
+$is_more_active = false;
+$active_more_label = '';
+if (!empty($more_tabs)) {
+    foreach ($more_tabs as $mtab) {
+        if ($active == $mtab['active_id']) {
+            $is_more_active = true;
+            $active_more_label = $mtab['label'];
+            break;
+        }
+    }
+}
+?>
+
+<!-- Tab Navigation Bar -->
+<div class="nav-tabs-custom" style="margin-bottom: 15px;">
+    <ul class="nav nav-tabs">
+        <?php foreach ($visible_tabs as $tab): ?>
+            <li class="<?= ($active == $tab['active_id']) ? 'active' : '' ?>">
+                <a href="<?= $tab['url'] ?>"><?= $tab['label'] ?></a>
+            </li>
+        <?php endforeach; ?>
+
+        <?php if (!empty($more_tabs)): ?>
+            <li class="dropdown <?= $is_more_active ? 'active' : '' ?>">
+                <a class="dropdown-toggle" data-toggle="dropdown" href="#" aria-expanded="false" style="font-weight: 600;">
+                    More <?= $is_more_active ? '(' . $active_more_label . ')' : '' ?> <span class="caret"></span>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-right" role="menu">
+                    <?php foreach ($more_tabs as $tab): ?>
+                        <li class="<?= ($active == $tab['active_id']) ? 'active' : '' ?>">
+                            <a href="<?= $tab['url'] ?>"><?= $tab['label'] ?></a>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </li>
+        <?php endif; ?>
+    </ul>
+</div>
+
+<!-- Main Panel -->
+<div class="panel panel-custom">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <strong>Project Monthly Payment Details (Payment Schedule)</strong>
+        </div>
+    </div>
+
+    <div class="panel-body">
+
+        <!-- Filter Bar -->
+        <form method="get" action="" class="form-horizontal mb-lg">
+            <div class="row" style="margin-bottom: 15px;">
+                
+                <div class="col-md-3">
+                    <label>Client / Project Name</label>
+                    <input type="text" name="client_id" class="form-control" placeholder="Search Client Name or ID" value="<?= html_escape($search_client ?? '') ?>">
+                </div>
+
+                <div class="col-md-2">
+                    <label>Payment Plan</label>
+                    <select name="payment_plan" class="form-control">
+                        <option value="">All Plans</option>
+                        <option value="Plan 1" <?= (($search_plan ?? '') == 'Plan 1') ? 'selected' : '' ?>>Plan 1</option>
+                        <option value="Plan 2" <?= (($search_plan ?? '') == 'Plan 2') ? 'selected' : '' ?>>Plan 2</option>
+                        <option value="Plan 3" <?= (($search_plan ?? '') == 'Plan 3') ? 'selected' : '' ?>>Plan 3</option>
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label>Start Month</label>
+                    <input type="month" name="start_month" class="form-control" value="<?= html_escape($start_month ?? date('Y-m')) ?>">
+                </div>
+
+                <div class="col-md-2">
+                    <label>Number of Months</label>
+                    <select name="num_months" class="form-control">
+                        <option value="3" <?= (($num_months ?? 4) == 3) ? 'selected' : '' ?>>3 Months</option>
+                        <option value="4" <?= (($num_months ?? 4) == 4) ? 'selected' : '' ?>>4 Months</option>
+                        <option value="6" <?= (($num_months ?? 4) == 6) ? 'selected' : '' ?>>6 Months</option>
+                        <option value="12" <?= (($num_months ?? 4) == 12) ? 'selected' : '' ?>>12 Months</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2" style="margin-top: 24px;">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fa fa-filter"></i> Filter</button>
+                    <a href="<?= current_url(); ?>" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> Reset</a>
+                </div>
+
+            </div>
+        </form>
+
+        <style>
+            .payment-grid-table {
+                font-size: 12px;
+                border-collapse: collapse;
+                width: 100%;
+                table-layout: fixed !important;
+            }
+            .payment-grid-table th, .payment-grid-table td {
+                border: 1px solid #b2bec3 !important;
+                padding: 6px 8px !important;
+                vertical-align: middle !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            .payment-grid-table th {
+                background-color: #2c3e50;
+                color: #ffffff;
+                text-align: center;
+                font-weight: 600;
+            }
+            .payment-grid-table .month-header {
+                background-color: #16a085;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }
+            .payment-grid-table .bucket-header {
+                background-color: #34495e;
+                color: #ecf0f1;
+                font-size: 11px;
+                width: 110px !important;
+                min-width: 110px !important;
+                max-width: 110px !important;
+            }
+            .payment-grid-table .project-name-cell {
+                background-color: #f8f9fa;
+                font-weight: 600;
+                color: #2c3e50;
+                width: 220px !important;
+                min-width: 220px !important;
+                max-width: 220px !important;
+            }
+            .payment-grid-table .project-amount-cell {
+                background-color: #f8f9fa;
+                font-weight: bold;
+                text-align: right;
+                width: 130px !important;
+                min-width: 130px !important;
+                max-width: 130px !important;
+            }
+            .payment-grid-table .amount-filled-cell {
+                background-color: #a5d6a7 !important;
+                color: #1b5e20 !important;
+                font-weight: bold;
+                text-align: right;
+                width: 110px !important;
+                min-width: 110px !important;
+                max-width: 110px !important;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+            .payment-grid-table .amount-filled-cell:hover {
+                background-color: #81c784 !important;
+            }
+            .payment-grid-table .amount-empty-cell {
+                text-align: center;
+                color: #b2bec3;
+                width: 110px !important;
+                min-width: 110px !important;
+                max-width: 110px !important;
+            }
+            .payment-grid-table .total-footer-row td {
+                background-color: #f1f2f6;
+                font-weight: bold;
+                font-size: 12px;
+            }
+        </style>
+
+        <!-- Spreadsheet Grid Container -->
+        <div class="table-responsive" style="overflow-x: auto;">
+            <table class="table table-bordered payment-grid-table">
+                <thead>
+                    <!-- Header Row 1: Month Groups -->
+                    <tr>
+                        <th rowspan="2" style="width: 220px; min-width: 220px; text-align: left; vertical-align: middle;">Project Name</th>
+                        <th rowspan="2" style="width: 130px; min-width: 130px; text-align: right; vertical-align: middle;">Amount (₹)</th>
+                        <?php foreach ($months as $m_key => $m_info): ?>
+                            <th colspan="3" class="month-header"><?= html_escape($m_info['label']) ?></th>
+                        <?php endforeach; ?>
+                    </tr>
+
+                    <!-- Header Row 2: Day Buckets (1st-10th), (11th-20th), (21st-30th) -->
+                    <tr>
+                        <?php foreach ($months as $m_key => $m_info): ?>
+                            <th class="bucket-header">(1st-10th)</th>
+                            <th class="bucket-header">(11th-20th)</th>
+                            <th class="bucket-header">(21st-30th)</th>
+                        <?php endforeach; ?>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    <?php 
+                    $bucket_totals = [];
+                    $grand_total_proposal = 0;
+                    ?>
+
+                    <?php if (!empty($client_schedules)): ?>
+                        <?php foreach ($client_schedules as $item): ?>
+                            <?php $grand_total_proposal += $item['total_amount']; ?>
+                            <tr>
+                                <!-- Project / Client Name -->
+                                <td class="project-name-cell">
+                                    <a href="<?= base_url('admin/client/details/' . $item['client_id']) ?>" target="_blank" style="color: #2980b9; font-weight: 600;">
+                                        <?= html_escape($item['name']) ?>
+                                        <?php if (!empty($item['client_sr_id'])): ?>
+                                            (<?= html_escape($item['client_sr_id']) ?>)
+                                        <?php endif; ?>
+                                    </a>
+                                    <br>
+                                    <small class="text-muted" style="font-weight: normal; font-size: 10px;">
+                                        <?= html_escape($item['payment_plan']) ?>
+                                    </small>
+                                </td>
+
+                                <!-- Total Proposal Amount -->
+                                <td class="project-amount-cell">
+                                    ₹ <?= number_format($item['total_amount'], 2) ?>
+                                </td>
+
+                                <!-- Month Bucket Cells -->
+                                <?php foreach ($months as $m_key => $m_info): ?>
+                                    <?php for ($b_idx = 1; $b_idx <= 3; $b_idx++): ?>
+                                        <?php 
+                                        $cell_data = isset($item['schedule'][$m_key][$b_idx]) ? $item['schedule'][$m_key][$b_idx] : null;
+                                        $cell_key  = $m_key . '_' . $b_idx;
+
+                                        if (!isset($bucket_totals[$cell_key])) {
+                                            $bucket_totals[$cell_key] = 0;
+                                        }
+
+                                        if (!empty($cell_data) && $cell_data['amount'] > 0) {
+                                            $bucket_totals[$cell_key] += $cell_data['amount'];
+
+                                            // Build tooltip title string
+                                            $tooltip_lines = [];
+                                            foreach ($cell_data['details'] as $det) {
+                                                $tooltip_lines[] = $det['stage'] . ' (' . $det['percent'] . '%): ₹' . number_format($det['amount'], 2) . ' [' . date('d M Y', strtotime($det['date'])) . ']';
+                                            }
+                                            $tooltip_text = implode("<br>", $tooltip_lines);
+                                        ?>
+                                            <td class="amount-filled-cell" data-toggle="tooltip" data-placement="top" title="<?= html_escape($tooltip_text) ?>">
+                                                ₹ <?= number_format($cell_data['amount'], 2) ?>
+                                            </td>
+                                        <?php } else { ?>
+                                            <td class="amount-empty-cell">--</td>
+                                        <?php } ?>
+                                    <?php endfor; ?>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="<?= 2 + (count($months) * 3) ?>" class="text-center text-muted" style="padding: 20px;">
+                                <i class="fa fa-info-circle fa-lg"></i> No Client Payment Schedules Found
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+
+                <!-- Summary / Total Footer Row -->
+                <tfoot>
+                    <tr class="total-footer-row">
+                        <td style="text-align: left; font-weight: bold; background-color: #eaeded;">TOTAL</td>
+                        <td style="text-align: right; font-weight: bold; background-color: #eaeded;">
+                            ₹ <?= number_format($grand_total_proposal, 2) ?>
+                        </td>
+                        <?php foreach ($months as $m_key => $m_info): ?>
+                            <?php for ($b_idx = 1; $b_idx <= 3; $b_idx++): ?>
+                                <?php 
+                                $cell_key = $m_key . '_' . $b_idx;
+                                $b_sum = isset($bucket_totals[$cell_key]) ? $bucket_totals[$cell_key] : 0;
+                                ?>
+                                <td style="text-align: right; font-weight: bold; background-color: <?= ($b_sum > 0) ? '#d4edda' : '#f8f9fa' ?>;">
+                                    <?= ($b_sum > 0) ? '₹ ' . number_format($b_sum, 2) : '--' ?>
+                                </td>
+                            <?php endfor; ?>
+                        <?php endforeach; ?>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('[data-toggle="tooltip"]').tooltip({
+        container: 'body',
+        html: true
+    });
+});
+</script>

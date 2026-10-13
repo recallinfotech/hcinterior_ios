@@ -1,0 +1,1698 @@
+<?= message_box('success'); ?>
+<?= message_box('error');
+$eeror_message = $this->session->userdata('error');
+if (!empty($eeror_message)) : foreach ($eeror_message as $key => $message) :
+    ?>
+    <div class="alert alert-danger">
+        <?php echo $message; ?>
+    </div>
+<?php
+endforeach;
+endif;
+$this->session->unset_userdata('error');
+
+?>
+
+
+
+<?php
+$client_outstanding = $this->invoice_model->client_outstanding($client_details->client_id);
+$client_payments = $this->invoice_model->get_sum('tbl_payments', 'amount', $array = array('paid_by' => $client_details->client_id));
+$client_payable = $client_payments + $client_outstanding;
+$client_currency = $this->invoice_model->client_currency_symbol($client_details->client_id);
+if (!empty($client_currency)) {
+    $cur = $client_currency->symbol;
+} else {
+    $currency = get_row('tbl_currencies', array('code' => config_item('default_currency')));
+    $cur = $currency->symbol;
+}
+if ($client_payable > 0 and $client_payments > 0) {
+    $perc_paid = round(($client_payments / $client_payable) * 100, 1);
+    if ($perc_paid > 100) {
+        $perc_paid = '100';
+    }
+} else {
+    $perc_paid = 0;
+}
+$edited = can_action('4', 'edited');
+
+ 
+
+
+$paidData = $this->db
+    ->select_sum('paid_amount')
+    ->where('client_id', $client_details->client_id)
+    ->get('tbl_client_payment_record')
+    ->row();
+
+if (!empty($paidData) && $paidData->paid_amount > 0) {
+    $total_paid = $paidData->paid_amount;
+} else {
+    $total_paid = $client_details->amount_received;
+}
+
+    $user_id = $this->session->userdata('user_id');
+                           $user_type          = $this->session->userdata('user_type'); 
+                           $designation_id     = $this->session->userdata('designations_id');
+ 
+//echo $total_paid;
+
+?>
+<div class="client-page-wrapper <?= ($client_details->client_hold == 1) ? 'hold-mode' : '' ?>">
+
+<?php if($client_details->client_hold == 1){ ?>
+<div class="alert alert-danger text-center">
+    <i class="fa fa-lock"></i>
+    This Client is On Hold
+</div>
+<?php } ?>
+
+
+ <section class="panel panel-custom">
+    <div class="panel-heading">
+        <div class="panel-title"><strong><?= $client_details->client_sr_id ?> || <?= $client_details->name ?> - <?= lang('details') ?> </strong>
+            <div class="pull-right">
+                <?php if($client_details->client_hold == 1){ ?>
+
+    <button type="button"
+            class="btn btn-danger"
+            disabled>
+        <i class="fa fa-lock"></i> On Hold
+    </button>
+
+<?php } else { ?>
+
+ <?php   if ($user_type == 1 || $designation_id  == 45) { ?>
+    <button type="button"
+            class="btn btn-warning"
+            id="holdClientBtn"
+            data-client-id="<?= $client_details->client_id ?>">
+        <i class="fa fa-pause"></i> Hold
+    </button>
+
+    <?php } ?>
+
+<?php } ?>
+                <?php
+                if ($client_details->leads_id != 0) {
+                    echo lang('converted_from')
+                    ?>
+                    <!-- <a href="<?= base_url() ?>admin/leads/leads_details/<?= $client_details->leads_id ?>"><?= lang('leads') ?></a> -->
+                <?php }
+                if (!empty($edited)) {
+                    ?>
+                    <!-- <a href="<?php echo base_url() ?>admin/client/create_client/<?= $client_details->client_id ?>"
+                       class="btn-xs "><i class="fa fa-edit"></i> <?= lang('edit') ?></a> -->
+                <?php } ?>
+            </div>
+        </div>
+    </div>
+     <?= message_box('success'); ?>
+<?= message_box('error'); ?>
+
+
+
+<div class="client-details-wrapper">
+
+<?php  
+  if ($designation_id == 112 ||  $designation_id == 113 ||  $designation_id == 114 ||  $designation_id == 116 ||  $designation_id == 111) { ?>
+<!-- ================= CONTACT DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Contact Details') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Client ID</div>
+        <div class="value-col"><?= $client_details->client_sr_id ?></div>
+    </div>
+    <div class="inline-fields">
+        <div class="label-col">Name</div>
+        <div class="value-col"><?= $client_details->name ?></div>
+    </div>
+
+    
+ <h4><?= lang('Permanent Address') ?></h4>
+      <div class="inline-fields">
+        <div class="label-col">Address</div>
+        <div class="value-col"><?= $client_details->address ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">City</div>
+        <div class="value-col"><?= $client_details->city ?></div>
+    </div>
+
+    <!-- <div class="inline-fields">
+        <div class="label-col">Zip Code</div>
+        <div class="value-col"><?= $client_details->zipcode ?></div>
+    </div> -->
+</div>
+
+<div class="client-card">
+    <h4><?= lang('Site Address') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Site Address</div>
+        <div class="value-col"><?= $client_details->site_address ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Site City</div>
+        <div class="value-col"><?= $client_details->site_city ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Zip Code</div>
+        <div class="value-col"><?= $client_details->site_zipcode ?></div>
+    </div>
+
+     
+</div>
+
+<?php } else { ?>
+
+
+
+
+
+ <?php
+     function getTaskStatus2($client_id, $task_name, $CI)
+{
+    $row = $CI->db
+        ->select('status')
+        ->where('client_id', $client_id)
+        ->where('task_name', $task_name)
+        ->get('timeline_task_status')
+        ->row();
+
+    return (!empty($row) && $row->status == 'Done') ? 1 : 0;
+}
+?>
+
+    
+
+<?php 
+
+$design_finalization  = getTaskStatus2($client_details->client_id, 'design_finalization', $this);
+$material_selection  = getTaskStatus2($client_details->client_id, 'material_selection', $this);
+$wall_electrical_drawing  = getTaskStatus2($client_details->client_id, 'wall_electrical_drawing', $this);
+$site_start_date  = getTaskStatus2($client_details->client_id, 'site_start_date', $this);
+$dispatch_date  = getTaskStatus2($client_details->client_id, 'dispatch_date', $this);
+
+// echo $design_finalization;
+// echo $material_selection;
+// echo $wall_electrical_drawing;
+// echo $site_start_date;
+// echo $dispatch_date;
+
+
+$modularDrawing = $this->db
+    ->select('id')
+    ->where('client_id', $client_details->client_id)
+    ->where('design_type', 'Modular Design')
+    ->where('is_final', 1)
+    ->where('status', 'Approved')
+    ->order_by('id', 'DESC')
+    ->limit(1)
+    ->get('tbl_client_two_d_design')
+    ->row();
+
+$validation_checklist = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->order_by('id', 'DESC')
+    ->limit(1)
+    ->get('tbl_client_validation_files')
+    ->row();
+
+    $validation_status = (
+    !empty($validation_checklist) &&
+    !empty($validation_checklist->validation_checklist) &&
+    !empty($validation_checklist->manual_correction_file)
+) ? 1 : 0;
+
+
+$handover = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->order_by('client_id', 'DESC')
+     ->where('go_ahead', 'Done')
+    ->limit(1)
+    ->get('tbl_client')
+    ->row();
+
+    
+    $handover_status = (!empty($handover)) ? 1 : 0;
+
+
+    
+$handover = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->order_by('client_id', 'DESC')
+     ->where('go_ahead', 'Done')
+    ->limit(1)
+    ->get('tbl_client')
+    ->row();
+
+    
+    $handover_status = (!empty($handover)) ? 1 : 0;
+
+
+
+?>
+
+
+ 
+
+<?php
+
+$tracker = [
+
+    // ================= PHASE 1 =================
+
+    // 'Designing Timeline' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->count_all_results('timelines') > 0,
+     'Design Finalization'   => $design_finalization,
+    'Material Selection'    => $material_selection,
+    'Wall Electrical' => $wall_electrical_drawing,
+    'Site Start' => $site_start_date,
+    'Production File' => !empty($modularDrawing) ? 1 : 0,
+
+
+     
+
+    // 'Assigned Team' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->where('member_profile','Designer')
+    //              ->count_all_results('tbl_client_assign_team') > 0,
+
+    //'BOQ' => 0,
+
+    // 'MOM' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->count_all_results('tbl_client_mom') > 0,
+
+    'Civil Drawing' =>
+        $this->db->where('client_id',$client_details->client_id)
+                 ->count_all_results('tbl_client_two_d_design') > 0,
+
+    // 'KT' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->where('request_type','KT1')
+    //              ->count_all_results('tbl_client_service_request') > 0,
+
+    // ================= PHASE 2 =================
+
+    // 'Execution Timeline' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->count_all_results('tbl_client_timeline') > 0,
+
+    '3D' =>
+        $this->db->where('client_id',$client_details->client_id)
+                 ->where('request_type','3d Design')
+                 ->count_all_results('tbl_client_service_request') > 0,
+
+    'Validation' => $validation_status,
+
+    // ================= PHASE 3 =================
+
+    'BOM' =>
+        $this->db->where('client_id',$client_details->client_id)
+                 ->where('request_type','bom')
+                 ->count_all_results('tbl_client_service_request') > 0,
+
+                   'Ready for Dispatch' =>
+        $this->db->where('client_id',$client_details->client_id)
+                 ->where('request_type','dispatch')
+                 ->count_all_results('tbl_client_service_request') > 0,
+
+                   'KT Request' =>
+        $this->db->where('client_id',$client_details->client_id)
+                 ->where('request_type','KT1')
+                 ->where('request_done','Done')
+                 ->count_all_results('tbl_client_service_request') > 0,
+
+    // 'Purchase Request' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->count_all_results('tbl_client_purchase') > 0,
+
+    // 'On Site Purchase Request' =>
+    //     $this->db->where('client_id',$client_details->client_id)
+    //              ->count_all_results('tbl_client_on_site_purchase') > 0,
+
+    'Dispatch' => $dispatch_date,
+    'Handover' => $handover_status,
+
+];
+//print_r($tracker);
+$phases = [
+
+    [
+        'title' => '',
+        'subtitle' => 'Phase 1',
+        'icon' => '1',
+        'items' => [
+            'Civil Drawing',
+            'Design Finalization',
+            'Material Selection',
+             '3D',
+              'Validation',
+              'Wall Electrical',
+              'Production File',
+        ]
+    ],
+
+    [
+        'title' => '',
+        'subtitle' => 'Phase 2',
+        'icon' => '2',
+        'items' => [
+            'Site Start',
+            'Validation',
+            'Ready for Dispatch',
+            'KT Request',
+            
+           
+           
+        ]
+    ],
+
+    [
+        'title' => '',
+        'subtitle' => 'Phase 3',
+        'icon' => '3',
+        'items' => [
+            'BOM',
+            'Dispatch',
+        ]
+    ],
+
+    [
+        'title' => '',
+        'subtitle' => 'Phase 4',
+        'icon' => '4',
+        'items' => [
+             'Dispatch',
+    'Handover'
+    ]
+        ],
+    
+
+];
+
+$currentPhase = 1;
+
+foreach($phases as $index => $phase){
+
+    $complete = true;
+
+    foreach($phase['items'] as $item){
+
+        if(empty($tracker[$item])){
+
+            $complete = false;
+            $currentPhase = $index + 1;
+            break;
+        }
+    }
+
+    if(!$complete){
+        break;
+    }
+
+    $currentPhase = 4;
+}
+
+$total = count($tracker);
+$done = count(array_filter($tracker));
+
+$progress = round(($done / $total) * 100);
+
+?>
+
+<div class="workflow-wrapper">
+
+ <div class="workflow-header">
+
+    <div>
+        <h2>Project Workflow Tracker</h2>
+
+        <div class="workflow-status">
+            Current Active Phase :
+            <span>Phase <?= $currentPhase ?></span>
+        </div>
+    </div>
+
+    <div class="workflow-progress">
+
+        <svg>
+            <circle cx="45" cy="45" r="40"></circle>
+            <circle cx="45" cy="45" r="40"
+                style="stroke-dashoffset: calc(251 - (251 * <?= $progress ?>) / 100);">
+            </circle>
+        </svg>
+
+        <div class="workflow-progress-text">
+            <?= $progress ?>%
+        </div>
+
+    </div>
+
+</div>
+
+<div class="workflow-grid">
+
+    <?php foreach($phases as $index => $phase): ?>
+
+        <?php
+
+        $phaseComplete = true;
+        $pending = [];
+
+        foreach($phase['items'] as $item){
+
+            if(empty($tracker[$item])){
+
+                $phaseComplete = false;
+                $pending[] = $item;
+            }
+
+        }
+
+        ?>
+
+        <div class="workflow-card
+            <?= $phaseComplete ? 'completed' : '' ?>
+            <?= (!$phaseComplete && $currentPhase == ($index + 1)) ? 'active' : '' ?>
+        ">
+
+            <div class="workflow-top">
+
+                <div class="workflow-icon">
+                    <!-- <i class="fa <?= $phase['icon'] ?>"></i> -->
+                     <?= $phase['icon'] ?>
+                </div>
+
+                <div class="workflow-badge">
+
+                    <?php if($phaseComplete): ?>
+
+                        Completed
+
+                    <?php elseif($currentPhase == ($index + 1)): ?>
+
+                        In Progress
+
+                    <?php else: ?>
+
+                        Pending
+
+                    <?php endif; ?>
+
+                </div>
+
+            </div>
+
+            <div class="workflow-phase">
+                <?= $phase['title'] ?>
+            </div>
+
+            <div class="workflow-title">
+                <?= $phase['subtitle'] ?>
+            </div>
+
+            <?php if(!empty($phase['items'])): ?>
+
+               <div class="workflow-hover">
+
+ 
+<div class="hover-title">
+    <?= $phase['subtitle'] ?>
+</div>
+
+<?php foreach($phase['items'] as $item): ?>
+
+    <div class="hover-item">
+
+        <?php if(!empty($tracker[$item])): ?>
+
+            <span class="done">✔</span>
+
+        <?php else: ?>
+
+            <span class="pending">✖</span>
+
+        <?php endif; ?>
+
+        <?= $item ?>
+
+    </div>
+
+<?php endforeach; ?>
+ 
+</div>
+
+
+            <?php endif; ?>
+
+            
+
+        </div>
+
+    <?php endforeach; ?>
+
+</div>
+
+
+</div>
+
+<style>
+
+.workflow-wrapper{
+    background:#fff;
+    padding:30px;
+    border-radius:24px;
+    margin-bottom:30px;
+    box-shadow:0 10px 35px rgba(0,0,0,0.06);
+}
+
+.workflow-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:35px;
+    flex-wrap:wrap;
+    gap:20px;
+}
+
+.workflow-header h2{
+    margin:0;
+    font-size:28px;
+    font-weight:700;
+    color:#111827;
+}
+
+.workflow-status{
+    margin-top:8px;
+    font-size:15px;
+    color:#6b7280;
+}
+
+.workflow-status span{
+    color:#f59e0b;
+    font-weight:700;
+}
+
+ 
+
+ 
+
+
+.workflow-card:hover{
+    transform:translateY(-6px);
+}
+
+.workflow-card.completed{
+    background:linear-gradient(135deg,#10b981,#059669);
+    color:#fff;
+}
+
+.workflow-card.active{
+    background:#fff7ed;
+    border:2px solid #f59e0b;
+    animation:pulse 2s infinite;
+}
+
+.workflow-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:20px;
+}
+
+.workflow-icon{
+    width:58px;
+    height:58px;
+    border-radius:18px;
+    background:rgba(255,255,255,0.18);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:24px;
+}
+
+.workflow-card:not(.completed) .workflow-icon{
+    background:#eff6ff;
+    color:#2563eb;
+}
+
+.workflow-badge{
+    padding:7px 12px;
+    border-radius:30px;
+    font-size:11px;
+    font-weight:700;
+    background:rgba(255,255,255,0.16);
+}
+
+.workflow-card:not(.completed) .workflow-badge{
+    background:#e5e7eb;
+    color:#111827;
+}
+
+.workflow-phase{
+    font-size:12px;
+    letter-spacing:2px;
+    opacity:.8;
+    margin-bottom:8px;
+}
+
+.workflow-title{
+    font-size:24px;
+    font-weight:700;
+    margin-bottom:20px;
+}
+
+.workflow-item{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:12px;
+    font-size:14px;
+}
+
+.done{
+    color:#22c55e;
+    font-weight:700;
+}
+
+.pending{
+    color:#ef4444;
+    font-weight:700;
+}
+
+.workflow-card.completed .done{
+    color:#fff;
+}
+
+.workflow-alert{
+    margin-top:20px;
+    padding:14px;
+    border-radius:14px;
+    background:rgba(239,68,68,0.12);
+    border:1px solid rgba(239,68,68,0.2);
+    font-size:13px;
+    line-height:1.5;
+}
+
+.workflow-progress{
+    position:relative;
+    width:90px;
+    height:90px;
+}
+
+.workflow-progress svg{
+    width:90px;
+    height:90px;
+    transform:rotate(-90deg);
+}
+
+.workflow-progress circle{
+    fill:none;
+    stroke-width:8;
+    stroke:#e5e7eb;
+}
+
+.workflow-progress circle:nth-child(2){
+    stroke:#10b981;
+    stroke-dasharray:251;
+    transition:.5s;
+}
+
+.workflow-progress-text{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    font-size:18px;
+    font-weight:700;
+}
+
+
+   .workflow-grid{
+display:grid;
+grid-template-columns:repeat(4,minmax(0,1fr));
+gap:18px;
+align-items:start;
+}
+
+.workflow-card{
+background:#f9fafb;
+border-radius:20px;
+padding:18px;
+transition:.25s ease;
+border:2px solid transparent;
+position:relative;
+min-height:auto;
+}
+
+.workflow-card:hover{
+transform:translateY(-4px);
+z-index:20;
+}
+
+.workflow-card.completed{
+background:linear-gradient(135deg,#10b981,#059669);
+color:#fff;
+}
+
+.workflow-card.active{
+background:#fff7ed;
+border:2px solid #f59e0b;
+}
+
+.workflow-top{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:16px;
+}
+
+.workflow-icon{
+width:52px;
+height:52px;
+border-radius:14px;
+background:rgba(255,255,255,0.18);
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:20px;
+}
+
+.workflow-card:not(.completed) .workflow-icon{
+background:#eff6ff;
+color:#2563eb;
+}
+
+.workflow-badge{
+padding:6px 12px;
+border-radius:30px;
+font-size:11px;
+font-weight:600;
+background:rgba(255,255,255,0.18);
+}
+
+.workflow-card:not(.completed) .workflow-badge{
+background:#e5e7eb;
+color:#111827;
+}
+
+.workflow-phase{
+font-size:11px;
+letter-spacing:2px;
+margin-bottom:6px;
+opacity:.7;
+text-transform:uppercase;
+}
+
+.workflow-title{
+font-size:20px;
+font-weight:700;
+line-height:1.3;
+}
+
+ .workflow-hover{
+position:absolute;
+top:0%;
+left:0;
+width:100%;
+background:#111827;
+color:#fff;
+border-radius:16px;
+padding:16px;
+margin-top:0;
+opacity:0;
+visibility:hidden;
+transform:translateY(10px);
+transition:.25s ease;
+box-shadow:0 20px 35px rgba(0,0,0,0.25);
+}
+
+.workflow-card:hover .workflow-hover{
+opacity:1;
+visibility:visible;
+transform:translateY(0);
+}
+
+.hover-title{
+font-size:14px;
+font-weight:700;
+margin-bottom:12px;
+padding-bottom:10px;
+border-bottom:1px solid rgba(255,255,255,0.08);
+}
+
+.hover-item{
+display:flex;
+align-items:center;
+gap:10px;
+margin-bottom:10px;
+font-size:13px;
+}
+
+.done{
+color:#22c55e;
+font-weight:700;
+}
+
+.pending{
+color:#ef4444;
+font-weight:700;
+}
+
+.workflow-alert{
+margin-top:16px;
+padding:10px 12px;
+border-radius:12px;
+background:rgba(239,68,68,0.12);
+border:1px solid rgba(239,68,68,0.15);
+font-size:12px;
+line-height:1.5;
+}
+
+.workflow-progress{
+position:relative;
+width:90px;
+height:90px;
+}
+
+.workflow-progress svg{
+width:90px;
+height:90px;
+transform:rotate(-90deg);
+}
+
+.workflow-progress circle{
+fill:none;
+stroke-width:8;
+stroke:#e5e7eb;
+}
+
+.workflow-progress circle:nth-child(2){
+stroke:#10b981;
+stroke-dasharray:251;
+transition:.5s;
+}
+
+.workflow-progress-text{
+position:absolute;
+top:50%;
+left:50%;
+transform:translate(-50%,-50%);
+font-size:18px;
+font-weight:700;
+}
+
+@media(max-width:1200px){
+
+
+.workflow-grid{
+    grid-template-columns:repeat(2,1fr);
+}
+
+
+}
+
+@media(max-width:768px){
+
+
+.workflow-grid{
+    grid-template-columns:1fr;
+}
+
+.workflow-hover{
+    position:relative;
+    opacity:1;
+    visibility:visible;
+    transform:none;
+}
+
+
+}
+
+
+@keyframes pulse{
+
+    0%{
+        transform:scale(1);
+    }
+
+    50%{
+        transform:scale(1.02);
+    }
+
+    100%{
+        transform:scale(1);
+    }
+
+}
+
+@media(max-width:1200px){
+
+    .workflow-grid{
+        grid-template-columns:repeat(2,1fr);
+    }
+
+}
+
+@media(max-width:768px){
+
+    .workflow-grid{
+        grid-template-columns:1fr;
+    }
+
+}
+
+</style>
+
+
+<?php 
+                        
+                       //    echo  $designation_id ;
+
+    $latest_proposal = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->order_by('id', 'DESC') // ya created_date DESC
+    ->limit(1)
+    ->get('proposals')
+    ->row();
+
+    $total_amount = !empty($latest_proposal)
+    ? (float)$latest_proposal->totalToBePaid
+    : 0;
+
+
+
+                           ?>
+
+
+<div class="client-details-wrapper">
+
+<!-- ================= CONTACT DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Contact Details') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Client ID</div>
+        <div class="value-col"><?= $client_details->client_sr_id ?></div>
+    </div>
+    <div class="inline-fields">
+        <div class="label-col">Name</div>
+        <div class="value-col"><?= $client_details->name ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Email</div>
+        <div class="value-col"><?= $client_details->email ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Mobile</div>
+        <div class="value-col">
+            <a href="tel:<?= $client_details->mobile ?>">
+                <?= $client_details->mobile ?>
+            </a>
+        </div>
+    </div>
+
+    <h4><?= lang('Permanent Address') ?></h4>
+    
+      <div class="inline-fields">
+        <div class="label-col">Address</div>
+        <div class="value-col"><?= $client_details->address ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">City</div>
+        <div class="value-col"><?= $client_details->city ?></div>
+    </div>
+
+    <!-- <div class="inline-fields">
+        <div class="label-col">Zip Code</div>
+        <div class="value-col"><?= $client_details->zipcode ?></div>
+    </div> -->
+</div>
+<?php $user_id = $this->session->userdata('user_id');
+        $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row();   
+        if($assign_team->member_profile != 'Operation Team') { 
+            ?>
+<!-- ================= HAND OVER DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Hand Over Details') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Freeze BOQ</div>
+        <div class="value-col amount-highlight">
+            ₹<?= number_format($total_amount, 2) ?>
+        </div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">WD BOQ</div>
+        <div class="value-col">
+            ₹<?= number_format($client_details->wd_boq_amount, 2) ?>
+        </div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Discount (Modular)</div>
+        <div class="value-col"><?= $client_details->discount_modular ?>%</div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Discount (Civil)</div>
+        <div class="value-col"><?= $client_details->discount_civil ?>%</div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Amount Received</div>
+        <div class="value-col"><?=   $total_paid; ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Payment Mode</div>
+        <div class="value-col"><?= $client_details->payment_mode ?></div>
+    </div>
+
+
+
+
+    <div class="inline-fields">
+        <div class="label-col">Payment Screenshot</div>
+        <div class="value-col"><?php if (!empty($client_details->payment_screenshot)): ?>
+    <?php 
+        $payment = json_decode($client_details->payment_screenshot); 
+    ?>
+
+    <?php if ($payment && $payment->is_image == 1): ?>
+        <!-- Image Preview -->
+        <img src="<?= base_url($payment->path) ?>" 
+             style="max-width:200px;border:1px solid #ccc;padding:5px;border-radius:6px;">
+
+    <?php else: ?>
+        <!-- File Download Link -->
+        <a href="<?= base_url($payment->path) ?>" target="_blank" class="btn btn-sm btn-primary">
+            View File
+        </a>
+    <?php endif; ?>
+
+<?php endif; ?></div>
+
+
+
+   
+
+    </div>
+
+   
+
+
+
+ <div class="inline-fields text-danger">
+    <div class="label-col text-danger">
+        Payment Plan |     <span class="label label-success" style="font-size:13px;">
+            Current : <?= !empty($client_details->payment_plan) ? $client_details->payment_plan : 'Not Selected' ?>
+        </span>
+    </div>
+
+    <div class="value-col text-danger">
+ <?php
+$isLocked = !empty($client_details->payment_plan) && $user_type != 1;
+?>
+
+<?php
+$showSaveButton = false;
+
+if ($user_type == 1) {
+    $showSaveButton = true; // Admin always edit kar sakta hai
+} elseif ($designation_id == 45 && empty($client_details->payment_plan)) {
+    $showSaveButton = true; // Designation 45 sirf first time save kar sakta hai
+}
+?>
+        <?php   if ($user_type == 1 || $designation_id  == 45) { ?>
+ 
+         <select id="payment_plan" class="form-control" style="width:200px;display:inline-block;"
+         <?php //echo $isLocked ? 'disabled' : '' ?>
+>
+            <option value="">Select Plan</option>
+
+            <option value="Plan 1" <?= ($client_details->payment_plan == 'Plan 1') ? 'selected' : '' ?>>
+                Plan 1
+            </option>
+
+            <option value="Plan 2" <?= ($client_details->payment_plan == 'Plan 2') ? 'selected' : '' ?>>
+                Plan 2
+            </option>
+
+            <option value="Plan 3" <?= ($client_details->payment_plan == 'Plan 3') ? 'selected' : '' ?>>
+                Plan 3
+            </option>
+        </select>
+
+        <button
+    type="button"
+    class="btn btn-success btn-sm"
+    id="savePaymentPlan"
+    data-client="<?= $client_details->client_id ?>">
+    Save
+</button>
+         <?php if($showSaveButton){ ?>
+
+
+
+<?php } ?>
+
+        <?php } ?>
+
+        <span id="payment-plan-msg"></span>
+
+    </div>
+</div>
+
+
+
+
+ <?php   if ($user_type == 1 || $designation_id  == 45) { ?>
+
+ <?php
+function getTaskStatus($client_id, $task_name, $CI)
+{
+    $row = $CI->db
+        ->select('status')
+        ->where('client_id', $client_id)
+        ->where('task_name', $task_name)
+        ->get('timeline_task_status')
+        ->row();
+
+    return $row->status ?? 'Pending';
+}
+?>
+
+<!-- <?= getTaskStatus($client_details->client_id, 'designer_site_visit_date', $this); ?>
+
+<?= getTaskStatus($client_details->client_id, 'site_start_date', $this); ?>
+
+<?= getTaskStatus($client_details->client_id, 'site_validation', $this); ?>
+
+<?= getTaskStatus($client_details->client_id, 'dispatch_date', $this); ?>
+<?php
+$advance = (!empty($client_details->amount_received) && $client_details->amount_received > 0)
+    ? 'Done'
+    : 'Pending';
+
+echo $advance;
+?> -->
+
+
+<?php 
+$boqAmount = (float)$total_amount;
+
+$advanceStatus   = (!empty($client_details->amount_received) && $client_details->amount_received > 0) ? 'Done' : 'Pending';
+
+$designerStatus  = getTaskStatus($client_details->client_id, 'designer_site_visit_date', $this);
+$siteStartStatus = getTaskStatus($client_details->client_id, 'site_start_date', $this);
+$validationStatus= getTaskStatus($client_details->client_id, 'site_validation', $this);
+$dispatchStatus  = getTaskStatus($client_details->client_id, 'dispatch_date', $this);
+
+$plan = trim($client_details->payment_plan);
+
+if(in_array($plan, ['Plan 1','Plan 3'])){
+
+    $milestones = [
+        [
+            'title' => 'Advance',
+            'percent' => 10,
+            'status' => $advanceStatus
+        ],
+        [
+            'title' => 'Designer Site Visit',
+            'percent' => 10,
+            'status' => $designerStatus
+        ],
+        [
+            'title' => 'Before Site Start',
+            'percent' => 40,
+            'status' => $siteStartStatus
+        ],
+        [
+            'title' => 'Before Site Validation',
+            'percent' => 40,
+            'status' => $validationStatus
+        ],
+        [
+            'title' => 'Before Dispatch',
+            'percent' => 20,
+            'status' => $dispatchStatus
+        ],
+    ];
+
+}
+elseif($plan == 'Plan 2'){
+
+    $milestones = [
+        [
+            'title' => 'Advance',
+            'percent' => 10,
+            'status' => $advanceStatus
+        ],
+        [
+            'title' => 'Designer Site Visit',
+            'percent' => 10,
+            'status' => $designerStatus
+        ],
+        [
+            'title' => 'Before Site Validation',
+            'percent' => 40,
+            'status' => $validationStatus
+        ],
+        [
+            'title' => 'Before Dispatch',
+            'percent' => 40,
+            'status' => $dispatchStatus
+        ],
+    ];
+
+}
+
+$requiredPercent = 0;
+$currentStage = 'Advance';
+
+if($advanceStatus == 'Done'){
+    $requiredPercent = 10;
+    $currentStage = 'Advance';
+}
+
+if($designerStatus == 'Done'){
+    $requiredPercent = 20;
+    $currentStage = 'Designer Site Visit';
+}
+
+if($siteStartStatus == 'Done'){
+    $requiredPercent = 40;
+    $currentStage = 'Site Start';
+}
+
+if($validationStatus == 'Done'){
+    $requiredPercent = 80;
+    $currentStage = 'Site Validation';
+}
+
+if($dispatchStatus == 'Done'){
+    $requiredPercent = 100;
+    $currentStage = 'Dispatch';
+}
+
+$paidPercent = 0;
+
+if($total_amount > 0){
+    $paidPercent = ($total_paid / $total_amount) * 100;
+}
+?>
+<?php 
+if($paidPercent < $requiredPercent){
+
+    $requiredAmount =
+        ($total_amount * $requiredPercent) / 100;
+
+    $shortAmount =
+        $requiredAmount - $total_paid;
+?>
+    
+<div class="alert alert-danger">
+
+    <b>Payment Alert</b><br>
+
+    Current Stage :
+    <?= $currentStage ?>
+
+    <br>
+
+    Required Payment :
+    <?= $requiredPercent ?>%
+
+    (₹<?= number_format($requiredAmount,2) ?>)
+
+    <br>
+
+    Received :
+    <?= round($paidPercent,2) ?>%
+
+    (₹<?= number_format($total_paid,2) ?>)
+
+    <br>
+
+    Pending :
+    ₹<?= number_format($shortAmount,2) ?>
+
+</div>
+
+<?php
+}
+ ?>
+<?php if(!empty($milestones)){ ?>
+<section class="panel panel-custom">
+      <div class="panel-body">
+<table class="table table-bordered">
+
+    <tr>
+        <th>Stage</th>
+        <th>%</th>
+        <th>Amount</th>
+        <th>Status</th>
+    </tr>
+
+    <?php foreach($milestones as $row): ?>
+
+        <?php
+        $amount = ($boqAmount * $row['percent']) / 100;
+        ?>
+
+        <tr>
+
+            <td><?= $row['title'] ?></td>
+
+            <td><?= $row['percent'] ?>%</td>
+
+            <td>₹ <?= number_format($amount,2) ?></td>
+
+            <td>
+
+                <?php if($row['status'] == 'Done'){ ?>
+
+                    <span class="label label-success">
+                        Done
+                    </span>
+
+                <?php } else { ?>
+
+                    <span class="label label-warning">
+                        Pending
+                    </span>
+
+                <?php } ?>
+
+            </td>
+
+        </tr>
+
+    <?php endforeach; ?>
+
+</table>
+</div>
+</div>
+<?php } ?>
+
+<?php } ?>
+
+</div>
+<?php } ?>
+
+<!-- ================= DOCUMENT DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Documents') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Aadhar Front</div>
+        <div class="value-col">
+           <?php if (!empty($client_details->aadhaar_card_front)): ?>
+    <?php $aadhaar_front = json_decode($client_details->aadhaar_card_front); ?>
+
+    <img src="<?= base_url($aadhaar_front->path) ?>" 
+         style="max-width:200px;border:1px solid #ccc;padding:5px;border-radius:6px;">
+<?php endif; ?>
+
+        </div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Aadhar Back</div>
+        <div class="value-col">
+           <?php if (!empty($client_details->aadhaar_card_back)): ?>
+    <?php $aadhaar_back = json_decode($client_details->aadhaar_card_back); ?>
+
+    <img src="<?= base_url($aadhaar_back->path) ?>" 
+         style="max-width:200px;border:1px solid #ccc;padding:5px;border-radius:6px;">
+<?php endif; ?>
+
+        </div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">PAN Card</div>
+        <div class="value-col">
+           <?php if (!empty($client_details->pan_card_file)): ?>
+    <?php $pan = json_decode($client_details->pan_card_file); ?>
+
+    <?php if ($pan->is_image == 1): ?>
+        <img src="<?= base_url($pan->path) ?>" 
+             style="max-width:200px;border:1px solid #ccc;padding:5px;border-radius:6px;">
+    <?php else: ?>
+        <a href="<?= base_url($pan->path) ?>" target="_blank" class="btn btn-sm btn-success">
+            View PAN File
+        </a>
+    <?php endif; ?>
+<?php endif; ?>
+
+        </div>
+    </div>
+</div>
+
+<!-- ================= SALES PERSON DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Sales Person Detail') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Sales Person</div>
+        <div class="value-col"><?= $client_details->sales_person_name ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Sales Person Phone</div>
+        <div class="value-col"><?= $client_details->sales_person_phone ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Sales Manager</div>
+        <div class="value-col"><?= $client_details->sales_manage_name ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Email</div>
+        <div class="value-col"><?= $client_details->sales_person_email ?></div>
+    </div>
+</div>
+
+
+<!-- ================= Site Address DETAILS ================= -->
+<div class="client-card">
+    <h4><?= lang('Site Address') ?></h4>
+
+    <div class="inline-fields">
+        <div class="label-col">Site Address</div>
+        <div class="value-col"><?= $client_details->site_address ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Site City</div>
+        <div class="value-col"><?= $client_details->site_city ?></div>
+    </div>
+
+    <div class="inline-fields">
+        <div class="label-col">Zip Code</div>
+        <div class="value-col"><?= $client_details->site_zipcode ?></div>
+    </div>
+
+     
+</div>
+
+</div>
+
+</div>
+</div>
+ 
+<?php } ?>
+
+
+  <script>
+$(document).on('click', '#savePaymentPlan', function(){
+
+    var client_id = $(this).data('client');
+    var payment_plan = $('#payment_plan').val();
+
+    if(payment_plan == ''){
+        alert('Please select payment plan');
+        return false;
+    }
+
+    $.ajax({
+        url: '<?= base_url("admin/client/update_payment_plan") ?>',
+        type: 'POST',
+        dataType: 'json',
+        data: {
+            client_id: client_id,
+            payment_plan: payment_plan
+        },
+        success: function(res){
+
+            console.log(res);
+
+            if(res.status == 'success'){
+                location.reload();
+            }else{
+                alert('Something went wrong');
+            }
+        },
+        error: function(xhr){
+            console.log(xhr.responseText);
+            alert('Ajax Error');
+        }
+    });
+
+});
+
+
+
+$(document).on('click','#holdClientBtn',function(){
+
+    if(!confirm('Are you sure want to Hold this Client?')){
+        return false;
+    }
+
+    var client_id = $(this).data('client-id');
+
+    $.ajax({
+        url:'<?= base_url("admin/client/hold_client") ?>',
+        type:'POST',
+        data:{
+            client_id:client_id
+        },
+        dataType:'json',
+        success:function(res){
+
+            if(res.status=='success'){
+                location.reload();
+            }
+        }
+    });
+
+});
+
+
+</script>
+
+<style>
+.client-details-wrapper {
+    background: #f5f7fb;
+    padding: 20px;
+}
+
+.client-card {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    margin-bottom: 25px;
+    padding: 20px;
+}
+
+.client-card h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #6c757d;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 15px;
+}
+
+.inline-fields {
+    display: flex;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.label-col {
+    width: 40%;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.value-col {
+    width: 60%;
+    color: #111827;
+    font-weight: 500;
+}
+
+.amount-highlight {
+    color: #059669;
+    font-weight: 700;
+}
+
+.doc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #2563eb;
+}
+
+.doc-link i {
+    font-size: 15px;
+}
+
+.section-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 768px) {
+    .section-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+.client-page-wrapper{
+    position:relative;
+}
+
+.client-hold-overlay{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(255,255,255,0.7);
+    z-index:9999;
+    cursor:not-allowed;
+    backdrop-filter: blur(2px);
+}
+
+.hold-message{
+    position:sticky;
+    top:20px;
+    width:300px;
+    margin:20px auto;
+    text-align:center;
+    background:#dc3545;
+    color:#fff;
+    padding:15px;
+    border-radius:8px;
+    font-size:18px;
+    font-weight:600;
+}
+
+
+.client-page-wrapper.hold-mode{
+    pointer-events:none;
+    opacity:.5;
+}
+</style>
+
+
+

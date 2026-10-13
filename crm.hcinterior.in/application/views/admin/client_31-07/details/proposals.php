@@ -1,0 +1,585 @@
+<?php 
+ $user_id = $this->session->userdata('user_id');
+                             $user_type          = $this->session->userdata('user_type'); 
+                           $designation_id     = $this->session->userdata('designations_id');
+       
+                          $lead = $this->db
+    ->select('permission')
+    ->where('leads_id', $client_details->leads_id)
+    ->get('tbl_leads')
+    ->row();
+
+if (!empty($lead) && !empty($lead->permission)) {
+    $permission_array = json_decode($lead->permission, true);
+
+    if (!empty($permission_array)) {
+     //   echo implode(',', array_keys($permission_array));
+    } else {
+       // echo '-';
+    }
+} else {
+  //  echo '-';
+}
+
+
+
+                           
+        ?>
+
+
+<?php
+$logged_user_id = $this->session->userdata('user_id');
+
+$is_designer = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->where('user_id', $logged_user_id)
+    ->like('member_profile', 'Designer')
+    ->get('tbl_client_assign_team')
+    ->row();
+
+$can_edit_designer = !empty($is_designer);
+?>
+        
+        
+        <div class="panel panel-custom">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <?= lang('all_proposals') ?>
+            
+            <div class="pull-right">
+                <?php
+                $prop_created = can_action('140', 'created');
+                $prop_edited = can_action('140', 'edited');
+                if (!empty($prop_created) || !empty($prop_edited)) {
+                    ?>
+                    <a href="<?= base_url() ?>admin/proposals/index/client/<?= $client_details->client_id ?>"
+                       class="btn btn-purple btn-xs"><?= lang('create_proposal') ?></a>
+                <?php } ?>
+                <a data-toggle="modal" data-target="#myModal"
+                   href="<?= base_url() ?>admin/invoice/zipped/proposal/<?= $client_details->client_id ?>"
+                   class="btn btn-success btn-xs"><?= lang('zip_proposal') ?></a>
+            </div>
+        </div>
+    </div>
+    <div class="panel-body">
+        <div class="table-responsive">
+            <table class="table table-striped " id="datatable_action" cellspacing="0" width="100%">
+                <thead>
+                <tr>
+                    <th><?= lang('proposal') ?> #</th>
+                    <th><?= lang('proposal_date') ?></th>
+                    <th><?= lang('phone') ?></th>
+     <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+                    <th><?= lang('G Total') ?></th> 
+                    <th><?= lang('Site Handling') ?></th>
+                    <th><?= lang('To Be Paid') ?></th>
+                    <?php } ?>
+                    <th><?= lang('status') ?></th>
+                     <th class="col-sm-3 hidden_print"><?= lang('action') ?></th>
+                    <!-- <?php if (!empty($edited) || !empty($deleted)) { ?>
+                        <th class="col-sm-3 hidden_print"><?= lang('action') ?></th>
+                    <?php } ?> -->
+                </tr>
+                </thead>
+                <tbody>
+                <?php
+
+
+$lead = $this->db
+    ->select('permission')
+    ->where('leads_id', $client_details->leads_id)
+    ->get('tbl_leads')
+    ->row();
+
+$show_action = false;
+
+if (!empty($lead) && !empty($lead->permission)) {
+    $perm = json_decode($lead->permission, true);
+
+    if (isset($perm[$user_id])) {
+        $show_action = true;
+    }
+}
+                 
+ $all_proposals_info = get_order_by(
+    'proposals',
+    array('lead_id' => $client_details->leads_id),
+    'id'
+);
+
+$latest_proposal = null;
+$other_proposals = [];
+
+if (!empty($all_proposals_info)) {
+    $latest_proposal = $all_proposals_info[0]; // first = latest
+    $other_proposals = array_slice($all_proposals_info, 1);
+}
+                
+            if (!empty($latest_proposal)) { 
+    $v_proposals = $latest_proposal;
+
+    if ($v_proposals->status == 'pending') {
+        $label = "info";
+    } elseif ($v_proposals->status == 'accepted') {
+        $label = "success";
+    } else {
+        $label = "danger";
+    }
+?>
+<tr>
+    <td><?= $v_proposals->ref_no ?></td>
+    <td><?= strftime(config_item('date_format'), strtotime($v_proposals->proposal_date)) ?></td>
+    <td><?= $v_proposals->phone ?></td>
+
+     <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+
+        <td><?= number_format($v_proposals->grand_total, 2) ?></td>
+        <td><?= $v_proposals->siteHandling ?></td>
+        <td><?= number_format($v_proposals->totalToBePaid, 2) ?></td>
+    <?php } ?>
+
+    <td><span class="label label-<?= $label ?>"><?= lang($v_proposals->status) ?></span></td>
+
+    <td>
+
+      <?php if($user_type == 1  || $can_edit_designer){ ?>
+
+          <a href="javascript:void(0)" 
+   class="btn btn-xs btn-primary open-session-modal"
+   data-id="<?= $v_proposals->id ?>"
+   data-client="<?= $client_details->client_id ?>">
+   <i class="fa fa-pencil"></i>
+</a>
+<?php } ?>
+
+
+
+         <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+
+
+          <!--<?= btn_edit('admin/proposals/createnewproposal/edit_proposals/'.$v_proposals->id.'/'.$client_details->client_id) ?> -->
+    
+ 
+ <a href="<?= base_url('admin/proposals/pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+ </a>
+ 
+ <?= btn_view('admin/proposals/pdf/generate_pdf//'.$v_proposals->id.'/'.$client_details->client_id) ?>
+
+
+ <?= btn_delete('admin/proposals/delete/delete_proposals/' . $v_proposals->id) ?>
+<?php  if($v_proposals->exclusive_product) { ?>
+                <a href="#" 
+    class="btn btn-xs btn-warning open-exclusive-modal" 
+    data-proposal-id="<?php echo $v_proposals->id;?>" 
+    data-toggle="modal" 
+    data-target="#exclusive_product">
+    <i class="fa fa-edit"></i>
+</a>
+<?php } } 
+
+ if($designation_id == 39 || $designation_id == 128 ) { ?>
+   <a href="<?= base_url('admin/proposals/pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+ </a>
+ <?php }
+
+else { ?>
+
+
+     
+        <a href="<?= base_url('admin/proposals/operation_pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+        </a>
+ 
+        <?php } ?>  
+        
+        
+    </td>
+</tr>
+<?php } ?>
+
+                </tbody>
+            </table>
+        </div>
+
+
+
+        <br><br>
+
+          <a href="#demo" class="btn btn-info" data-toggle="collapse">See Old BOQ</a>
+
+          <div id="demo" class="collapse">
+            <div class="table-responsive">
+            <table class="table table-striped " id="datatable_action_old" cellspacing="0" width="100%">
+                <thead>
+                <tr>
+                    <th><?= lang('proposal') ?> #</th>
+                    <th><?= lang('proposal_date') ?></th>
+                    <th><?= lang('phone') ?></th>
+     <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+                    <th><?= lang('G Total') ?></th> 
+                    <th><?= lang('Site Handling') ?></th>
+                    <th><?= lang('To Be Paid') ?></th>
+                    <?php } ?>
+                    <th><?= lang('status') ?></th>
+                     <th class="col-sm-3 hidden_print"><?= lang('action') ?></th>
+                    <!-- <?php if (!empty($edited) || !empty($deleted)) { ?>
+                        <th class="col-sm-3 hidden_print"><?= lang('action') ?></th>
+                    <?php } ?> -->
+                </tr>
+                </thead>
+                <tbody>
+                <?php
+                 
+                if (!empty($other_proposals)) {
+                    foreach ($other_proposals as $v_proposals) {
+                        $can_edit = $this->client_model->can_action('proposals', 'edit', array('id' => $v_proposals->id));
+                        $can_delete = $this->client_model->can_action('proposals', 'delete', array('id' => $v_proposals->id));
+                        
+                        if ($v_proposals->status == 'pending') {
+                            $label = "info";
+                        } elseif ($v_proposals->status == 'accepted') {
+                            $label = "success";
+                        } else {
+                            $label = "danger";
+                        }
+                        ?>
+                        <tr>
+                            <td>
+                                <a class="text-info"
+                                   ><?= $v_proposals->ref_no ?></a>
+                          
+                            </td>
+                            <td><?= strftime(config_item('date_format'), strtotime($v_proposals->proposal_date)) ?>
+                            </td>
+                           
+                            <td><?= $v_proposals->phone ?>  </td>
+                           <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+                            <td><?= number_format($v_proposals->grand_total, 2) ?>  </td>
+                            <td><?= $v_proposals->siteHandling ?>  </td>
+                            <td><?= number_format($v_proposals->totalToBePaid, 2) ?>   </td>
+                            <?php } ?>
+                            </td>
+                            <?php ?>
+                            <td><span class="label label-<?= $label ?>"><?= lang($v_proposals->status) ?></span>
+                            </td>
+                          
+                                 <td>
+ 
+
+                                   <?php if($user_type == 1  || $can_edit_designer){ ?>
+
+          <a href="javascript:void(0)" 
+   class="btn btn-xs btn-primary open-session-modal"
+   data-id="<?= $v_proposals->id ?>"
+   data-client="<?= $client_details->client_id ?>">
+   <i class="fa fa-pencil"></i>
+</a>
+<?php } ?>
+
+
+ 
+
+         <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price') || $show_action){ ?>
+
+
+       <!--   <?= btn_edit('admin/proposals/createnewproposal/edit_proposals/'.$v_proposals->id.'/'.$client_details->client_id) ?> -->
+    
+ <a href="<?= base_url('admin/proposals/pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+ </a>
+ 
+ <?= btn_view('admin/proposals/pdf/generate_pdf/'.$v_proposals->id.'/'.$client_details->client_id) ?>
+ <?= btn_delete('admin/proposals/delete/delete_proposals/' . $v_proposals->id) ?>
+<?php  if($v_proposals->exclusive_product) { ?>
+                <a href="#" 
+    class="btn btn-xs btn-warning open-exclusive-modal" 
+    data-proposal-id="<?php echo $v_proposals->id;?>" 
+    data-toggle="modal" 
+    data-target="#exclusive_product">
+    <i class="fa fa-edit"></i>
+</a>
+<?php } }
+
+
+
+ if($designation_id == 39 || $designation_id == 128 ) { ?>
+   <a href="<?= base_url('admin/proposals/pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+ </a>
+ <?php }
+
+else { ?>
+ 
+
+
+     
+        <a href="<?= base_url('admin/proposals/operation_pdf/generate_pdf/' . $v_proposals->id . '/' . $client_details->client_id) ?>"
+           class="btn btn-xs btn-danger"
+           title="Download PDF"
+           target="_blank">
+            <i class="fa fa-file-pdf-o"></i>
+        </a>
+ 
+        <?php } ?>                     
+    </td>
+                          
+                        </tr>
+                        <?php
+                    }
+                }
+                ?>
+                </tbody>
+            </table>
+        </div>
+        </div>
+
+    </div>
+</div>
+
+
+
+
+<script type="text/javascript">
+function slideToggle($id) {
+    $('#quick_state').attr('data-original-title', '<?= lang('view_quick_state') ?>');
+    $($id).slideToggle("slow");
+}
+
+$(document).ready(function() {
+    list = base_url + "admin/proposals/proposalsList";
+    //init_items_sortable();
+    ins_data(base_url + 'admin/proposals/proposals_state_report');
+});
+
+
+ $(document).ready(function () {
+
+  // Open modal and load data
+  $(document).on('click', '.open-exclusive-modal', function () {
+    var proposalId = $(this).data('proposal-id');
+    $('#proposal_id').val(proposalId);
+    $('#product_table_body').html('');
+
+    // 🔹 Load existing products via AJAX
+    $.ajax({
+      url: base_url + 'admin/proposals/get_exclusive_products/' + proposalId,
+      type: 'GET',
+      dataType: 'json',
+      success: function (products) {
+        if (products.length > 0) {
+          products.forEach(function (p) {
+            addRow(p);
+          });
+        } else {
+          addRow(); // empty row for new product
+        }
+      },
+      error: function () {
+        addRow();
+      }
+    });
+  });
+
+  // Add new product row
+  $('#add_row').on('click', function () {
+    addRow();
+  });
+
+  // Remove row
+  $(document).on('click', '.remove-row', function () {
+    $(this).closest('tr').remove();
+  });
+
+  // Auto calculate total
+  $(document).on('input', '.area, .price', function () {
+    var row = $(this).closest('tr');
+    var area = parseFloat(row.find('.area').val()) || 0;
+    var price = parseFloat(row.find('.price').val()) || 0;
+    var total = area * price;
+    row.find('.total').val(total.toFixed(2));
+  });
+
+  // Submit form
+  $('#exclusive_product_form').on('submit', function (e) {
+    e.preventDefault();
+
+    $.ajax({
+      url: $(this).attr('action'),
+      type: 'POST',
+      data: $(this).serialize(),
+      success: function (res) {
+        try {
+          var data = JSON.parse(res);
+          if (data.success) {
+            alert('Products saved successfully!');
+            $('#exclusive_product').modal('hide');
+          } else {
+            alert('Error saving data');
+          }
+        } catch (e) {
+          alert('Invalid response');
+        }
+      },
+      error: function () {
+        alert('Request failed!');
+      }
+    });
+  });
+
+  // Helper to add row (supports existing data)
+  function addRow(data = {}) {
+    var row = `
+      <tr>
+        <td>
+          <input type="hidden" name="product_id[]" value="${data.id || ''}">
+          <input type="text" name="item_name[]" class="form-control" value="${data.item_name || ''}" required>
+        </td>
+        <td><input type="text" name="description[]" class="form-control" value="${data.description || ''}"></td>
+        <td><input type="number" name="area[]" class="form-control area" step="0.01" value="${data.area || ''}"></td>
+        <td><input type="text" name="unit[]" class="form-control" value="${data.unit || ''}"></td>
+        <td><input type="number" name="price[]" class="form-control price" step="0.01" value="${data.price || ''}"></td>
+        <td><input type="number" name="total[]" class="form-control total" step="0.01" value="${data.total || ''}" readonly></td>
+        <td><input type="text" name="brand[]" class="form-control" value="${data.brand || ''}"></td>
+        <td><button type="button" class="btn btn-danger btn-sm remove-row"><i class="fa fa-trash"></i></button></td>
+      </tr>`;
+    $('#product_table_body').append(row);
+  }
+});
+
+
+ 
+
+$(document).on('click', '.remove-row', function () {
+  var id = $(this).closest('tr').find('input[name="product_id[]"]').val();
+  if (id) {
+    let deleted = $('#deleted_ids').val();
+    $('#deleted_ids').val(deleted ? deleted + ',' + id : id);
+  }
+  $(this).closest('tr').remove();
+});
+
+
+let selectedProposalId = '';
+let selectedClientId = '';
+
+$(document).on('click', '.open-session-modal', function () {
+    selectedProposalId = $(this).data('id');
+    selectedClientId = $(this).data('client');
+
+    $('#sessionModal').modal('show');
+});
+
+$(document).on('click', '#continueEdit', function (e) {
+    e.preventDefault(); // 🔥 IMPORTANT
+
+    console.log("CLICK WORKING"); // debug
+
+    let session = $('input[name="session_year"]:checked').val();
+
+   // alert("Session: " + session); // debug
+
+    let url = "<?= base_url('admin/proposals/createnewproposal/edit_proposals') ?>/" 
+                + selectedProposalId + "/" 
+                + selectedClientId + "/" 
+                + session;
+
+    window.location.href = url;
+});
+
+</script>
+
+
+ <div class="modal fade" id="exclusive_product" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <form id="exclusive_product_form" method="post" action="<?= base_url('admin/proposals/save_exclusive_products') ?>" class="form-horizontal">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+          <h4 class="modal-title">Add Exclusion Product</h4>
+        </div>
+
+        <div class="modal-body">
+          <input type="hidden" name="proposal_id" id="proposal_id">
+          <input type="hidden" name="deleted_ids" id="deleted_ids">
+          <table class="table table-bordered" id="product_table">
+            <thead>
+              <tr>
+                <th>Item Name</th>
+                <th>Description</th>
+                <th>Area</th>
+                <th>Unit</th>
+                <th>Price</th>
+                <th>Total</th>
+                <th>Brand</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="product_table_body">
+              <tr>
+                <td><input type="text" name="item_name[]" class="form-control" required></td>
+                <td><input type="text" name="description[]" class="form-control"></td>
+                <td><input type="number" name="area[]" class="form-control area" step="0.01"></td>
+                <td><input type="text" name="unit[]" class="form-control"></td>
+                <td><input type="number" name="price[]" class="form-control price" step="0.01"></td>
+                <td><input type="number" name="total[]" class="form-control total" step="0.01" readonly></td>
+                <td><input type="text" name="brand[]" class="form-control"></td>
+                <td><button type="button" class="btn btn-danger btn-sm remove-row"><i class="fa fa-trash"></i></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button type="button" id="add_row" class="btn btn-success btn-sm"><i class="fa fa-plus"></i> Add Row</button>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal"><?= lang('close') ?></button>
+          <button type="submit" class="btn btn-primary">Save Products</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal fade" id="sessionModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      
+      <div class="modal-header">
+        <h4>Select Session</h4>
+      </div>
+
+      <div class="modal-body">
+        <label>
+          <input type="radio" name="session_year" value="2026" checked> New Price (2026-27)
+        </label><br>
+
+        <label>
+          <input type="radio" name="session_year" value="2025"> Old Price (2025-26)
+        </label>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-primary"  type="button" id="continueEdit">Continue</button>
+      </div>
+
+    </div>
+  </div>
+</div>

@@ -1,0 +1,77 @@
+<?php
+if (!empty($global)) {
+    echo $global;
+}
+?>
+<div class="row mt-lg">
+    <div class="col-sm-2">
+        <ul class="nav nav-pills nav-stacked navbar-custom-nav">
+            <?php
+            
+            if (!empty($all_tabs)) {
+                foreach ($all_tabs as $key => $v_tab) {
+                    ?>
+                   
+                   <?php 
+$current_tab = $this->uri->segment(5) ?: 'details';
+
+// 🔥 priority: active → name → key
+$isActive = false;
+
+if (!empty($active)) {
+    $isActive = ($active === $v_tab['name']);
+} else {
+    $isActive = ($current_tab === $v_tab['name']);
+}
+?>
+
+<li class="<?= $isActive ? 'active' : '' ?>">
+    
+                        <a href="<?= base_url($v_tab['url']) ?>">
+                            <?php if (!empty($v_tab['icon'])) { ?>
+                                <i class="<?= $v_tab['icon'] ?>"></i>
+                            <?php } ?>
+                           <?php  if($v_tab['tab_name']) { ?>
+ <?= lang($v_tab['tab_name']) ?>
+                          <?php  } else { ?>
+                            <?= lang($v_tab['name']) ?>
+
+                        <?php } ?>
+                            <strong class="pull-right">
+                              <strong class="pull-right">
+
+    <?php if (!empty($v_tab['badge'])) { ?>
+        <span class="label label-success">
+            <i class="fa fa-check"></i>
+        </span>
+    <?php } ?>
+
+    <?php if (!empty($v_tab['count'])) { ?>
+        <span class="label label-inverse">
+            <?= $v_tab['count'] ?>
+        </span>
+    <?php } ?>
+
+</strong>
+                            </strong>
+                        </a>
+                    </li>
+                    <?php
+                }
+            }
+            ?>
+        
+        </ul>
+    </div>
+    
+    <div class="col-sm-10">
+        <div class="tab-content" style="border: 0;padding:0;">
+            <!-- Task Details tab Starts -->
+            <?php
+            $view = tab_load_view($all_tabs, $active);
+            $this->load->view($view);
+            ?>
+        
+        </div>
+    </div>
+</div>

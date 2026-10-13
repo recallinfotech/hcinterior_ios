@@ -1,0 +1,320 @@
+<script src="<?php echo base_url(); ?>assets/plugins/bootstrap-tagsinput/fm.tagator.jquery.js"></script>
+
+<?= message_box('success'); ?>
+<?= message_box('error');
+$created = can_action('55', 'created');
+$edited = can_action('55', 'edited');
+$deleted = can_action('55', 'deleted');
+$kanban = $this->session->userdata('leads_kanban');
+$uri_segment = $this->uri->segment(4);
+if (!empty($kanban)) {
+    $k_leads = 'kanban';
+} elseif ($uri_segment == 'kanban') {
+    $k_leads = 'kanban';
+} else {
+    $k_leads = 'list';
+}
+
+if ($k_leads == 'kanban') {
+    $text = 'list';
+    $btn = 'purple';
+} else {
+    $text = 'kanban';
+    $btn = 'danger';
+}
+?>
+
+<?php
+$user_id = $this->session->userdata('user_id');
+$this->db->where('user_id', $user_id);
+$current_user = $this->db->get('tbl_account_details')->row();
+
+$is_team_leader = !empty($current_user) && $current_user->team_leader == 1;
+$is_regional_manager = !empty($current_user) && $current_user->regional_manager == 1;
+$is_admin = $this->session->userdata('user_type') == 1;
+?>
+
+
+<div class="row">
+    <div class="col-sm-12">
+        
+
+    <?php
+// Get current filter values (so you can pre-fill them in form)
+$sub_status = $this->input->get('sub_status');
+$status_date_raw = $this->input->get('status_date');
+$status_date = !empty($status_date_raw) ? date('Y-m-d', strtotime($status_date_raw)) : '';
+?>
+
+<form method="get" action="<?= base_url('admin/leads/lead_status_log') ?>">
+    <div class="row">
+        <div class="col-sm-2">
+            <div class="group animated zoomIn">
+                <div class="form-group">
+                    <label for="sub_status_filter">Status</label>
+                    <select class="form-control" name="sub_status" id="sub_status_filter" onchange="this.form.submit()">
+                        <option value="">Select Status</option>
+                        <?php foreach ($all_statuses as $status): ?>
+                            <option value="<?= $status->lead_status_id; ?>"
+                                <?= ($sub_status == $status->lead_status_id) ? 'selected' : '' ?>>
+                                <?= $status->lead_status; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-sm-2">
+            <div class="group animated zoomIn">
+                <div class="form-group">
+                    <label for="status_date_filter">Status Date</label>
+                  <input type="date" class="form-control" name="status_date" id="status_date_filter"
+       value="<?= $status_date ?>" onchange="this.form.submit()">
+                </div>
+            </div>
+        </div>
+
+        <div class="col-sm-2">
+    <div class="form-group">
+        <label for="user_filter">User</label>
+        <select class="form-control" name="user_id" id="user_filter" onchange="this.form.submit()">
+            <option value="">Select User</option>
+            <?php foreach ($associated_users as $user): ?>
+                <option value="<?= $user->update_by; ?>" <?= ($user_id_filter == $user->update_by) ? 'selected' : '' ?>>
+                    <?= $user->fullname; ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
+
+   
+
+
+</div>
+      <div class="col-sm-6 ">
+        <ul class="list-inline">
+    <li class="card">Dead Leads: <b><?= isset($status_counts['Dead']) ? $status_counts['Dead'] : 0 ?></b></li>
+<li class="card">Forward Leads: <b><?= isset($status_counts['Forwarded']) ? $status_counts['Forwarded'] : 0 ?></b></li>
+<li class="card">Fresh Leads: <b><?= isset($status_counts['Fresh']) ? $status_counts['Fresh'] : 0 ?></b></li>
+<li class="card">Low Budget: <b><?= isset($status_counts['Low Budget']) ? $status_counts['Low Budget'] : 0 ?></b></li>
+<li class="card">Vendor: <b><?= isset($status_counts['Vender']) ? $status_counts['Vender'] : 0 ?></b></li>
+<li class="card">Meeting Done: <b><?= isset($status_counts['Meeting Done']) ? $status_counts['Meeting Done'] : 0 ?></b></li>
+
+<?php 
+// Get today's forwarded leads (created and forwarded same day)
+$this->db->select('COUNT(DISTINCT l.leads_id) as today_forwarded_leads');
+$this->db->from('tbl_leads l');
+$this->db->join('tbl_status_log sl', 'l.leads_id = sl.lead_id');
+$this->db->where('DATE(l.created_time)', date('Y-m-d'));
+$this->db->where('DATE(sl.createdate)', date('Y-m-d'));
+
+// Optional: If "Forwarded" is a specific status ID or name, filter by that
+// Uncomment and adjust the line below if needed
+// $this->db->where('sl.status', <FORWARDED_STATUS_ID>);
+
+$today_forwarded_result = $this->db->get()->row();
+$today_forwarded_leads = $today_forwarded_result->today_forwarded_leads; 
+?>
+<li class="card">Today Forwarded: <b><?= $today_forwarded_leads ?></b></li>
+
+<?php 
+
+$status_date_raw = $this->input->get('status_date');
+$status_date = !empty($status_date_raw) ? date('Y-m-d', strtotime($status_date_raw)) : '';
+
+$forwarded_status_id = 4; // ✅ Update this to your actual "Forwarded" status ID
+
+// 🔹 NOIDA
+$this->db->select('COUNT(DISTINCT l.leads_id) as region_lead_count');
+$this->db->from('tbl_leads l');
+$this->db->join('tbl_status_log sl', 'l.leads_id = sl.lead_id');
+$this->db->where('l.region', 'Noida');
+$this->db->where('sl.status', $forwarded_status_id);
+if ($status_date) {
+    $this->db->where('DATE(sl.createdate)', $status_date); // ✅ Fix here
+}
+
+$noida_result = $this->db->get()->row();
+$noida_forwarded_leads = $noida_result->region_lead_count;
+?>
+
+<li class="card">Noida Forwarded: <b><?= $noida_forwarded_leads ?></b></li>
+
+<?php 
+// 🔹 GURUGRAM
+$this->db->select('COUNT(DISTINCT l.leads_id) as region_lead_count');
+$this->db->from('tbl_leads l');
+$this->db->join('tbl_status_log sl', 'l.leads_id = sl.lead_id');
+$this->db->where('l.region', 'Gurugram');
+$this->db->where('sl.status', $forwarded_status_id);
+if ($status_date) {
+    $this->db->where('DATE(sl.createdate)', $status_date); // ✅ Fix here
+}
+
+$gurugram_result = $this->db->get()->row();
+$gurugram_forwarded_leads = $gurugram_result->region_lead_count;
+?>
+
+<li class="card">Gurugram Forwarded: <b><?= $gurugram_forwarded_leads ?></b></li>
+
+
+
+
+    </ul>
+    </div>
+
+
+
+    </div>
+</form>
+
+
+
+        <?php if (!empty($created) || !empty($edited)) {
+            ?>
+        <?php $is_department_head = is_department_head();
+         if ($this->session->userdata('user_type') == 1 || !empty($is_department_head)) { ?>
+
+
+
+        <?php } ?>
+        <div class="nav-tabs-custom">
+            <!-- Tabs within a box -->
+            <ul class="nav nav-tabs">
+                <li class="<?= $active == 1 ? 'active' : ''; ?>"><a
+                        href="<?= base_url('admin/leads/lead_status_log') ?>"><?= lang('Status Log') ?></a>
+                </li>
+                <li class="<?= $active == 2 ? 'active' : ''; ?>"><a
+                        href="<?= base_url('admin/leads') ?>"><?= lang('all_leads') ?></a>
+                </li>
+
+            </ul>
+            <div class="tab-content bg-white">
+                <!-- ************** general *************-->
+                <div class="tab-pane <?= $active == 1 ? 'active' : ''; ?>" id="manage">
+                    <?php } else { ?>
+                    <div class="panel panel-custom">
+                        <header class="panel-heading ">
+                            <div class="panel-title"><strong><?= lang('all_leads') ?></strong></div>
+                        </header>
+                        <?php } ?>
+                        <style type="text/css">
+                        .custom-bulk-button {
+                            display: initial;
+                        }
+                        </style>
+
+
+                        <div class="table-responsive">
+                            <table  id="example" class="table table-striped table-bordered" cellspacing="0" width="100%" >
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Lead </th>
+                                        <th>Lead Date </th>
+                                        <th>Status</th>
+                                        <th>User </th>
+                                        <th>Status Date</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+
+                              <tbody></tbody>
+
+
+
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="<?= base_url() ?>assets/plugins/datetimepicker/jquery.datetimepicker.min.css">
+<?php include_once 'assets/plugins/datetimepicker/jquery.datetimepicker.full.php'; ?>
+
+
+   <link rel="stylesheet" href="https://cdn.datatables.net/buttons/1.2.2/css/buttons.bootstrap.min.css">
+   <link rel="stylesheet" href="https://cdn.datatables.net/1.10.12/css/dataTables.bootstrap.min.css">
+ 
+
+<script>
+    // Auto-submit on change
+    document.getElementById('sub_status_filter').addEventListener('change', function () {
+        document.getElementById('statusFilterForm').submit();
+    });
+    document.getElementById('status_date_filter').addEventListener('change', function () {
+        document.getElementById('statusFilterForm').submit();
+    });
+
+
+    $(document).ready(function () {
+	//Only needed for the filename of export files.
+	//Normally set in the title tag of your page.
+	document.title = "Card View DataTable";
+	// DataTable initialisation
+	 $("#example").DataTable({
+    processing: true,
+    serverSide: true,
+    pageLength: 20, // 🔥 default 20
+
+    ajax: {
+        url: base_url + "admin/leads/statusLogList",
+        type: "POST",
+        data: function (d) {
+            d.sub_status = $('#sub_status_filter').val();
+            d.status_date = $('#status_date_filter').val();
+            d.user_id = $('#user_filter').val();
+        }
+    },
+
+    order: [[5, "desc"]],
+
+    columnDefs: [
+        { targets: [0,6], orderable: false }
+    ]
+});
+
+});
+
+
+
+</script>
+ 
+
+ 
+
+<style>
+    .dt-buttons {
+    display: contents;
+    float: left;
+}
+
+  .dt-button {
+    padding:0 5px;
+  }  
+.card thead {
+	display: none;
+}
+
+.card tbody tr {
+	float: left;
+	width: 25em;
+	margin: 0.5em;
+	border: 1px solid #bfbfbf;
+	border-radius: 0.5em;
+	background-color: transparent !important;
+	box-shadow: 0.25rem 0.25rem 0.5rem rgba(0, 0, 0, 0.25);
+}
+.card tbody tr td {
+	display: block;
+	border: 0;
+}
+
+</style>

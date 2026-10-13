@@ -1,0 +1,210 @@
+/* ========================================================================
+   Component: layout
+ ========================================================================== */
+body,
+.wrapper > section {
+    background-color: #e8e8e8;
+}
+
+.wrapper > .aside {
+    background-color: #1e1e2d;
+}
+#loader-wrapper{
+    background-color: #e8e8e870 !important;
+}
+/* ========================================================================
+   Component: top-navbar
+ ========================================================================== */
+.topnavbar {
+    background-color: #fff;
+}
+
+.topnavbar .navbar-header {
+    background-color: #1e1e2d;
+    background-image: -webkit-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+    background-image: -o-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+    background-image: linear-gradient(to right, #ff914d 0%, #ee881c 100%);
+    background-repeat: repeat-x;
+    filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#ffff914d', endColorstr='#ffee881c', GradientType=1);
+}
+
+@media only screen and (min-width: 768px) {
+    .topnavbar .navbar-header {
+        background-image: none;
+    }
+}
+
+.topnavbar .navbar-nav > li > a,
+.topnavbar .navbar-nav > .open > a {
+    color: #ff914d;
+}
+
+.topnavbar .navbar-nav > li > a:hover,
+.topnavbar .navbar-nav > .open > a:hover,
+.topnavbar .navbar-nav > li > a:focus,
+.topnavbar .navbar-nav > .open > a:focus {
+    color: #ff914d;
+}
+
+.topnavbar .navbar-nav > .active > a,
+.topnavbar .navbar-nav > .open > a,
+.topnavbar .navbar-nav > .active > a:hover,
+.topnavbar .navbar-nav > .open > a:hover,
+.topnavbar .navbar-nav > .active > a:focus,
+.topnavbar .navbar-nav > .open > a:focus {
+    background-color: transparent;
+}
+
+.topnavbar .navbar-nav > li > [data-toggle='navbar-search'] {
+    color: #ffffff;
+}
+
+.topnavbar .nav-wrapper {
+    background-color: #ff914d;
+    background-image: -webkit-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+    background-image: -o-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+    background-image: linear-gradient(to right, #ff914d 0%, #ee881c 100%);
+    background-repeat: repeat-x;
+    filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#ffff914d', endColorstr='#ffee881c', GradientType=1);
+}
+
+@media only screen and (min-width: 768px) {
+    .topnavbar {
+        background-color: #ff914d;
+        background-image: -webkit-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+        background-image: -o-linear-gradient(left, #ff914d 0%, #ee881c 100%);
+        background-image: linear-gradient(to right, #ff914d 0%, #ee881c 100%);
+        background-repeat: repeat-x;
+        filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#ffff914d', endColorstr='#ffee881c', GradientType=1);
+    }
+
+    .topnavbar .navbar-nav > .open > a,
+    .topnavbar .navbar-nav > .open > a:hover,
+    .topnavbar .navbar-nav > .open > a:focus {
+        box-shadow: 0 -3px 0 rgba(255, 255, 255, 0.5) inset;
+    }
+
+    .topnavbar .navbar-nav > li > a,
+    .topnavbar .navbar-nav > .open > a {
+        color: #ffffff;
+    }
+
+    .topnavbar .navbar-nav > li > a:hover,
+    .topnavbar .navbar-nav > .open > a:hover,
+    .topnavbar .navbar-nav > li > a:focus,
+    .topnavbar .navbar-nav > .open > a:focus {
+        color: #ff914d;
+    }
+}
+
+/* ========================================================================
+   Component: sidebar
+ ========================================================================== */
+.sidebar {
+    background-color: #1e1e2d;
+}
+
+.sidebar .nav-heading {
+    color: #919da8;
+}
+
+.sidebar .nav > li > a,
+.sidebar .nav > li > .nav-item {
+   color: #888ea8;
+}
+
+.sidebar .nav > li > a:focus,
+.sidebar .nav > li > .nav-item:focus,
+.sidebar .nav > li > a:hover,
+.sidebar .nav > li > .nav-item:hover {
+    color: #ee881c;
+}
+
+.sidebar .nav > li > a > em,
+.sidebar .nav > li > .nav-item > em {
+    color: inherits;
+}
+
+.sidebar .nav > li.active,
+.sidebar .nav > li.open,
+.sidebar .nav > li.active > a,
+.sidebar .nav > li.open > a,
+.sidebar .nav > li.active .nav,
+.sidebar .nav > li.open .nav {
+    background-color: #383d4e;
+    color: #ee881c;
+}
+
+.sidebar .nav > li.active > a > em,
+.sidebar .nav > li.open > a > em {
+    color: #ee881c;
+}
+
+.sidebar .nav > li.active {
+    border-left-color: #ee881c;
+}
+
+.sidebar-subnav {
+    background-color: #1e1e2d;
+}
+
+.sidebar-subnav > .sidebar-subnav-header {
+   color: #888ea8;
+}
+
+.sidebar-subnav > li > a,
+.sidebar-subnav > li > .nav-item {
+   color: #888ea8;
+}
+
+.sidebar-subnav > li > a:focus,
+.sidebar-subnav > li > .nav-item:focus,
+.sidebar-subnav > li > a:hover,
+.sidebar-subnav > li > .nav-item:hover {
+    color: #ee881c;
+}
+
+.sidebar-subnav > li.active > a,
+.sidebar-subnav > li.active > .nav-item {
+    color: #ee881c;
+}
+
+.sidebar-subnav > li.active > a:after,
+.sidebar-subnav > li.active > .nav-item:after {
+    border-color: #ee881c;
+    /*background-color: #ee881c;*/
+}
+
+/* ========================================================================
+   Component: offsidebar
+ ========================================================================== */
+.offsidebar {
+    border-left: 1px solid #cccccc;
+    background-color: #ffffff;
+    color: #515253;
+}
+
+.nav-pills > li.active > a,
+.nav-pills > li.active > a:hover,
+.nav-pills > li.active > a:focus, li.user-header {
+    background-color: #ff914d !important;
+}
+
+.panel-custom .panel-heading {
+    border-bottom: 2px solid #ff914d;
+}
+.custom-bg ,.fc-state-default{
+    background: #ff914d !important;;
+    color: #FFFFff !important;;
+}
+.nav-tabs > li.active > a {
+    border-top: 2px solid #ff914d;
+}
+
+.timeline-2, .timeline-2 .time-item:after, .time-item, .time-item:after {
+    border-color: #ee881c;
+}
+
+.sub-active {
+    border-left-color: #ee881c;
+}

@@ -1,0 +1,803 @@
+<?php 
+
+
+ $user_id = $this->session->userdata('user_id');
+                           $user_type          = $this->session->userdata('user_type'); 
+                           $designation_id     = $this->session->userdata('designations_id');
+                           $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row();  
+
+                           
+
+
+$hand_over_date = $client_details->hand_over_request_date;
+// print_r($hand_over_date);
+$base_date = $hand_over_date;
+$amount = $freeze_boq_amount;
+$designer_site_visit_date = $base_date ;
+// FUNCTION
+function add_days($date, $day, $day2 = null) {
+
+    // First date
+    $start = date('d-m-Y', strtotime("+$day days", strtotime($date)));
+
+    // Agar day2 diya hai to range return karo
+    if (!empty($day2)) {
+        $end = date('d-m-Y', strtotime("+$day2 days", strtotime($date)));
+        return $start . ' - ' . $end;
+    }
+
+    // warna single date
+    return $start;
+}
+
+
+$amount = $freeze_boq_amount; // already hai tere paas
+
+if ($amount >= 500000 && $amount <= 1000000) {
+    $type = 'low';   // 5–10 lakh
+} elseif ($amount > 1000000 && $amount <= 2000000) {
+    $type = 'mid';   // 10–20 lakh
+} else {
+    $type = 'high';  // 20 lakh above
+}
+
+ 
+if ($type == 'low') {
+  $site_start_date = add_days($base_date, 15);
+
+$washroom_plumbing = add_days($base_date, 7,10);
+
+$design_presentation = add_days($base_date, 4);
+
+
+$design_finalization = add_days($base_date, 11,12);
+$wall_design = add_days($base_date, 12,16);
+$material_section = add_days($base_date, 17,18);
+$three_d_design = add_days($base_date, 15);
+$site_validation = add_days($base_date, 30);
+$mom_checklist = '';
+$wall_electrical_drawing = add_days($base_date, 2);
+$correction_drawing = add_days($base_date, 3);
+$production_drawing_for_approval = add_days($base_date, 7);
+$dispatch_date = '';
+// $handover_date = add_days($base_date, $day);
+
+} elseif ($type == 'mid') {
+  $site_start_date = add_days($base_date, 20);
+
+$washroom_plumbing = add_days($base_date, 10,15);
+
+$design_presentation = add_days($base_date, 4, 5);
+
+
+$design_finalization = add_days($base_date, 11,13);
+$wall_design = add_days($base_date, 13,19);
+$material_section = add_days($base_date, 20,22);
+$three_d_design = add_days($base_date, 15);
+$site_validation = add_days($base_date, 45);
+$mom_checklist = '';
+$wall_electrical_drawing = add_days($base_date, 2);
+$correction_drawing = add_days($base_date, 4);
+$production_drawing_for_approval = add_days($base_date, 8);
+$dispatch_date = '';
+// $handover_date = add_days($base_date, $day);
+
+} else {
+   $site_start_date = add_days($base_date, 25);
+
+$washroom_plumbing = add_days($base_date, 15,20);
+
+$design_presentation = add_days($base_date, 4, 5);
+
+
+$design_finalization = add_days($base_date, 11,14);
+$wall_design = add_days($base_date, 14,23);
+$material_section = add_days($base_date, 23,25);
+$three_d_design = add_days($base_date, 15);
+$site_validation = add_days($base_date, 60);
+$mom_checklist = '';
+$wall_electrical_drawing = add_days($base_date, 2);
+$correction_drawing = add_days($base_date, 5);
+$production_drawing_for_approval = add_days($base_date, 9);
+$dispatch_date = '';
+// $handover_date = add_days($base_date, $day);
+
+}
+
+
+
+?>
+
+<?php  if($user_type == 1 || $user_id == 86) { ?>
+
+
+<?php }  else { ?>
+
+<style>
+.edit-icon {
+    display:none;
+}
+
+.editable-date {
+    pointer-events: none;
+}
+    </style>
+<?php } ?>
+ <?php
+
+ $client_id = $client_details->client_id;
+
+
+ if(isset($_POST['ajax']) && $_POST['ajax'] == 1){
+
+    $client_id = $_POST['client_id'];
+    $field = $_POST['field'];
+    $value = $_POST['value'];
+
+    // allow only valid fields (security)
+ $allowed = [
+    'designer_site_visit_date',
+    'site_start_date',
+    'design_presentation',
+    'design_finalization',
+    'wall_design',
+    'material_selection',
+    'three_d_design',
+    'site_validation',
+    'washroom_plumbing',
+    'correction_drawing',
+    'production_drawing',
+    'dispatch_date',
+    'mom_checklist',
+    'wall_electrical_drawing'
+];
+
+    if(!in_array($field, $allowed)){
+        echo "invalid";
+        exit;
+    }
+
+    $check = $this->db->get_where('timeline_manual_dates', ['client_id'=>$client_id])->row();
+
+    if($check){
+        $this->db->where('client_id', $client_id)
+                 ->update('timeline_manual_dates', [$field => $value]);
+    } else {
+        $insert = ['client_id'=>$client_id, $field => $value];
+        $this->db->insert('timeline_manual_dates', $insert);
+    }
+
+    echo "success";
+    exit;
+}
+ 
+
+$existing = $this->db
+    ->get_where('timeline_manual_dates', ['client_id' => $client_id])
+    ->row();
+
+if (!$existing && !empty($client_details->hand_over_request_date)) {
+    
+    $insertData = [
+        'client_id'                   => $client_id,
+        'designer_site_visit_date'   => add_days($base_date, 0),
+        'site_start_date'            => $site_start_date,
+        'design_presentation'        => $design_presentation,
+        'design_finalization'        => $design_finalization,
+        'wall_design'                => $wall_design,
+        'material_selection'         => $material_section,
+        'three_d_design'             => $three_d_design,
+        'site_validation'            => $site_validation,
+        'washroom_plumbing'          => $washroom_plumbing,
+        'correction_drawing'         => $correction_drawing,
+        'production_drawing'         => $production_drawing_for_approval,
+        'dispatch_date'              => $dispatch_date,
+        'mom_checklist'              => $mom_checklist,
+        'wall_electrical_drawing'    => $wall_electrical_drawing,
+    ];
+
+    // echo "<pre>";
+    // print_r($insertData);
+    // echo "</pre>";
+
+    $insert = $this->db->insert('timeline_manual_dates', $insertData);
+
+    if($insert){
+      //  echo "DATA SAVED";
+    } else {
+        // echo "<pre>";
+        // print_r($this->db->error());
+        // echo "</pre>";
+    }
+}
+
+
+$manual = $this->db
+    ->get_where('timeline_manual_dates', ['client_id'=>$client_id])
+    ->row();
+?>
+
+<?php
+function final_date($manual, $auto){
+    return !empty($manual) ? $manual : $auto;
+}
+?>
+
+ 
+ <section class="panel panel-custom">
+     <div class="panel-heading">
+         <div class="panel-title">
+             <strong><?= lang('Timelines') ?></strong>
+         </div>
+     </div>
+
+     <div class="panel-body">
+
+         <!-- Tabs -->
+         <ul class="nav nav-tabs">
+             <li class="active">
+                 <a href="#designing_timeline" data-toggle="tab">
+                     <i class="fa fa-pencil"></i> Designing Timeline
+                 </a>
+             </li>
+             <li>
+                 <a href="#civil_timeline" data-toggle="tab">
+                     <i class="fa fa-building"></i> Civil Work Timeline
+                 </a>
+             </li>
+             <li>
+                 <a href="#modular_timeline" data-toggle="tab">
+                     <i class="fa fa-cubes"></i> Modular Work Timeline
+                 </a>
+             </li>
+             <li>
+                 <a href="#site_validation_timeline" data-toggle="tab">
+                     <i class="fa fa-check-square-o"></i> Site Validation Timeline
+                 </a>
+             </li>
+             <li>
+                 <a href="#production_dispatch_timeline" data-toggle="tab">
+                     <i class="fa fa-truck"></i> Production & Dispatch Timeline
+                 </a>
+             </li>
+         </ul>
+
+         <!-- Tab Content -->
+         <div class="tab-content" style="margin-top:15px;">
+
+             <!-- Designing -->
+             <div class="tab-pane fade in active" id="designing_timeline">
+                 
+                 <table class="timeline-table">
+                     <tr>
+                         <th colspan="4" class="timeline-title">DESIGNING TIMELINE</th>
+                     </tr>
+                     <tr>
+                         <td class="text-left"><b>Site Name :</b> <?php echo $client_details->address;?>,  <?php echo $client_details->city;?></td>
+                         <td colspan="3"><b>Designer Name :</b> <?php echo $designing_timeline->desginer_name;?></td>
+                     </tr>
+                     <tr>
+                         <td class="text-left"><b>Project Manager Name :</b>
+                             <?php // echo $client_details->sales_manage_name;?></td>
+                         <td colspan="3"><b>Project Value :</b><?php // echo $client_details->freeze_boq_amount;?></td>
+                     </tr>
+                     <tr>
+                         <td class="text-left"><b>Client Name :</b> Mr. <?php echo $client_details->name;?>
+                         </td>
+                         <td colspan="3"><b>Customer ID :</b> HCINT10<?php echo $client_details->client_sr_id;?></td>
+                     </tr>
+                    <tr class="highlight">
+                <td colspan="2">DESIGNER SITE VISIT DATE</td>
+                <td colspan="2">
+
+                  <span class="editable-date"
+          data-field="designer_site_visit_date"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->designer_site_visit_date ?? '', add_days($base_date, 0)) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+                   
+                        </td>
+                    </tr>
+
+            <tr class="light-highlight">
+                <td colspan="2">SITE WORK START DATE</td>
+                <td>
+    <span class="editable-date"
+          data-field="site_start_date"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->site_start_date ?? '', $site_start_date) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+</td>
+            </tr>
+                 </table>
+
+             </div>
+
+             <!-- Civil Work -->
+             <div class="tab-pane fade" id="civil_timeline">
+                  
+                 <table class="timeline-table">
+                     <tr>
+                         <th colspan="5" class="section-title">CIVIL WORK TIMELINE</th>
+                     </tr>
+                     <tr class="sub-header">
+                         <th>S. No.</th>
+                         <th class="text-left">Details</th>
+                         <th>Time Line</th>
+
+                     </tr>
+                     <tr>
+                         <td></td>
+                         <td class="text-left"><b>SITE START DATE</b></td>
+                      <td>
+    <span class="editable-date"
+          data-field="site_start_date"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->site_start_date ?? '', $site_start_date) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+</td>
+                     </tr>
+                     <tr>
+                         <td>1</td>
+                         <td class="text-left">Layout Finalization</td>
+                        <td rowspan="6">
+   
+
+     <span class="editable-date"
+          data-field="washroom_plumbing"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->washroom_plumbing ?? '', $washroom_plumbing) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+</td>
+                     </tr>
+                     <tr>
+                         <td>2</td>
+                         <td class="text-left">Dismantling Drawings</td>
+                     </tr>
+                     <tr>
+                         <td>3</td>
+                         <td class="text-left">Brick Work Drawing</td>
+                     </tr>
+                     <tr>
+                         <td>4</td>
+                         <td class="text-left">Washroom Plumbing & Electrical Drawings</td>
+
+
+                     </tr>
+                     <tr>
+                         <td>5</td>
+                         <td class="text-left">False Ceiling Drawings (Lights & Looping)</td>
+                     </tr>
+                     <tr>
+                         <td>6</td>
+                         <td class="text-left">Washroom and Full House Tiles Finalization</td>
+
+                     </tr>
+                     <tr class="note-row">
+                         <td colspan="3">Note : All Civil Drawings to be finalised except Wall Electrical Drawings</td>
+                     </tr>
+                 </table>
+
+             </div>
+
+             <!-- Modular Work -->
+             <div class="tab-pane fade" id="modular_timeline">
+                 
+                 <table class="timeline-table">
+                     <tr>
+                         <th colspan="5" class="section-title">MODULAR WORK TIMELINE</th>
+                     </tr>
+                     <tr class="sub-header">
+                         <th>S. No.</th>
+                         <th class="text-left">Details</th>
+                         <th colspan="3">Submission Date</th>
+                     </tr>
+                     <tr>
+                         <td>1</td>
+                         <td class="text-left">Design Presentation (PPT)</td>
+                        <td>
+                             <span class="editable-date"
+          data-field="design_presentation"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->design_presentation ?? '', $design_presentation) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    
+</td>         
+
+                     </tr>
+                     <tr>
+                         <td>2</td>
+                         <td class="text-left">Design Finalization</td>
+                        <td> 
+                    <span class="editable-date"
+          data-field="design_finalization"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->design_finalization ?? '', $design_finalization) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+</td>
+
+
+                     </tr>
+                     <tr>
+                         <td>3</td>
+                         <td class="text-left">Wall Designs Modular 2D Working Drawings</td>
+                       <td> 
+                    <span class="editable-date"
+          data-field="wall_design"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->wall_design ?? '', $wall_design) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+</td>
+
+                     </tr>
+                     <tr>
+                         <td>4</td>
+                         <td class="text-left">Material Selection (Includes Handles & Paint)</td>
+                         <td> 
+                        
+                         <span class="editable-date"
+          data-field="material_selection"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->material_selection ?? '', $material_section) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+
+</td>
+
+                     </tr>
+                     <tr>
+                         <td>5</td>
+                         <td class="text-left">3D Design File to be submitted (Optional)</td>
+                         <td>
+                            
+                         <span class="editable-date"
+          data-field="three_d_design"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->three_d_design ?? '', $three_d_design) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    
+    </td>
+
+                     </tr>
+                     <tr>
+                         <td>6</td>
+                         <td class="text-left">Wall Electrical Drawings</td>
+                         <td colspan="1">Before Validation</td>
+                     </tr>
+                     <tr class="note-row">
+                         <td colspan="3">Note : All items in the BOQ to be finalised</td>
+                     </tr>
+                 </table>
+
+             </div>
+
+             <!-- Site Validation -->
+             <div class="tab-pane fade" id="site_validation_timeline">
+                 
+                 <table class="timeline-table">
+                     <tr>
+                         <th colspan="5" class="section-title">SITE VALIDATION TIMELINE</th>
+                     </tr>
+                     <tr class="sub-header">
+                         <th>S. No.</th>
+                         <th class="text-left">Details</th>
+                         <th>Submission Date</th>
+
+                     </tr>
+                     <tr>
+                         <td>1</td>
+                         <td class="text-left">Site Validation</td>
+                        <td>
+                             <span class="editable-date"
+          data-field="site_validation"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->site_validation ?? '', $site_validation) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    
+    
+     </td>
+
+
+                     </tr>
+                     <tr>
+                         <td>2</td>
+                         <td class="text-left">MOM Checklist</td>
+                         <td colspan="1">
+                          <span class="editable-date"
+          data-field="mom_checklist"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->mom_checklist ?? '', $mom_checklist) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+
+</td>
+                     </tr>
+                     <tr>
+                         <td>3</td>
+                         <td class="text-left">Wall Electrical Drawings</td>
+                         <td colspan="1">After <span class="editable-date"
+          data-field="wall_electrical_drawing"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->wall_electrical_drawing ?? '', $wall_electrical_drawing) ?>
+    </span>
+   
+    
+    of validation  <i class="fa fa-edit edit-icon"></i></td>
+                     </tr>
+                 </table>
+
+             </div>
+
+             <!-- Production & Dispatch -->
+             <div class="tab-pane fade" id="production_dispatch_timeline">
+                  
+                 <table class="timeline-table">
+                     <tr>
+                         <th colspan="3" class="section-title">PRODUCTION AND DISPATCH TIMELINES</th>
+                     </tr>
+                     <tr class="sub-header">
+                         <th>S. No.</th>
+                         <th class="text-left">Details</th>
+                         <th>Submission Date</th>
+
+                     </tr>
+                     <tr>
+                         <td>1</td>
+                         <td class="text-left">Correction Drawings</td>
+                         
+                         <td>After  <span class="editable-date"
+          data-field="correction_drawing"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->correction_drawing ?? '', $correction_drawing) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    </td>
+
+                     </tr>
+                     <tr>
+                         <td>2</td>
+                         <td class="text-left">Production Drawings for Approval</td>
+                        <td>
+                            <span class="editable-date"
+          data-field="production_drawing"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->production_drawing ?? '', $production_drawing_for_approval) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    
+    </td>
+
+                     </tr>
+                     <tr>
+                         <td>3</td>
+                         <td class="text-left">Dispatch Date</td>
+                         <td colspan="1">Date :  <span class="editable-date"
+          data-field="dispatch_date"
+          data-client="<?= $client_id ?>">
+        <?= final_date($manual->dispatch_date ?? '', $dispatch_date) ?>
+    </span>
+    <i class="fa fa-edit edit-icon"></i>
+    
+    </td>
+                     </tr>
+
+                    <tr class="light-highlight">
+                            <td colspan="3">
+                            Handover Date :
+                            <b>40-45 days</b> after Production
+                            </td>
+                    </tr>
+
+                 </table>
+
+             </div>
+
+         </div>
+
+     </div>
+ </section>
+
+
+
+ <style>
+.timeline-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+}
+
+.timeline-table th,
+.timeline-table td {
+    border: 1px solid #000;
+    padding: 6px 8px;
+    text-align: center;
+}
+
+ 
+
+.timeline-title {
+    background: #a9d18e;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.section-title {
+    background: #bdd7ee;
+    font-weight: bold;
+}
+
+.sub-header {
+    background: #6fa8dc;
+    color: #000;
+    font-weight: bold;
+}
+
+.note-row {
+    background: #f4f4cc;
+    text-align: left;
+    font-style: italic;
+}
+
+.highlight {
+    background: #c27ba0;
+    color: #000;
+    font-weight: bold;
+}
+
+.light-highlight {
+    background: #f4cccc;
+    font-weight: bold;
+}
+
+.text-left {
+    text-align: left;
+}
+ </style>
+
+
+
+
+ 
+
+
+<?php
+function display_date_or_na($date, $format = null)
+{
+    $format = $format ?: config_item('date_format');
+
+    if (empty($date)) return 'NA';
+
+    $ts = strtotime($date);
+
+    if ($ts === false || $ts <= 0) return 'NA';
+
+    if (date('Y-m-d', $ts) === '01-01-1970') return 'NA';
+
+    return strftime($format, $ts);
+}
+
+function add_days_or_na($baseDate, $days, $format = null)
+{
+    $format = $format ?: config_item('date_format');
+
+    if (empty($baseDate) || empty($days)) return 'NA';
+
+    $baseTs = strtotime($baseDate);
+    if ($baseTs === false || $baseTs <= 0) return 'NA';
+
+    $newTs = strtotime("+$days days", $baseTs);
+    if ($newTs === false || date('Y-m-d', $newTs) === '01-01-1970') return 'NA';
+
+    return strftime($format, $newTs);
+}
+
+function date_range_or_na($baseDate, $range)
+{
+    if (empty($baseDate) || empty($range)) return 'NA';
+
+    $daysArray = explode(',', $range);
+    $dates = [];
+
+    foreach ($daysArray as $d) {
+        $date = add_days_or_na($baseDate, trim($d));
+        if ($date !== 'NA') $dates[] = $date;
+    }
+
+    return empty($dates) ? 'NA' : implode(' - ', $dates);
+}
+?>
+
+<script>
+document.addEventListener("DOMContentLoaded", function(){
+
+    // click on edit icon OR text
+    document.querySelectorAll('.editable-date, .edit-icon').forEach(el => {
+
+        el.addEventListener('click', function(){
+
+            let span = this.classList.contains('editable-date')
+                ? this
+                : this.previousElementSibling;
+
+            if(span.querySelector('input')) return;
+
+            let current = span.innerText.trim();
+
+            let input = document.createElement('input');
+            input.type = "text";
+            input.value = current;
+            input.className = "form-control";
+            input.style.width = "200px";
+
+            span.innerHTML = '';
+            span.appendChild(input);
+            input.focus();
+
+            // SAVE ON BLUR
+            input.addEventListener('blur', function(){
+                saveDate(span, input.value);
+            });
+
+            // SAVE ON ENTER
+            input.addEventListener('keypress', function(e){
+                if(e.key === 'Enter'){
+                    input.blur();
+                }
+            });
+
+        });
+
+    });
+
+    function saveDate(span, value){
+
+        let field = span.getAttribute('data-field');
+        let client_id = span.getAttribute('data-client');
+
+        fetch("", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: `ajax=1&field=${field}&value=${value}&client_id=${client_id}`
+        })
+        .then(res => res.text())
+        .then(res => {
+            span.innerHTML = value || 'NA';
+        })
+        .catch(err => {
+            alert('Error saving');
+        });
+
+    }
+
+});
+</script>
+
+<style>
+    .editable-date {
+    cursor: pointer;
+    padding: 3px 6px;
+}
+
+.editable-date:hover {
+    background: #fff3cd;
+}
+
+.edit-icon {
+    margin-left: 5px;
+    cursor: pointer;
+    color: #007bff;
+}
+</style>
+

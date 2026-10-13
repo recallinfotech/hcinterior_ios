@@ -1,0 +1,1721 @@
+<?php
+error_reporting(E_ALL);
+ ini_set('display_errors', 0);
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Leads extends CI_Controller
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->model('items_model');
+    }
+
+  
+
+ public function leadList_old()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // ✅ Validate token
+    $user = validate_api_token();
+
+    // ✅ Read JSON input
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    // ✅ Extract inputs
+    $page            = $data['page'] ?? 1;
+    $limit           = $data['limit'] ?? 20;
+    $user_id         = $data['user_id'] ?? null;
+    $lead_status_id  = $data['lead_status_id'] ?? null;
+    $budget_from     = $data['budget_from'] ?? null;
+    $budget_to       = $data['budget_to'] ?? null;
+    $from_date       = $data['from_date'] ?? null;
+    $to_date         = $data['to_date'] ?? null;
+    $sub_status      = $data['sub_status'] ?? null;
+    $search          = trim($data['search'] ?? '');
+    $forward_from    = $data['forward_from_date'] ?? null;
+    $forward_to      = $data['forward_to_date'] ?? null;
+
+    // ✅ Pagination setup
+    $page  = (is_numeric($page) && $page > 0) ? (int)$page : 1;
+    $limit = (is_numeric($limit) && $limit > 0) ? (int)$limit : 20;
+    $offset = ($page - 1) * $limit;
+
+    // ✅ Base query
+    $this->db->from('tbl_leads');
+    $this->db->join('tbl_lead_status', 'tbl_lead_status.lead_status_id=tbl_leads.lead_status_id', 'left');
+    $this->db->join('tbl_lead_source', 'tbl_lead_source.lead_source_id=tbl_leads.lead_source_id', 'left');
+    $this->db->where('converted_client_id', 0);
+
+    // ✅ Permission filter
+    if (!empty($user_id)) {
+        $this->db->group_start();
+        $this->db->where('tbl_leads.permission', 'all');
+        $this->db->or_like('tbl_leads.permission', '"' . $user_id . '"');
+        $this->db->group_end();
+    } else {
+        $this->db->or_like('tbl_leads.permission', 'all');
+    }
+
+    // ✅ Forward date filter
+    if (!empty($forward_from) && !empty($forward_to)) {
+        $this->db->join(
+            "(SELECT lead_id, MAX(createdate) AS latest_date 
+              FROM tbl_status_log 
+              WHERE status = 4 
+              GROUP BY lead_id) AS latest_log",
+            "latest_log.lead_id = tbl_leads.leads_id",
+            "inner"
+        );
+
+        $this->db->where('DATE(latest_log.latest_date) >=', date('Y-m-d', strtotime($forward_from)));
+        $this->db->where('DATE(latest_log.latest_date) <=', date('Y-m-d', strtotime($forward_to)));
+    }
+
+    // ✅ Other filters
+    if (!empty($lead_status_id)) {
+        $this->db->where('tbl_leads.lead_status_id', $lead_status_id);
+    }
+
+    if (!empty($budget_from)) {
+        $this->db->where('tbl_leads.budget_from >=', $budget_from);
+    }
+
+    if (!empty($budget_to)) {
+        $this->db->where('tbl_leads.budget_to <=', $budget_to);
+    }
+
+    if (!empty($from_date)) {
+        $this->db->where('DATE(tbl_leads.created_time) >=', date('Y-m-d', strtotime($from_date)));
+    }
+
+    if (!empty($to_date)) {
+        $this->db->where('DATE(tbl_leads.created_time) <=', date('Y-m-d', strtotime($to_date)));
+    }
+
+    if (!empty($sub_status)) {
+        $this->db->where('tbl_leads.sub_status', $sub_status);
+    }
+
+    // ✅ Search filter
+    if (!empty($search)) {
+        $this->db->group_start();
+        $this->db->like('tbl_leads.phone', $search);
+        $this->db->or_like('tbl_leads.contact_name', $search);
+        $this->db->or_like('tbl_leads.city', $search);
+        $this->db->group_end();
+    }
+
+    // ✅ Count total
+    $totalRecords = $this->db->count_all_results('', false);
+
+    // ✅ Order by latest first
+    $this->db->order_by('tbl_leads.created_time', 'DESC');
+    $this->db->limit($limit, $offset);
+    $query = $this->db->get();
+    $results = $query->result();
+
+    // ✅ Get logged user’s designation highlight logic
+    $logged_user_id = $user->user_id ?? null;
+    $designation_id = $this->db
+        ->select('designations_id')
+        ->where('user_id', $logged_user_id)
+        ->get('tbl_account_details')
+        ->row('designations_id');
+
+    // ✅ Format output
+    $data_output = [];
+    foreach ($results as $lead) {
+        $custom_fields = custom_form_table(5, $lead->leads_id);
+        $created_time_ist = date('d M Y, h:i A', strtotime($lead->created_time . ' +5 hours 30 minutes'));
+
+        // -------------------------------
+        // 🔸 Highlight Logic Starts Here
+        // -------------------------------
+        $highlight = false;
+        $has_comments = $this->db->where([
+            'module' => 'leads',
+            'module_field_id' => $lead->leads_id
+        ])->count_all_results('tbl_task_comment');
+
+        $permissionUsers = json_decode($lead->permission, true);
+        $allIds = [];
+        $sales_ids = [];
+
+        if (is_array($permissionUsers)) {
+            $userIds = array_keys($permissionUsers);
+
+            if (!empty($userIds)) {
+                // Get team leaders (designation = 3)
+                $this->db->select('user_id')->from('tbl_account_details')
+                    ->where_in('user_id', $userIds)
+                    ->where('designations_id', 3);
+                $allIds = array_column($this->db->get()->result_array(), 'user_id');
+
+                // Get sales designations
+                $sales_designations = [12,13,14,15,16,17,18,19,20,21,23,25,26,27,28,29,30,31,37,32,33,34,35,36,40,41];
+                $this->db->select('user_id')->from('tbl_account_details')
+                    ->where_in('user_id', $userIds)
+                    ->where_in('designations_id', $sales_designations);
+                $sales_ids = array_column($this->db->get()->result_array(), 'user_id');
+            }
+        }
+
+        // Apply logic
+        if (in_array($logged_user_id, $allIds)) {
+            if ($has_comments == 0 && empty($lead->notes)) {
+                $highlight = true;
+            }
+        }
+
+        if (in_array($logged_user_id, $sales_ids)) {
+            if ($has_comments == 0) {
+                $highlight = true;
+            }
+        }
+        // -------------------------------
+        // 🔸 Highlight Logic Ends Here
+        // -------------------------------
+
+        $data_output[] = [
+            'lead_id'        => $lead->leads_id,
+            'lead_name'      => $lead->lead_name,
+            'contact_name'   => $lead->contact_name,
+            'email'          => $lead->email,
+            'phone'          => $lead->phone,
+            'whatsapp'       => '91' . $lead->phone,
+            'city'           => $lead->city,
+            'lead_source'    => $lead->lead_source,
+            'lead_status'    => $lead->lead_status,
+            'lead_status_id' => $lead->lead_status_id,
+            'lead_source_id' => $lead->lead_source_id,
+            'sub_status'     => $lead->sub_status,
+            'lead_type'      => $lead->lead_type,
+            'created_time'   => $created_time_ist,
+            'budget_from'    => $lead->budget_from,
+            'budget_to'      => $lead->budget_to,
+            'is_duplicate'   => $lead->is_duplicate,
+           'notes' => trim(strip_tags(html_entity_decode($lead->notes ?? ''))),
+            'permission'     => $lead->permission,
+            'custom_fields'  => $custom_fields,
+            'highlight'      => $highlight ? true : false // ✅ Added field
+        ];
+    }
+
+    // ✅ Response
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Lead list fetched successfully',
+        'page'    => $page,
+        'limit'   => $limit,
+        'total'   => $totalRecords,
+        'data'    => $data_output
+    ]);
+}
+
+
+public function leadList()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // ✅ Validate token
+    $user = validate_api_token();
+
+    // ✅ Read JSON input
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    // ✅ Extract inputs
+    $page            = $data['page'] ?? 1;
+    $limit           = $data['limit'] ?? 20;
+    $user_id         = $data['user_id'] ?? null;
+    $lead_status_id  = $data['lead_status_id'] ?? null;
+    $budget_from     = $data['budget_from'] ?? null;
+    $budget_to       = $data['budget_to'] ?? null;
+    $from_date       = $data['from_date'] ?? null;
+    $to_date         = $data['to_date'] ?? null;
+    $sub_status      = $data['sub_status'] ?? null;
+    $search          = trim($data['search'] ?? '');
+    $forward_from    = $data['forward_from_date'] ?? null;
+    $forward_to      = $data['forward_to_date'] ?? null;
+
+    // ✅ Pagination setup
+    $page   = (is_numeric($page) && $page > 0) ? (int)$page : 1;
+    $limit  = (is_numeric($limit) && $limit > 0) ? (int)$limit : 20;
+    $offset = ($page - 1) * $limit;
+
+    // ✅ Status Counts (Follow Up & NAP)
+    $this->db->select("
+        COUNT(CASE WHEN lead_status_id = 2 THEN 1 END) as follow_up_total,
+        COUNT(CASE WHEN lead_status_id = 7 THEN 1 END) as nap_total
+    ", false);
+    $this->db->from('tbl_leads');
+    $this->db->where('converted_client_id', 0);
+
+    if (!empty($user_id)) {
+        $this->db->group_start();
+        $this->db->where('permission', 'all');
+        $this->db->or_like('permission', '"' . $user_id . '"');
+        $this->db->group_end();
+    } else {
+        $this->db->or_like('permission', 'all');
+    }
+
+    $status_counts = $this->db->get()->row();
+    $follow_up_total = (int)($status_counts->follow_up_total ?? 0);
+    $nap_total       = (int)($status_counts->nap_total ?? 0);
+
+    // ✅ Base query
+    $this->db->from('tbl_leads');
+    $this->db->join('tbl_lead_status', 'tbl_lead_status.lead_status_id=tbl_leads.lead_status_id', 'left');
+    $this->db->join('tbl_lead_source', 'tbl_lead_source.lead_source_id=tbl_leads.lead_source_id', 'left');
+    $this->db->where('tbl_leads.converted_client_id', 0);
+
+    // ✅ Permission filter
+    if (!empty($user_id)) {
+        $this->db->group_start();
+        $this->db->where('tbl_leads.permission', 'all');
+        $this->db->or_like('tbl_leads.permission', '"' . $user_id . '"');
+        $this->db->group_end();
+    } else {
+        $this->db->or_like('tbl_leads.permission', 'all');
+    }
+
+    // ✅ Forward date filter
+    if (!empty($forward_from) && !empty($forward_to)) {
+        $this->db->join(
+            "(SELECT lead_id, MAX(createdate) AS latest_date 
+              FROM tbl_status_log 
+              WHERE status = 4 
+              GROUP BY lead_id) AS latest_log",
+            "latest_log.lead_id = tbl_leads.leads_id",
+            "inner"
+        );  
+
+        $this->db->where('DATE(latest_log.latest_date) >=', date('Y-m-d', strtotime($forward_from)));
+        $this->db->where('DATE(latest_log.latest_date) <=', date('Y-m-d', strtotime($forward_to)));
+    }
+
+    // ✅ Other filters
+    if (!empty($lead_status_id)) {
+        $this->db->where('tbl_leads.lead_status_id', $lead_status_id);
+    }
+
+    if (!empty($budget_from)) {
+        $this->db->where('tbl_leads.budget_from >=', $budget_from);
+    }
+
+    if (!empty($budget_to)) {
+        $this->db->where('tbl_leads.budget_to <=', $budget_to);
+    }
+
+    if (!empty($from_date)) {
+        $this->db->where('DATE(tbl_leads.created_time) >=', date('Y-m-d', strtotime($from_date)));
+    }
+
+    if (!empty($to_date)) {
+        $this->db->where('DATE(tbl_leads.created_time) <=', date('Y-m-d', strtotime($to_date)));
+    }
+
+    if (!empty($sub_status)) {
+        $this->db->where('tbl_leads.sub_status', $sub_status);
+    }
+
+    // ✅ Search filter
+    if (!empty($search)) {
+        $this->db->group_start();
+        $this->db->like('tbl_leads.phone', $search);
+        $this->db->or_like('tbl_leads.contact_name', $search);
+        $this->db->or_like('tbl_leads.city', $search);
+        $this->db->group_end();
+    }
+
+    // ✅ Count total
+    $totalRecords = $this->db->count_all_results('', false);
+
+    // ✅ Order by latest first
+    $this->db->order_by('tbl_leads.created_time', 'DESC');
+    $this->db->limit($limit, $offset);
+    $query = $this->db->get();
+    $results = $query->result();
+
+    // ✅ Get logged user’s designation highlight logic
+    $logged_user_id = $user->user_id ?? null;
+    $designation_id = $this->db
+        ->select('designations_id')
+        ->where('user_id', $logged_user_id)
+        ->get('tbl_account_details')
+        ->row('designations_id');
+
+    // ✅ Format output
+    $data_output = [];
+    foreach ($results as $lead) {
+        $custom_fields = custom_form_table(5, $lead->leads_id);
+        $created_time_ist = date('d M Y, h:i A', strtotime($lead->created_time . ' +5 hours 30 minutes'));
+
+        // Highlight Logic
+        $highlight = false;
+        $has_comments = $this->db->where([
+            'module' => 'leads',
+            'module_field_id' => $lead->leads_id
+        ])->count_all_results('tbl_task_comment');
+
+        $permissionUsers = json_decode($lead->permission, true);
+        $allIds = [];
+        $sales_ids = [];
+
+        if (is_array($permissionUsers)) {
+            $userIds = array_keys($permissionUsers);
+
+            if (!empty($userIds)) {
+                // Team leaders
+                $this->db->select('user_id')->from('tbl_account_details')
+                    ->where_in('user_id', $userIds)
+                    ->where('designations_id', 3);
+                $allIds = array_column($this->db->get()->result_array(), 'user_id');
+
+                // Sales designations
+                $sales_designations = [12,13,14,15,16,17,18,19,20,21,23,25,26,27,28,29,30,31,37,32,33,34,35,36,40,41];
+                $this->db->select('user_id')->from('tbl_account_details')
+                    ->where_in('user_id', $userIds)
+                    ->where_in('designations_id', $sales_designations);
+                $sales_ids = array_column($this->db->get()->result_array(), 'user_id');
+            }
+        }
+
+        if (in_array($logged_user_id, $allIds)) {
+            if ($has_comments == 0 && empty($lead->notes)) {
+                $highlight = true;
+            }
+        }
+
+        if (in_array($logged_user_id, $sales_ids)) {
+            if ($has_comments == 0) {
+                $highlight = true;
+            }
+        }
+
+        $data_output[] = [
+            'lead_id'        => $lead->leads_id,
+            'lead_name'      => $lead->lead_name,
+            'contact_name'   => $lead->contact_name,
+            'email'          => $lead->email,
+            'phone'          => $lead->phone,
+            'whatsapp'       => '91' . $lead->phone,
+            'city'           => $lead->city,
+            'lead_source'    => $lead->lead_source,
+            'lead_status'    => $lead->lead_status,
+            'lead_status_id' => $lead->lead_status_id,
+            'lead_source_id' => $lead->lead_source_id,
+            'sub_status'     => $lead->sub_status,
+            'lead_type'      => $lead->lead_type,
+            'created_time'   => $created_time_ist,
+            'budget_from'    => $lead->budget_from,
+            'budget_to'      => $lead->budget_to,
+            'is_duplicate'   => $lead->is_duplicate,
+            'notes'          => trim(strip_tags(html_entity_decode($lead->notes ?? ''))),
+            'permission'     => $lead->permission,
+            'custom_fields'  => $custom_fields,
+            'highlight'      => $highlight ? true : false
+        ];
+    }
+
+    // ✅ Response
+    echo json_encode([
+        'status'             => true,
+        'message'            => 'Lead list fetched successfully',
+        'page'               => $page,
+        'limit'              => $limit,
+        'total'              => $totalRecords,
+        'follow_up_total'    => $follow_up_total,
+        'nap_total'          => $nap_total,
+        'data'               => $data_output
+    ]);
+}
+
+ public function leadDetail($lead_id)
+{
+    header('Content-Type: application/json');
+
+    // Load helper
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    if (empty($lead_id) || !is_numeric($lead_id)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Invalid Lead ID'
+        ]);
+        return;
+    }
+
+    // Base query for lead
+    $this->db->from('tbl_leads');
+    $this->db->join('tbl_lead_status', 'tbl_lead_status.lead_status_id=tbl_leads.lead_status_id', 'left');
+    $this->db->join('tbl_lead_source', 'tbl_lead_source.lead_source_id=tbl_leads.lead_source_id', 'left');
+    $this->db->where('tbl_leads.leads_id', $lead_id);
+
+    $query = $this->db->get();
+    $lead  = $query->row();
+
+    if (!$lead) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Lead not found'
+        ]);
+        return;
+    }
+
+    // Custom fields
+    $custom_fields = custom_form_table(5, $lead->leads_id);
+
+    // ---- Permission Users ----
+    $permission_users = [];
+    if (!empty($lead->permission)) {
+        $permissionData = json_decode($lead->permission, true);
+        $userIds = array_keys($permissionData);
+
+        if (!empty($userIds)) {
+            $this->db->select('user_id, fullname, avatar');
+            $this->db->from('tbl_account_details');
+            $this->db->where_in('user_id', $userIds);
+            $userQuery = $this->db->get()->result();
+
+            foreach ($userQuery as $u) {
+                $permission_users[] = [
+                    'user_id'   => $u->user_id,
+                    'fullname'  => $u->fullname,
+                    'avatar'    => base_url($u->avatar),
+                    'rights'    => $permissionData[$u->user_id] ?? []
+                ];
+            }
+        }
+    }
+
+    // ---- Comments ----
+    $this->db->select('c.task_comment_id, c.user_id, c.comment, c.comments_attachment, c.comment_datetime, u.fullname, u.avatar');
+    $this->db->from('tbl_task_comment c');
+    $this->db->join('tbl_account_details u', 'u.user_id = c.user_id', 'left');
+    $this->db->where('c.module', 'leads');
+    $this->db->where('c.module_field_id', $lead_id);
+    $this->db->order_by('c.comment_datetime', 'DESC');
+    $commentsQuery = $this->db->get()->result();
+
+    $comments = [];
+    foreach ($commentsQuery as $cm) {
+        $comments[] = [
+            'comment_id'    => $cm->task_comment_id,
+            'user_id'       => $cm->user_id,
+            'fullname'      => $cm->fullname,
+            'avatar'        => base_url('uploads/' . $cm->avatar),
+            'comment'       => $cm->comment,
+            'attachment'    => !empty($cm->comments_attachment) ? base_url('uploads/comments/' . $cm->comments_attachment) : null,
+            'comment_date'  => $cm->comment_datetime
+        ];
+    }
+
+    // ---- Reminders ----
+    $this->db->select('r.reminder_id, r.description, r.date, r.notified, r.after_notify, r.before_notify, r.notify_by_email, r.user_id, r.created_by, u.fullname, u.avatar');
+    $this->db->from('tbl_reminders r');
+    $this->db->join('tbl_account_details u', 'u.user_id = r.user_id', 'left');
+    $this->db->where('r.module', 'leads');
+    $this->db->where('r.module_id', $lead_id);
+    $this->db->order_by('r.date', 'ASC');
+    $remindersQuery = $this->db->get()->result();
+
+    $reminders = [];
+    foreach ($remindersQuery as $rm) {
+        $reminders[] = [
+            'reminder_id'    => $rm->reminder_id,
+            'description'    => $rm->description,
+            'date'           => $rm->date,
+            'notified'       => $rm->notified,
+            'before_notify'  => $rm->before_notify,
+            'after_notify'   => $rm->after_notify,
+            'notify_by_email'=> $rm->notify_by_email,
+            'user_id'        => $rm->user_id,
+            'fullname'       => $rm->fullname,
+            'avatar'         => base_url('uploads/' . $rm->avatar),
+            'created_by'     => $rm->created_by
+        ];
+    }
+
+    // ---- Proposals ----
+    $this->db->select('p.*, u.fullname, u.avatar');
+    $this->db->from('proposals p');
+    $this->db->join('tbl_account_details u', 'u.user_id = p.created_by', 'left');
+    $this->db->where('p.lead_id', $lead_id);
+    $this->db->order_by('p.created_at', 'DESC');
+    $proposalsQuery = $this->db->get()->result();
+
+    $proposals = [];
+    foreach ($proposalsQuery as $pr) {
+        $proposals[] = [
+            'id'               => $pr->id,
+            'parent_id'        => $pr->parent_id,
+            'version_no'       => $pr->version_no,
+            'ref_no'           => $pr->ref_no,
+ 
+            'notes' => trim(strip_tags(html_entity_decode($pr->notes ?? ''))),
+            'proposal_date'    => $pr->proposal_date,
+            'expiry_date'      => $pr->expiry_date,
+            'grand_total'      => $pr->grand_total,
+            'siteHandling'     => $pr->siteHandling,
+            'siteHandlingAmount'=> $pr->siteHandlingAmount,
+            'totalToBePaid'    => $pr->totalToBePaid,
+            'status'           => $pr->status,
+            'phone'            => $pr->phone,
+            'created_by'       => $pr->created_by,
+            'created_at'       => $pr->created_at,
+            'fullname'         => $pr->fullname,
+            'avatar'           => base_url('uploads/' . $pr->avatar)
+        ];
+    }
+
+
+// ---- Activities ----
+    $this->db->select('a.*, u.fullname, u.avatar');
+    $this->db->from('tbl_activities a');
+    $this->db->join('tbl_account_details u', 'u.user_id = a.user', 'left');
+    $this->db->where('a.module', 'leads');
+    $this->db->where('a.module_field_id', $lead_id);
+    $this->db->where('a.deleted', 'No'); // if you mark deleted with 'Yes' or '1'
+    $this->db->order_by('a.activity_date', 'DESC');
+    $activitiesQuery = $this->db->get()->result();
+
+    $activities = [];
+    foreach ($activitiesQuery as $act) {
+        $activities[] = [
+            'activities_id'   => $act->activities_id,
+            'user_id'         => $act->user,
+            'fullname'        => $act->fullname,
+            'avatar'          => base_url('uploads/' . $act->avatar),
+            'activity'        => lang($act->activity),
+            'icon'            => $act->icon,
+            'link'            => $act->link,
+            'value1'          => $act->value1,
+            'value2'          => $act->value2,
+            'activity_date'   => $act->activity_date
+        ];
+    }
+
+
+
+
+    // ---- Final Output ----
+    $data_output = [
+        'lead_id'          => $lead->leads_id,
+        'lead_name'        => $lead->lead_name,
+        'contact_name'     => $lead->contact_name,
+        'email'            => $lead->email,
+        'phone'            => $lead->phone,
+        'whatsapp'      => '91'.$lead->phone,
+        'city'             => $lead->city,
+        'lead_source'      => $lead->lead_source,
+        'lead_status'      => $lead->lead_status,
+        'lead_type'        => $lead->lead_type,
+        'sub_status'       => $lead->sub_status,
+		'lead_status_id'   => $lead->lead_status_id,
+        'lead_source_id'   => $lead->lead_source_id,
+         'created_time'     => $lead->created_time,
+        'budget_from'      => $lead->budget_from,
+        'budget_to'        => $lead->budget_to,
+        'is_duplicate'     => $lead->is_duplicate,
+        'notes' => trim(strip_tags(html_entity_decode($lead->notes ?? ''))),
+        'custom_fields'    => $custom_fields,
+        'permission_users' => $permission_users,
+        'comments'         => $comments,
+        'reminders'        => $reminders,
+        'proposals'        => $proposals,
+		 'activities'       => $activities
+    ];
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Lead detail fetched',
+        'data'    => $data_output
+    ]);
+}
+
+
+
+
+public function updateLead()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read JSON input
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $lead_id = $data['lead_id'] ?? null;
+    if (empty($lead_id)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Lead ID is required'
+        ]);
+        return;
+    }
+
+    // Prepare fields to update
+    $updateData = [];
+    if (isset($data['lead_name']))    $updateData['lead_name'] = $data['lead_name'];
+    if (isset($data['contact_name'])) $updateData['contact_name'] = $data['contact_name'];
+    if (isset($data['email']))        $updateData['email'] = $data['email'];
+    if (isset($data['phone']))        $updateData['phone'] = $data['phone'];
+    if (isset($data['city']))         $updateData['city'] = $data['city'];
+    if (isset($data['lead_source_id']))  $updateData['lead_source_id'] = $data['lead_source_id'];
+    if (isset($data['lead_status_id']))  $updateData['lead_status_id'] = $data['lead_status_id'];
+    if (isset($data['lead_type']))    $updateData['lead_type'] = $data['lead_type'];
+    if (isset($data['sub_status']))   $updateData['sub_status'] = $data['sub_status'];
+    if (isset($data['budget_from']))  $updateData['budget_from'] = $data['budget_from'];
+    if (isset($data['budget_to']))    $updateData['budget_to'] = $data['budget_to'];
+    if (isset($data['notes']))    $updateData['notes'] = $data['notes'];
+
+    if (empty($updateData)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'No fields provided to update'
+        ]);
+        return;
+    }
+
+    // Update record
+    $this->db->where('leads_id', $lead_id);
+    $success = $this->db->update('tbl_leads', $updateData);
+
+    if ($success) {
+        echo json_encode([
+            'status' => true,
+            'message' => 'Lead updated successfully',
+            
+        ]);
+    } else {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Failed to update lead'
+        ]);
+    }
+}
+
+
+public function leadStatusList()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Fetch all statuses
+    $this->db->order_by('order_no', 'ASC');
+    $query = $this->db->get('tbl_lead_status');
+    $results = $query->result();
+
+    $data_output = [];
+    foreach ($results as $row) {
+        $data_output[] = [
+            'lead_status_id' => $row->lead_status_id,
+            'lead_status'    => $row->lead_status,
+            'lead_type'      => $row->lead_type,
+            'order_no'       => $row->order_no
+        ];
+    }
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Lead status list fetched',
+        'total'   => count($data_output),
+        'data'    => $data_output
+    ]);
+}
+
+
+
+public function leadSourceList()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Fetch all statuses
+   // $this->db->order_by('order_no', 'ASC');
+    $query = $this->db->get('tbl_lead_source');
+    $results = $query->result();
+
+    $data_output = [];  
+    foreach ($results as $row) {
+        $data_output[] = [
+            'lead_source_id' => $row->lead_source_id,
+            'lead_source'    => $row->lead_source
+           
+        ];
+    }
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Lead source list fetched',
+        'total'   => count($data_output),
+        'data'    => $data_output
+    ]);
+}
+
+
+public function reminderList()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input (JSON or POST)
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $user_id   = $data['user_id'] ?? null;
+    $from_date = $data['from_date'] ?? null;
+    $to_date   = $data['to_date'] ?? null;
+
+    if (empty($user_id)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'User ID is required'
+        ]);
+        return;
+    }
+
+    // Base query
+    $this->db->select('r.*, l.lead_name, l.contact_name, l.phone, l.email');
+    $this->db->from('tbl_reminders r');
+    $this->db->join('tbl_leads l', 'l.leads_id = r.module_id', 'left');
+    $this->db->where('r.user_id', $user_id);
+    $this->db->where('r.module', 'leads');
+
+    // Apply date filters if given
+    if (!empty($from_date)) {
+        $this->db->where('DATE(r.date) >=', date('Y-m-d', strtotime($from_date)));
+    }
+    if (!empty($to_date)) {
+        $this->db->where('DATE(r.date) <=', date('Y-m-d', strtotime($to_date)));
+    }
+
+    $this->db->order_by('r.date', 'DESC');
+    $query = $this->db->get();
+
+    $results = $query->result();
+    $data_output = [];
+
+    foreach ($results as $row) {
+        $data_output[] = [
+            'reminder_id'     => $row->reminder_id,
+            'description'     => $row->description,
+            'date'            => $row->date,
+            'notified'        => $row->notified,
+            'before_notify'   => $row->before_notify,
+            'after_notify'    => $row->after_notify,
+            'module'          => $row->module,
+            'module_id'       => $row->module_id,
+            'lead_name'       => $row->lead_name,
+            'contact_name'    => $row->contact_name,
+            'phone'           => $row->phone,
+            'email'           => $row->email,
+            'notify_by_email' => $row->notify_by_email,
+            'created_by'      => $row->created_by
+        ];
+    }
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Reminder list fetched',
+        'total'   => count($data_output),
+        'data'    => $data_output
+    ]);
+}
+
+
+public function addReminder()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input JSON
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $description = $data['description'] ?? null;
+    $date        = $data['date'] ?? null; // expected format: Y-m-d H:i:s
+    $module_id   = $data['lead_id'] ?? null;
+    $user_id     = $data['user_id'] ?? null;
+
+    // Validation
+    if (empty($description) || empty($date) || empty($module_id) || empty($user_id)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Required fields: description, date, lead_id, user_id'
+        ]);
+        return;
+    }
+
+    $insertData = [
+        'description'     => $description,
+        'date'            => date('Y-m-d H:i:s', strtotime($date)),
+        'notified'        => 'No',
+        'before_notify'   => 'No',
+        'after_notify'    => 'No',
+        'module'          => 'leads',
+        'module_id'       => $module_id,
+        'user_id'         => $user_id,
+        'notify_by_email' => 'No',
+      'created_by'      => isset($user->user_id) ? $user->user_id : $user_id
+    ];
+
+    $this->db->insert('tbl_reminders', $insertData);
+    $reminder_id = $this->db->insert_id();
+
+    echo json_encode([
+        'status'      => true,
+        'message'     => 'Reminder added successfully',
+        'reminder_id' => $reminder_id
+    ]);
+}
+
+
+
+ // === API to upload & save audio recording ===
+public function saveRecording()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+    $user = validate_api_token();
+
+    $lead_id = $this->input->post('lead_id');
+    $phone   = $this->input->post('phone');
+    $duration = $this->input->post('duration');
+ 
+    if (empty($lead_id) || empty($_FILES['file']['name'])) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Lead ID and recording file are required'
+        ]);
+        return;
+    }
+
+    $config['upload_path']   = './uploads/recordings/';
+    $config['allowed_types'] = 'mp3|wav|m4a|ogg|amr';
+    $config['max_size']      = 20480; // 20 MB
+    $config['encrypt_name']  = true;
+
+    if (!is_dir($config['upload_path'])) {
+        mkdir($config['upload_path'], 0777, true);
+    }
+
+    $this->load->library('upload', $config);
+
+    if (!$this->upload->do_upload('file')) {
+        echo json_encode([
+            'status' => false,
+            'message' => $this->upload->display_errors()
+        ]);
+        return;
+    }
+
+    $uploadData = $this->upload->data();
+    $file_name  = $uploadData['file_name'];
+    $file_type  = $uploadData['file_ext'];
+    $file_url   = base_url('uploads/recordings/' . $file_name);
+
+    $insertData = [
+        'lead_id'     => $lead_id,
+        'phone'       => $phone,
+        'duration'    => $duration,
+        'record_file' => $file_name,  // ✅ only filename
+        'file_type'   => $file_type,
+        'createdate'  => date('Y-m-d H:i:s'),
+        'updatedate'  => date('Y-m-d H:i:s'),
+       // 'status'      => $status
+    ];
+
+    $this->db->insert('tbl_call_recording', $insertData);
+    $recording_id = $this->db->insert_id();
+
+    echo json_encode([
+        'status' => true,
+        'message' => 'Recording saved successfully',
+        'recording_id' => $recording_id,
+        'file_url' => $file_url
+    ]);
+}
+ 
+
+public function addCallRecording()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // ✅ Validate token
+    $user = validate_api_token();
+
+    // ✅ Read and decode JSON input
+    $data = json_decode($this->input->raw_input_stream, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Invalid JSON format'
+        ]);
+        return;
+    }
+
+    // ✅ Extract & sanitize inputs
+    $lead_id  = (int)($data['lead_id'] ?? 0);
+    $phone    = trim($data['phone'] ?? '');
+    $duration = trim($data['duration'] ?? '');
+    $status   = trim($data['status'] ?? '1'); // default status if not sent
+
+    // ✅ Validate required fields
+    if (empty($lead_id) || empty($phone)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Required fields: lead_id, phone, duration'
+        ]);
+        return;
+    }
+
+    // 🕒 Current timestamp
+    $current_time = date('Y-m-d H:i:s');
+
+    // ✅ Data to insert
+    $insertData = [
+        'lead_id'    => $lead_id,
+        'phone'      => $phone,
+        'duration'   => $duration,
+        'createdate' => $current_time,
+        'updatedate' => $current_time,
+        'status'     => $status
+    ];
+
+    // ✅ Insert into DB with error handling
+    try {
+        $this->db->insert('tbl_call_recording', $insertData);
+ $created_time_ist = date('d M Y, h:i A', strtotime($current_time . ' +5 hours 30 minutes'));
+        if ($this->db->affected_rows() > 0) {
+            $recording_id = $this->db->insert_id();
+            echo json_encode([
+                'status'  => true,
+                'message' => 'Call recording added successfully',
+                'data'    => [
+                    'recording_id' => $recording_id,  
+                    'lead_id'      => $lead_id,
+                    'phone'        => $phone,
+                    'duration'     => $duration,
+                    'createdate'   => $created_time_ist,
+                    'status'       => $status
+                ]
+            ]);
+        } else {
+            throw new Exception('Failed to insert record');
+        }
+    } catch (Exception $e) {
+        echo json_encode([
+            'status'   => false,
+            'message'  => 'Failed to add call recording',
+            'error'    => $e->getMessage(),
+            'db_error' => $this->db->error()
+        ]);
+    }
+}
+
+ 
+public function getCallRecordings()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // ✅ Validate token
+    $user = validate_api_token();
+
+    // ✅ Read input JSON
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $lead_id = $data['lead_id'] ?? null;
+
+    // ✅ Validate required field
+    if (empty($lead_id)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'lead_id is required'
+        ]);
+        return;
+    }
+
+    // ✅ Build Query
+    $this->db->select('recording_id, lead_id, phone, duration, createdate, updatedate, status');
+    $this->db->from('tbl_call_recording');
+    $this->db->where('lead_id', $lead_id);
+    $this->db->order_by('createdate', 'DESC');
+    $query = $this->db->get();
+
+    $results = $query->result();
+    $data_output = [];
+
+    foreach ($results as $row) {
+         $created_time_ist = date('d M Y, h:i A', strtotime($row->createdate . ' +5 hours 30 minutes'));
+        $data_output[] = [
+            'recording_id' => $row->recording_id,
+            'lead_id'      => $row->lead_id,
+            'phone'        => $row->phone,
+            'duration'     => $row->duration,
+            'createdate'   => $created_time_ist,
+            'updatedate'   => $row->updatedate,
+            'status'       => $row->status
+        ];
+    }  
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Call recordings fetched successfully',
+        'total'   => count($data_output),
+        'data'    => $data_output
+    ]);
+}
+
+
+
+public function addComment()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input JSON
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $lead_id = $data['lead_id'] ?? null;
+    $user_id = $data['user_id'] ?? null;
+    $comment = $data['comment'] ?? null;
+
+    if (empty($lead_id) || empty($user_id) || empty($comment)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Required fields: lead_id, user_id, comment'
+        ]);
+        return;
+    }
+
+    $insertData = [
+        'user_id'           => $user_id,
+        'comment'           => $comment,
+        'comments_attachment' => null,
+        'comment_datetime'  => date('Y-m-d H:i:s'),
+        'module'            => 'leads',
+        'module_field_id'   => $lead_id,
+        'attachments_id'    => 0,
+        'uploaded_files_id' => 0,
+        'comments_reply_id' => 0
+    ];
+
+    $this->db->insert('tbl_task_comment', $insertData);
+
+    if ($this->db->affected_rows() > 0) {
+        $comment_id = $this->db->insert_id();
+        echo json_encode([
+            'status'  => true,
+            'message' => 'Comment added successfully',
+            'comment_id' => $comment_id
+        ]);
+    } else {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Failed to add comment',
+            'db_error' => $this->db->error()
+        ]);
+    }
+}
+
+
+public function updateComment()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input JSON
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $comment_id = $data['comment_id'] ?? null;
+    $user_id    = $data['user_id'] ?? null;
+    $comment    = $data['comment'] ?? null;
+
+    if (empty($comment_id) || empty($user_id) || empty($comment)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Required fields: comment_id, user_id, comment'
+        ]);
+        return;
+    }
+
+    // Make sure this comment belongs to the same user (optional security)
+    $this->db->where('task_comment_id', $comment_id);
+    $this->db->where('user_id', $user_id);
+    $existing = $this->db->get('tbl_task_comment')->row();
+
+    if (!$existing) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Comment not found or not owned by user'
+        ]);
+        return;
+    }
+
+    // Update data
+    $updateData = [
+        'comment'          => $comment,
+        'comment_datetime' => date('Y-m-d H:i:s') // update timestamp
+    ];
+
+    $this->db->where('task_comment_id', $comment_id);
+    $this->db->update('tbl_task_comment', $updateData);
+
+    if ($this->db->affected_rows() > 0) {
+        echo json_encode([
+            'status'  => true,
+            'message' => 'Comment updated successfully',
+            'comment_id' => $comment_id
+        ]);
+    } else {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'No changes made or update failed',
+            'db_error' => $this->db->error()
+        ]);
+    }
+}
+
+
+
+public function listComments()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input JSON
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $lead_id = $data['lead_id'] ?? null;
+
+    if (empty($lead_id)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'lead_id is required'
+        ]);
+        return;
+    }
+
+    $this->db->select('c.*, u.username, u.email');
+    $this->db->from('tbl_task_comment c');
+    $this->db->join('tbl_users u', 'u.user_id = c.user_id', 'left');
+    $this->db->where('c.module', 'leads');
+    $this->db->where('c.module_field_id', $lead_id);
+    $this->db->order_by('c.comment_datetime', 'DESC');
+    $query = $this->db->get();
+
+    $results = $query->result();
+    $data_output = [];
+
+    foreach ($results as $row) {
+        $data_output[] = [
+            'task_comment_id'  => $row->task_comment_id,
+            'user_id'          => $row->user_id,
+            'username'         => $row->username,
+            'comment'          => $row->comment,
+            'comment_datetime' => $row->comment_datetime,
+            'comments_reply_id'=> $row->comments_reply_id
+        ];
+    }
+
+    echo json_encode([
+        'status' => true,
+        'message' => 'Comments fetched successfully',
+        'total' => count($data_output),
+        'data' => $data_output
+    ]);
+}
+
+
+public function proposalList($lead_id = null)
+{
+    header('Content-Type: application/json');
+
+    // Load helper
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Check lead_id (mandatory)
+    if (empty($lead_id) || !is_numeric($lead_id)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'lead_id is required'
+        ]);
+        return;
+    }
+
+    // Fetch proposals for the given lead_id
+    $this->db->select('p.*, u.fullname, u.avatar');
+    $this->db->from('proposals p');
+    $this->db->join('tbl_account_details u', 'u.user_id = p.created_by', 'left');
+    $this->db->where('p.lead_id', $lead_id);
+    $this->db->order_by('p.created_at', 'DESC');
+    $query = $this->db->get()->result();
+
+    $proposals = [];
+    foreach ($query as $pr) {
+        $proposals[] = [
+            'id'                => $pr->id,
+            'parent_id'         => $pr->parent_id,
+            'version_no'        => $pr->version_no,
+            'ref_no'            => $pr->ref_no,
+            'lead_id'           => $pr->lead_id,
+          
+               'notes' => trim(strip_tags(html_entity_decode($pr->notes ?? ''))),
+            'proposal_date'     => $pr->proposal_date,
+            'expiry_date'       => $pr->expiry_date,
+            'grand_total'       => $pr->grand_total,
+            'siteHandling'      => $pr->siteHandling,
+            'siteHandlingAmount'=> $pr->siteHandlingAmount,
+            'totalToBePaid'     => $pr->totalToBePaid,
+            'status'            => $pr->status,
+            'phone'             => $pr->phone,
+            'created_by'        => $pr->created_by,
+            'created_at'        => $pr->created_at,
+            'fullname'          => $pr->fullname,
+            'avatar'            => base_url('uploads/' . $pr->avatar)
+        ];
+    }
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Proposal list fetched successfully',
+        'lead_id' => $lead_id,
+        'data'    => $proposals
+    ]);
+}
+
+
+
+
+public function proposalPdf($lead_id = null, $proposal_id = null)
+{
+    header('Content-Type: application/json');
+
+    // Load helper
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Check required params
+    if (empty($lead_id) || empty($proposal_id)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'lead_id and proposal_id are required'
+        ]);
+        return;
+    }
+
+    // Get proposal
+    $proposal = get_row('proposals', ['id' => $proposal_id, 'lead_id' => $lead_id]);
+    if (!$proposal) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Proposal not found for this lead'
+        ]);
+        return;
+    }
+
+    // ✅ File name and path
+    $fileName = "Proposal_" . $proposal_id . ".pdf";
+    $uploadPath = FCPATH . "uploads/proposals_pdf/";
+
+    // Ensure folder exists
+    if (!is_dir($uploadPath)) {
+        mkdir($uploadPath, 0777, true);
+    }
+
+    $filePath = $uploadPath . $fileName;
+
+    // If file does not exist, generate PDF
+    if (!file_exists($filePath)) {
+        // ===== Fetch all data like your pdf() method =====
+        $data['proposals_info'] = $proposal;
+
+        // Floors
+        $this->db->select('*')->from('proposal_floors')->where('proposal_id', $proposal_id)->order_by('id', 'ASC');
+        $data['proposal_floors'] = $this->db->get()->result_array();
+
+        // Floor categories
+        $this->db->select('*')->from('proposal_floor_categories')->where('proposal_id', $proposal_id);
+        $data['proposal_floor_categories'] = $this->db->get()->result_array();
+
+        // Items
+        $this->db->select('pi.*, si.item_name, si.code, si.unit_cost, si.upload_file');
+        $this->db->from('proposal_items pi');
+        $this->db->join('tbl_saved_items si', 'si.saved_items_id = pi.item_id', 'left');
+        $this->db->where('pi.proposal_id', $proposal_id);
+        $data['proposal_items'] = $this->db->get()->result_array();
+
+        // Decode item images
+        foreach ($data['proposal_items'] as &$item) {
+            if (!empty($item['upload_file'])) {
+                $files = json_decode($item['upload_file'], true);
+                if (!empty($files) && isset($files[0]['path'])) {
+                    $item['image_url'] = base_url($files[0]['path']);
+                } else {
+                    $item['image_url'] = base_url('uploads/no-image.png');
+                }
+            } else {
+                $item['image_url'] = base_url('uploads/no-image.png');
+            }
+        }
+
+        // Item Addons
+        $this->db->select('*')->from('proposal_item_addons')->where('proposal_id', $proposal_id);
+        $data['proposal_item_addons'] = $this->db->get()->result_array();
+
+        // ===== Generate PDF =====
+        $options = new \Dompdf\Options();
+        $options->set('isHtml5ParserEnabled', true);
+        $options->set('isRemoteEnabled', true);
+
+        $dompdf = new \Dompdf\Dompdf($options);
+
+        // Load your PDF template
+        $data['proposal_id'] = $proposal_id;
+        $html = $this->load->view('admin/proposals/hcinvoice/pdf', $data, TRUE);
+
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        // ✅ Save PDF
+        file_put_contents($filePath, $dompdf->output());
+    }
+
+    // ✅ Return JSON response with PDF URL
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Proposal PDF generated successfully',
+        'pdf_url' => base_url("uploads/proposals_pdf/" . $fileName)
+    ]);
+}
+
+
+
+public function user_list()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read input JSON (optional for filtering)
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    // Optional filters (for example)
+    $designation_id = $data['designations_id'] ?? null;
+    $warehouse_id   = $data['warehouse_id'] ?? null;
+    $search         = $data['search'] ?? null;
+
+    $this->db->select('
+        a.account_details_id,
+        a.user_id,
+        a.fullname,
+        a.phone,
+        a.mobile,
+        a.designations_id,
+        a.warehouse_id,
+        a.company,
+        a.city,
+        a.country,
+        a.avatar,
+        d.designations,
+        w.warehouse_name,
+        u.username,
+        u.email
+    ');
+    $this->db->from('tbl_account_details a');
+    $this->db->join('tbl_designations d', 'd.designations_id = a.designations_id', 'left');
+    $this->db->join('tbl_warehouse w', 'w.warehouse_id = a.warehouse_id', 'left');
+    $this->db->join('tbl_users u', 'u.user_id = a.user_id', 'left');
+
+    // Apply filters if provided
+    if (!empty($designation_id)) {
+        $this->db->where('a.designations_id', $designation_id);
+    }
+    if (!empty($warehouse_id)) {
+        $this->db->where('a.warehouse_id', $warehouse_id);
+    }
+    if (!empty($search)) {
+        $this->db->group_start()
+                 ->like('a.fullname', $search)
+                 ->or_like('u.username', $search)
+                 ->or_like('u.email', $search)
+                 ->group_end();
+    }
+
+    $this->db->order_by('a.fullname', 'ASC');
+    $query = $this->db->get();
+    $results = $query->result();
+
+    if (empty($results)) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'No users found',
+            'total'   => 0,
+            'data'    => []
+        ]);
+        return;
+    }
+
+    $data_output = [];
+    foreach ($results as $row) {
+        $data_output[] = [
+            'user_id'        => $row->user_id,
+            'fullname'       => $row->fullname,
+            'username'       => $row->username,
+            'email'          => $row->email,
+            'phone'          => $row->phone,
+            'mobile'         => $row->mobile,
+            'designation_id' => $row->designations_id,
+            'designation'    => $row->designations,
+            'warehouse_id'   => $row->warehouse_id,
+            'warehouse_name' => $row->warehouse_name,
+            'company'        => $row->company,
+            'city'           => $row->city,
+            'country'        => $row->country,
+            'avatar'         => base_url($row->avatar)
+        ];
+    }
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'User list fetched successfully',
+        'total'   => count($data_output),
+        'data'    => $data_output
+    ]);
+}
+
+
+
+public function update_member()
+{
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+    $this->load->model('items_model');
+
+    // Validate token
+    $user = validate_api_token();
+
+    // Read JSON input
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+
+    $lead_id = $data['lead_id'] ?? null;
+    $permission = $data['permission'] ?? null;
+    $assigned_to = $data['assigned_to'] ?? [];
+
+    if (empty($lead_id)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'lead_id is required'
+        ]);
+        return;
+    }
+
+ 
+
+    // Fetch lead info
+    $leads_info = $this->items_model->check_by(['leads_id' => $lead_id], 'tbl_leads');
+    if (empty($leads_info)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'Invalid lead ID'
+        ]);
+        return;
+    }
+
+    // Permission logic
+    if (empty($permission)) {
+        echo json_encode([
+            'status' => false,
+            'message' => 'permission field is required'
+        ]);
+        return;
+    }
+
+    if ($permission === 'everyone') {
+        $assigned = 'all';
+    } else {
+        // Expected format: {"29":["edit","view"],"25":["edit","view"]}
+        $assigned = [];
+
+        if (!empty($assigned_to) && is_array($assigned_to)) {
+            foreach ($assigned_to as $assign_user) {
+                // Expect action data like:
+                // "actions": { "29": ["edit","view"], "25": ["edit"] }
+                $actions = $data['actions'][$assign_user] ?? ["view"];
+                $assigned[$assign_user] = $actions;
+            }
+        }
+
+        $assigned = !empty($assigned) ? json_encode($assigned) : 'all';
+    }
+
+    // Prepare data to update
+    $update_data = [
+        'permission' => $assigned,
+        'lead_assign_date' => date('Y-m-d H:i:s'),
+        'lead_followup_date' => date('Y-m-d H:i:s'),
+    ];
+
+    // Save in database
+    $this->items_model->_table_name = "tbl_leads";
+    $this->items_model->_primary_key = "leads_id";
+    $this->items_model->save($update_data, $lead_id);
+
+  
+ 
+
+    // Final response
+    echo json_encode([
+        'status' => true,
+        'message' => 'Lead members updated successfully',
+        'lead_id' => $lead_id,
+        'permission' => json_decode($assigned),
+     ]);
+}
+
+ public function save_attachment()
+{
+	 
+    header('Content-Type: application/json');
+    $this->load->helper('api_helper');
+    $user = validate_api_token();
+
+    $leads_id    = $this->input->post('leads_id');
+    $title       = $this->input->post('title');
+    $description = $this->input->post('description');
+
+    if (empty($leads_id) || empty($_FILES['file']['name'])) {
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Lead ID and file are required'
+        ]);
+        return;
+    }
+
+    // === Upload Config ===
+    $config['upload_path']   = './uploads/';
+    $config['allowed_types'] = 'jpg|jpeg|png|pdf|doc|docx|xls|xlsx|zip|rar|txt|csv|mp3|mp4';
+    $config['max_size']      = 51200; // 50 MB
+    $config['encrypt_name']  = true;
+
+    if (!is_dir($config['upload_path'])) {
+        mkdir($config['upload_path'], 0777, true);
+    }
+
+    $this->load->library('upload', $config);
+
+    if (!$this->upload->do_upload('file')) {
+        echo json_encode([
+            'status'  => false,
+            'message' => strip_tags($this->upload->display_errors())
+        ]);
+        return;
+    }
+
+    // === Uploaded file info ===
+    $uploadData = $this->upload->data();
+    $file_name  = $uploadData['file_name'];
+    $file_ext   = $uploadData['file_ext'];
+    $file_size  = $uploadData['file_size'];
+    $file_url   = base_url('uploads/' . $file_name);
+    $is_image   = in_array(strtolower(str_replace('.', '', $file_ext)), ['jpg','jpeg','png']);
+
+    // === Save into tbl_attachments ===
+    $attachmentData = [
+        'title'       => $title,
+        'description' => $description,
+        'module_field_id'    => $leads_id,
+        'module'    => 'leads',
+        'user_id'     => is_array($user) ? $user['user_id'] : $user->user_id,
+    ];
+    $this->items_model->_table_name  = "tbl_attachments";
+    $this->items_model->_primary_key = "attachments_id";
+    $attachments_id = $this->items_model->save($attachmentData);
+
+    // === Save into tbl_attachments_files ===
+    $fileData = [
+        'files'          => "uploads/" . $file_name,
+        'uploaded_path'  => getcwd() . "/uploads/" . $file_name,
+        'file_name'      => $file_name,
+        'size'           => $file_size,
+        'ext'            => str_replace('.', '', $file_ext),
+        'is_image'       => $is_image,
+        'attachments_id' => $attachments_id,
+        'image_width'    => 0,
+        'image_height'   => 0
+    ];
+    $this->items_model->_table_name  = "tbl_attachments_files";
+    $this->items_model->_primary_key = "uploaded_files_id";
+    $uploaded_files_id = $this->items_model->save($fileData);
+
+     
+
+    echo json_encode([
+        'status'  => true,
+        'message' => 'Attachment uploaded successfully',
+        'data'    => [
+            'attachments_id'   => $attachments_id,
+            'uploaded_files_id'=> $uploaded_files_id,
+            'file_url'         => $file_url
+        ]
+    ]);
+}
+
+
+
+
+}
+
+
+

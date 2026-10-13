@@ -1292,7 +1292,7 @@ export function mapApiItemToOnSitePurchaseRequest(raw: any): OnSitePurchaseReque
     item_category: it.item_category || it.category || 'General',
     item: it.item || it.item_name || it.description || '',
     qty: it.qty || it.quantity || 1,
-    unit: it.unit || 'Pcs',
+    unit: it.unit || 'Nos',
     brand: it.brand || '',
     remarks: it.remarks || it.remark || '',
     status: it.status || 'Pending',
@@ -1474,7 +1474,7 @@ export async function createOnSitePurchaseRequestNew(
       formData.append('item_category[]', it.item_category);
       formData.append('item[]', it.item);
       formData.append('qty[]', String(it.qty));
-      formData.append('unit[]', it.unit || 'Pcs');
+      formData.append('unit[]', it.unit || 'Nos');
       formData.append('brand[]', it.brand || '');
       formData.append('remarks[]', it.remarks || '');
     });

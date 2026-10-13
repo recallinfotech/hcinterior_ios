@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "184706476153",
+    "project_id": "whcmi-9ae66",
+    "storage_bucket": "whcmi-9ae66.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:184706476153:android:618c38d664504021598ca8",
+        "android_client_info": {
+          "package_name": "com.limitless.whcmi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdvH5wswAA_u4CFjuS3_ynCzENF4swfJs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

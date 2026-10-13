@@ -1,0 +1,1477 @@
+    <form name="myform" role="form" data-parsley-validate="" novalidate="" enctype="multipart/form-data" id="form"
+    action="<?php echo base_url(); ?>admin/proposals/save_proposals/<?php
+                                                                                                                                                                                if (!empty($proposals_info)) {
+                                                                                                                                                                                    echo $proposals_info->proposals_id;
+                                                                                                                                                                                }
+                                                                                                                                                                                ?>" method="post" class="form-horizontal  ">
+<script src="<?php echo base_url(); ?>assets/plugins/bootstrap-tagsinput/fm.tagator.jquery.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.16.0/jquery.validate.js"></script>
+    <?php include_once 'assets/admin-ajax.php'; ?>
+    <?php include_once 'assets/js/sales.php'; ?>
+    <?= message_box('success'); ?>
+    <?= message_box('error'); ?>
+
+    <?php
+    //$curency = $this->proposal_model->check_by(array('code' => config_item('default_currency')), 'tbl_currencies');
+    ?>
+    <div id="proposals_state_report_div"> <?php //$this->load->view("admin/proposals/proposals_state_report"); 
+                                            ?></div>
+    <?php
+    $type = $this->uri->segment(5);
+
+    if (empty($type)) {
+        $type = '_' . date('Y');
+    }
+    ?>
+
+    <?php
+    if ($this->session->userdata('user_type') == 1) {
+        $type = 'proposal';
+        $h_s = '';
+        if ($h_s == 'block') {
+            $title = lang('hide_quick_state');
+            $url = 'hide';
+            $icon = 'fa fa-eye-slash';
+        } else {
+            $title = lang('view_quick_state');
+            $url = 'show';
+            $icon = 'fa fa-eye';
+        }
+    ?>
+    <div onclick="slideToggle('#state_report')" id="quick_state" data-toggle="tooltip" data-placement="top"
+        title="<?= $title ?>" class="btn-xs btn btn-purple pull-left">
+        <i class="fa fa-bar-chart"></i>
+    </div>
+    <div class="btn-xs btn btn-white pull-left ml ">
+        <a class="text-dark" id="change_report"
+            href="<?= base_url() ?>admin/dashboard/change_report/<?= $url . '/' . $type ?>"><i class="<?= $icon ?>"></i>
+            <span><?= ' ' . lang('quick_state') . ' ' . lang($url) . ' ' . lang('always') ?></span></a>
+    </div>
+    <?php }
+    $created = can_action('140', 'created');
+    $edited = can_action('140', 'edited');
+    $deleted = can_action('140', 'deleted');
+    if (!empty($created) || !empty($edited)) {
+    ?>
+ 
+ <div class="row">
+        <div class="col-sm-12">
+
+            <div class="nav-tabs-custom">
+                <!-- Tabs within a box -->
+                <ul class="nav nav-tabs">
+                    <li class=""><a href="<?= base_url('admin/proposals') ?>"><?= lang('all_proposals') ?></a>
+                    </li>
+                    <li class="active"><a
+                            href="<?= base_url('admin/proposals/createnewproposal') ?>"><?= lang('create_proposal') ?></a>
+                    </li>
+
+
+                </ul>
+                <div class="tab-content bg-white">
+                    <!-- ************** general *************-->
+                    <div class="tab-pane " id="manage">
+                        <?php } else { ?>
+                        <div class="panel panel-custom">
+                            <header class="panel-heading ">
+                                <div class="panel-title"><strong><?= lang('all_proposals') ?></strong></div>
+                            </header>
+                            <?php } ?>
+
+                        </div>
+                        <?php if (!empty($created) || !empty($edited)) { ?>
+                        <div class="tab-pane active" id="new">
+                            <div class="row mb-lg invoice proposal-template">
+                                <div class="col-sm-6 col-xs-12 br pv">
+                                    <div class="row">
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label"><?= lang('reference_no') ?> <span
+                                                    class="text-danger">*</span></label>
+                                            <div class="col-lg-7">
+            <?php $this->load->helper('string'); ?>
+            <input type="text" class="form-control" id="ref_no" value="<?php echo $refNo;
+            ?>"
+            name="reference_no">
+            </div>
+
+                                        </div>
+   
+
+<div class="form-group">
+    <label class="col-sm-3 control-label">Enter Phone</label>
+    <div class="col-sm-7 input-wrapper">
+        <input type="text" id="phone" class="form-control" placeholder="Enter phone">
+        <span id="phone-status" class="status-icon">&#10003;</span> <!-- ✔ -->
+    </div>
+</div>
+
+<div class="form-group">
+    <label class="col-sm-3 control-label">Leads</label>
+    <div class="col-sm-7">
+        <select class="form-control" id="lead_id" name="lead_id">
+            <option value="">-- Select Lead --</option>
+        </select>
+    </div>
+</div>
+
+<script>
+    let timer;
+
+    $("#phone").on("keyup", function() {
+        clearTimeout(timer);
+        let phone = $(this).val();
+
+        $("#phone-status").hide(); // hide tick while typing
+
+        if (phone.length >= 5) {
+            timer = setTimeout(function() {
+                $.post("<?= base_url('/admin/proposals/get_lead_by_phone') ?>", { phone: phone }, function(res) {
+                    let data = JSON.parse(res);
+
+                    if (data.status) {
+                        $("#lead_id").html(
+                            `<option value="${data.lead.leads_id}" selected>
+                                ${data.lead.contact_name} (${data.lead.phone})
+                            </option>`
+                        );
+                        $("#phone-status").show(); // ✅ show blue tick
+                    } else {
+                        $("#lead_id").html('<option value="">-- No Lead Found --</option>');
+                        $("#phone-status").hide(); // ❌ hide tick
+                    }
+                });
+            }, 500);
+        }
+    });
+</script>
+
+
+
+                                        
+ 
+
+
+
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label"><?= lang('status') ?> </label>
+                                            <div class="col-lg-7">
+                                                <select name="status" id="status" class="selectpicker" data-width="100%">
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'draft') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?> value="draft"><?= lang('draft') ?></option>
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'sent') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?> value="sent"><?= lang('sent') ?></option>
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'open') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?> value="open"><?= lang('open') ?></option>
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'revised') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?> value="revised"><?= lang('revised') ?>
+                                                    </option>
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'declined') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?>value="declined"><?= lang('declined') ?>
+                                                    </option>
+                                                    <option <?php if (isset($proposals_info)) {
+                                                                        if ($proposals_info->status == 'accepted') {
+                                                                            echo 'selected';
+                                                                        }
+                                                                    } ?>value="accepted"><?= lang('accepted') ?>
+                                                    </option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                    </div>
+                                </div>
+                                <div class="col-sm-6 col-xs-12 br pv">
+                                    <div class="row">
+                                        <div class="form-group">
+                                            <label for="field-1"
+                                                class="col-sm-3 control-label"><?= lang('assigned') . ' ' . lang('users') ?></label>
+                                            <div class="col-sm-7">
+                                                <select class="form-control select_box" required style="width: 100%"
+                                                    name="user_id">
+                                                    <option value="">
+                                                        <?= lang('select') . ' ' . lang('assigned') . ' ' . lang('users') ?>
+                                                    </option>
+                                                    <?php
+                                                            $all_user = $this->db->where('role_id != ', 2)->get('tbl_users')->result();
+                                                            if (!empty($all_user)) {
+                                                                foreach ($all_user as $v_user) {
+                                                                    $profile_info = $this->db->where('user_id', $v_user->user_id)->get('tbl_account_details')->row();
+                                                                    if (!empty($profile_info)) {
+                                                            ?>
+                                                    <option value="<?= $v_user->user_id ?>" <?php
+                                                                                                                if (!empty($proposals_info->user_id)) {
+                                                                                                                    echo $proposals_info->user_id == $v_user->user_id ? 'selected' : null;
+                                                                                                                } else {
+                                                                                                                    echo $this->session->userdata('user_id') == $v_user->user_id ? 'selected' : null;
+                                                                                                                }
+                                                                                                                ?>>
+                                                        <?= $profile_info->fullname ?></option>
+                                                    <?php
+                                                                    }
+                                                                }
+                                                            }
+                                                            ?>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                        
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label"><?= lang('proposal_date') ?></label>
+                                            <div class="col-lg-7">
+                                                <div class="input-group">
+                                                    <input type="text" id="proposal_date" name="proposal_date" 
+                                                        class="form-control datepicker"
+                                                        value="<?php
+                                                                                                                                            if (!empty($proposals_info->proposal_date)) {
+                                                                                                                                                echo $proposals_info->proposal_date;
+                                                                                                                                            } else {
+                                                                                                                                                echo date('Y-m-d');
+                                                                                                                                            }
+                                                                                                                                            ?>"
+                                                        data-date-format="<?= config_item('date_picker_format'); ?>">
+                                                    <div class="input-group-addon">
+                                                        <a href="#"><i class="fa fa-calendar"></i></a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label"><?= lang('expire_date') ?></label>
+                                            <div class="col-lg-7">
+                                                <div class="input-group">
+                                                    <input type="text" id="expiry_date" name="due_date" class="form-control datepicker"
+                                                        value="<?php
+                                                                                                                                        if (!empty($proposals_info->due_date)) {
+                                                                                                                                            echo $proposals_info->due_date;
+                                                                                                                                        } else {
+                                                                                                                                            echo date('Y-m-d');
+                                                                                                                                        }
+                                                                                                                                        ?>"
+                                                        data-date-format="<?= config_item('date_picker_format'); ?>">
+                                                    <div class="input-group-addon">
+                                                        <a href="#"><i class="fa fa-calendar"></i></a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <?php
+                                                if (!empty($proposals_info)) {
+                                                    $proposals_id = $proposals_info->proposals_id;
+                                                } else {
+                                                    $proposals_id = null;
+                                                }
+                                                ?>
+                                        <?= custom_form_Fields(11, $proposals_id); ?>
+
+                                    </div>
+                                    <!-- <?php
+                                            $permissionL = null;
+                                            if (!empty($proposals_info->permission)) {
+                                                $permissionL = $proposals_info->permission;
+                                            }
+                                            ?>
+                                    <?= get_permission(3, 7, $permission_user, $permissionL, ''); ?> -->
+
+                                </div>
+                            </div>
+                            <div class="form-group terms">
+                                <label class="col-lg-1 control-label"><?= lang('notes') ?> </label>
+                                <div class="col-lg-11">
+                                    <textarea name="notes" id="notes" class="form-control textarea_"><?php
+                                                                                                    if (!empty($proposals_info)) {
+                                                                                                        echo $proposals_info->notes;
+                                                                                                    } else {
+                                                                                                        echo $this->config->item('proposal_terms');
+                                                                                                    }
+                                                                                                    ?></textarea>
+                                </div>
+                            </div>
+                            <?php
+                                    if (!empty($proposals_info)) {
+                                        if ($proposals_info->module == 'client') {
+                                            $client_info = $this->proposal_model->check_by(array('client_id' => $proposals_info->module_id), 'tbl_client');
+                                            $currency = $this->proposal_model->client_currency_symbol($proposals_info->module_id);
+                                            $client_lang = $client_info->language;
+                                        } else {
+                                            $client_info = $this->proposal_model->check_by(array('leads_id' => $proposals_info->module_id), 'tbl_leads');
+                                            if (!empty($client_info)) {
+                                                $client_info->name = $client_info->lead_name;
+                                                $client_info->zipcode = null;
+                                            }
+                                            $client_lang = 'english';
+                                            $currency = $this->proposal_model->check_by(array('code' => $proposals_info->currency), 'tbl_currencies');
+                                        }
+                                    } else {
+                                        $client_lang = 'english';
+                                        $currency = $this->proposal_model->check_by(array('code' => config_item('default_currency')), 'tbl_currencies');
+                                    }
+                                    unset($this->lang->is_loaded[5]);
+                                    $language_info = $this->lang->load('sales_lang', $client_lang, TRUE, FALSE, '', TRUE);
+                                    ?>
+
+                            <style type="text/css">
+                            .dropdown-menu>li>a {
+                                white-space: normal;
+                            }
+
+                            .dragger {
+                                background: url(../assets/img/dragger.png) 10px 32px no-repeat;
+                                cursor: pointer;
+                            }
+
+                            <?php if ( !empty($proposals_info)) {
+                                ?>.dragger {
+                                    background: url(../../../../assets/img/dragger.png) 10px 32px no-repeat;
+                                    cursor: pointer;
+                                }
+
+                                <?php
+                            }
+
+                            ?>.input-transparent {
+                                box-shadow: none;
+                                outline: 0;
+                                border: 0 !important;
+                                background: 0 0;
+                                padding: 3px;
+                            }
+                            </style>
+
+
+
+<div class="row">
+ 
+
+ <script>
+$(document).ready(function(){ 
+
+        $(document).on("click", ".editable-heading", function () {
+    let currentText = $(this).text();
+    let input = $('<input type="text" class="form-control heading-input" />');
+    input.val(currentText);
+
+    $(this).replaceWith(input);
+    input.focus();
+
+    // Save on blur or Enter
+    input.on("blur keypress", function (e) {
+        if (e.type === "blur" || e.which === 13) {
+            let newText = $(this).val();
+            let h4 = $('<h4 class="editable-heading">' + newText + '</h4>');
+            $(this).replaceWith(h4);
+        }
+    });
+});
+
+
+
+    // Attach autocomplete dynamically
+    function initAutocomplete(floorId){
+        $("#itemSearch_"+floorId).autocomplete({
+            source: function(request, response){
+                  let locationId = $("#location_" + floorId).val(); // Get selected location
+ 
+                $.ajax({
+                    url: "<?= base_url('admin/proposals/search') ?>",
+                    type: "POST",
+                    data: { 
+                        query: request.term,
+                        category_location_id: locationId,
+        main_category_id: $("#mainCategory_" + floorId).val(),  // ✅ send main category
+        sub_category_id: $("#subCategory_" + floorId).val()  
+                    },
+                    dataType: "json",
+                    success: function(data){
+                        response($.map(data, function(item){ 
+                            return {
+                                label: item.item_name + " (" + item.unit_cost + " Rs per " + item.unit_type + ")",
+                                value: item.item_name,
+                                location: item.location_name, // 👈 location instead of main_category
+                                data: item
+                            };
+                        }));
+                    }
+                });
+            },
+            minLength: 0,
+            
+            select: function(event, ui){
+                let item = ui.item.data;
+                ensureCategorySection(floorId, item.main_category_name, item.location_name);
+                // Main row
+                let row = `
+                    <tr data-id="${item.saved_items_id}" data-floor="${floorId}" data-category="${item.main_category_name}" data-category_name_id="${item.main_category_id}"  data-location="${item.location_name}"
+                     data-location_name_id="${item.category_location_id}">
+                        <td>
+                             <input type="hidden" name="item_id[${floorId}][]" class="form-control" value="${item.saved_items_id}">
+                            <input type="text" name="item_name[${floorId}][]" class="form-control" value="${item.item_name}">
+                            <div class="related-items"></div>
+                        </td>
+                        <td><input type="text" name="description[${floorId}][]" title="${item.item_desc}" class="form-control" value="${item.item_desc}"></td>
+                        <td><input type="number" name="qty[${floorId}][]" class="form-control qty" value="1"></td>
+                        <td><input type="text" name="price[${floorId}][]" class="form-control price" value="${item.unit_cost}" data-base="${item.unit_cost}"></td>
+                        <td><input type="text" name="unit_type[${floorId}][]" class="form-control" value="${item.unit_type}"></td>
+                        <td><input type="text" name="total[${floorId}][]" class="form-control total" value="${item.unit_cost}"></td>
+                        <td><button type="button" class="btn btn-danger btn-sm removeRow">X</button>
+                          <button type="button" class="btn btn-primary btn-sm addRowAfter">+</button>
+                          </td>
+                    </tr>
+                    
+                `;
+            
+                // Insert row
+          let $locRow = $("#itemTable_" + floorId + " tbody tr.location-row[data-category='" + item.main_category_name + "'][data-location='" + item.location_name + "']");
+            if ($locRow.length) {
+                $locRow.after(row);
+            } else {
+                $("#itemTable_" + floorId + " tbody tr.category-row[data-category='" + item.main_category_name + "']").after(row);
+            }
+
+                // Get the newly added row
+                let $newRow = $(`#itemTable_${floorId} tbody tr[data-id='${item.saved_items_id}']`);
+
+                // Calculate totals
+                calculateRowTotal($newRow);
+
+                let $floor = $newRow.closest(".floor-section");
+                calculateCategoryTotals($floor);
+                // Fetch related items
+                $.ajax({
+                    url: "<?= base_url('admin/proposals/get_related_items') ?>",
+                    type: "POST",
+                    data: { main_id: item.saved_items_id },
+                    dataType: "json",
+                    success: function(relatedItems){
+                        if(Object.keys(relatedItems).length > 0){
+                            let addedIds = new Set();
+                            let relatedHtml = `
+                        <button type="button" class="btn btn-link p-0 toggle-related" 
+                        data-toggle="collapse"
+                            href="#related_${floorId}_${item.saved_items_id}">
+                        Addon Items
+                        </button>
+                        <div id="related_${floorId}_${item.saved_items_id}" class="panel-collapse collapse mt-1 related-container">
+                    `;
+
+                    let extraTotal = 0;
+                // alert(relatedItems);
+                for (let cat in relatedItems) {
+                relatedHtml += `<div><strong>📂 ${cat}</strong></div>`;
+                for (let sub in relatedItems[cat]) {
+                    relatedHtml += `<div style="margin-left:15px;"><em>📌 ${sub}</em></div>`;
+                    relatedItems[cat][sub].forEach(r => {
+                        relatedHtml += `
+                            <label style="margin-left:30px;">
+                                <input type="checkbox" class="relatedCheckbox"
+                                    ${r.selected == 1 ? "checked" : ""}
+                                    data-floor="${floorId}"
+                                    data-main="${item.saved_items_id}" 
+                                    data-id="${r.saved_items_id}" 
+                                    data-name="${r.item_name}"
+                                    data-desc="${r.item_desc || ''}"
+                                    data-price="${r.unit_cost || 0}"
+                                    data-tax="${r.item_tax_rate || 0}">
+                                ${r.item_name}
+                            </label><br>
+                        `;
+                    });
+                 }
+                }
+
+            relatedHtml += `</div>`; // close collapse
+
+            
+        let row = $(`#floor_${floorId} tr[data-id='${item.saved_items_id}']`);
+        row.find(".related-items").html(relatedHtml);
+
+         // recalc totals with pre-selected
+            calculateRowTotal(row);
+            
+            // ✅ Now update the category and floor totals
+        let $floor = $newRow.closest(".floor-section");
+        calculateCategoryTotals($floor);
+        // Add badges for pre-selected
+        relatedItems.forEach(r => {
+            if(r.selected == 1){
+                row.find(".related-items").append(
+                    `<div class="badge bg-info text-dark related-item" 
+                        data-id="${r.saved_items_id}">+ ${r.item_name}</div>`
+                );
+            }
+        });
+
+       // Recalculate totals with pre-selected extras
+        let qty = parseFloat(row.find(".qty").val()) || 0;
+        let price = parseFloat(row.find(".price").val()) || 0;
+
+        let extra = 0;
+        relatedItems.forEach(r => {
+            if(r.selected == 1){
+                extra += parseFloat(r.unit_cost) || 0;
+            }
+        });
+
+        row.find(".total").val(((qty * price) + extra).toFixed(2));
+    }
+}
+                });
+
+                $("#itemSearch_"+floorId).val("");
+                return false;
+            }
+        }) 
+ // ✅ these must be chained here, *outside* of select
+    .focus(function () {
+        $(this).autocomplete("search", "");
+    })
+    .click(function () {
+        $(this).autocomplete("search", "");
+    });
+   
+   
+    }
+
+$(document).on("click", ".removeRow", function(){
+    let $row = $(this).closest("tr");
+    let $floor = $row.closest(".floor-section");
+    let category = $row.data("category");
+    let location = $row.data("location");
+
+    // ❌ Remove the row
+    $row.remove();
+
+    // ✅ Check if any item remains under this location
+    let hasLocationItems = $floor.find("tbody tr").filter(function(){
+        let $tr = $(this);
+        return $tr.data("category") === category 
+               && $tr.data("location") === location
+               && !$tr.hasClass("category-row") 
+               && !$tr.hasClass("category-subtotal-row") 
+               && !$tr.hasClass("category-discount-row") 
+               && !$tr.hasClass("category-total-row") 
+               && !$tr.hasClass("location-row");
+    }).length > 0;
+
+    if(!hasLocationItems){
+        // remove location header if no items left
+        $floor.find(`tbody tr.location-row[data-category='${category}'][data-location='${location}']`).remove();
+    }
+
+    // ✅ Check if category has any remaining item rows
+    let hasCategoryItems = $floor.find("tbody tr").filter(function(){
+        let $tr = $(this);
+        return $tr.data("category") === category 
+               && !$tr.hasClass("category-row") 
+               && !$tr.hasClass("category-subtotal-row") 
+               && !$tr.hasClass("category-discount-row") 
+               && !$tr.hasClass("category-total-row") 
+               && !$tr.hasClass("location-row");
+    }).length > 0;
+
+    if(!hasCategoryItems){
+        // remove category header + all totals/discount rows
+        $floor.find("tbody tr.category-row[data-category='"+category+"']").remove();
+        $floor.find("tbody tr.category-subtotal-row[data-category='"+category+"']").remove();
+        $floor.find("tbody tr.category-discount-row[data-category='"+category+"']").remove();
+        $floor.find("tbody tr.category-total-row[data-category='"+category+"']").remove();
+        $floor.find("tbody tr.location-row[data-category='"+category+"']").remove();
+    }
+
+    // ✅ Recalculate totals
+    calculateCategoryTotals($floor);
+});
+
+$(document).on("click", ".removeblock", function(){
+        $(this).closest("div").remove();
+    });
+
+    // Auto calculate total
+    $(document).on("input", ".qty, .price", function(){
+        let row = $(this).closest("tr");
+        let qty = parseFloat(row.find(".qty").val()) || 0;
+        let price = parseFloat(row.find(".price").val()) || 0;
+        let total = qty * price;
+        row.find(".total").val(total.toFixed(2));
+    });
+
+    // Add new floor dynamically
+    let floorCount = 0;
+    $("#addFloor").click(function(){
+        floorCount++;
+             let floorLabel = (floorCount === 1) ? "Ground Floor" : "Floor " + (floorCount - 1);
+
+            
+       let floorHtml = `
+
+       
+    <div class="floor-section" id="floor_${floorCount}">
+        <span class="head">
+            <h4 class="editable-heading" contenteditable="true">${floorLabel}</h4>
+            <button type="button" class="btn btn-danger btn-sm removeblock">X</button>
+        </span>
+
+        <div class="items_search">
+        <select id="mainCategory_${floorCount}" class="form-control mainCategory">
+            <option value="">-- Select Category --</option>
+               <option value="None">None</option>
+            <?php foreach($all_category as $cat){ ?>
+                <option value="<?= $cat->category_id ?>"><?= $cat->category_name ?></option>
+            <?php } ?>
+        </select>
+
+        <select id="subCategory_${floorCount}" class="form-control subCategory">
+            <option value="">-- Select Sub Category --</option>
+        </select>
+
+      
+     
+          <select id="location_${floorCount}" class="form-control location_"  style="">
+            <option value="">-- Select Location --</option>
+               <option value="None">None</option>
+            <?php foreach($category_location as $location){ ?>
+                <option value="<?= $location->category_location_id ?>"><?= $location->category_location ?></option>
+            <?php } ?>
+        </select>
+        </div>
+   <div class="items_search">
+        <input type="text" id="itemSearch_${floorCount}" class="form-control mb-2" placeholder="Search Main Item..."  style="width:850%">
+            <button type="button" class="btn btn-secondary btn-sm addCustomItem" disabled data-floor="${floorCount}" style="width:15%">➕ Add Custom Item</button>
+
+       
+        </div>
+        <div id="searchResults_${floorCount}"></div>
+        <table class="table invoice-items-table items" id="itemTable_${floorCount}">
+            <thead style="background: #e8e8e8">
+                <tr>
+                    <th >Item Name</th>
+                    <th width="200px">Description</th>
+                    <th width="100px">Qty</th>
+                    <th width="150px">Price</th>
+                    <th width="70px">Tax </th>
+                    <th width="150px">Total</th>
+                    <th width="100px">Action</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+           <tfoot>
+ 
+  <tr>
+    <td colspan="5" class="text-right text-primary"><h5><strong>Final Floor Total:</strong></h5></td>
+    <td><input type="text" class="floor-final-total form-control" readonly></td>
+    <td></td>
+  </tr>
+</tfoot>
+        </table>
+    </div>
+`;
+        $("#floors-container").append(floorHtml);
+        initAutocomplete(floorCount); // Initialize autocomplete for new floor
+    });
+
+    // Add first floor on page load
+    $("#addFloor").trigger("click");
+});
+</script>
+ 
+<div class="floor-area">
+    <div id="floors-container"></div>
+    <div class="floor_total">
+    <button type="button" id="addFloor" class="btn btn-primary addFloor" >➕ Add Floor</button>
+   <div class="grand-total-box text-end mt-3 btn-bottom-toolbar text-right form-group">
+    <div id="floor-totals-list" class="mt-2 text-start floor-totals"></div>
+  <h4><label class="bold text-danger">Grand Total: </label>
+    <input type="text" id="grand-total" class="form-control d-inline-block" style="width:200px;" readonly>
+  </h4>
+  
+</div>
+
+</div>
+</div>
+
+<div class="btn-bottom-toolbar text-right">
+  
+ <button type="button" id="saveProposalBtn" class="btn btn-primary">
+  Save Proposal
+</button>
+
+    </div>
+
+ 
+ </div>
+<?php } else { ?>
+</div>
+<?php } ?>
+</div>
+
+
+
+<script type="text/javascript">
+function slideToggle($id) {
+    $('#quick_state').attr('data-original-title', '<?= lang('view_quick_state') ?>');
+    $($id).slideToggle("slow");
+}
+
+$(document).ready(function() {
+    init_items_sortable();
+    ins_data(base_url + 'admin/proposals/proposals_state_report')
+});
+ 
+
+ // Add blank custom item row — uses category selected in the floor's mainCategory select
+$(document).on("click", ".addCustomItem", function(){
+    let floorId = $(this).data("floor");
+    let $mainSelect = $("#mainCategory_" + floorId);
+    let $locationSelect = $("#location_" + floorId);
+
+    // Get selected category and location data
+    let selectedCatId = $mainSelect.val();
+    let categoryName = $mainSelect.find("option:selected").text().trim();
+    let selectedLocationId = $locationSelect.val();
+    let locationName = $locationSelect.find("option:selected").text().trim();
+
+    // Validate that a category and location have been selected
+    if (!selectedCatId) {
+        alert("Please select a category from the dropdown before adding a custom item.");
+        $mainSelect.focus();
+        return;
+    }
+    if (!selectedLocationId) {
+        alert("Please select a location from the dropdown before adding a custom item.");
+        $locationSelect.focus();
+        return;
+    }
+
+    // Ensure the necessary headers are in place (Category and Location)
+    // This function will only create them if they are not already present.
+    ensureCustomCategorySection(floorId, selectedCatId, categoryName, selectedLocationId, locationName);
+
+    // Find the last item in the specific location to insert the new item after it.
+    let $lastItemInLocation = $(`#itemTable_${floorId} tbody tr[data-location-id='${selectedLocationId}']`)
+        .not('.location-row, .category-row, .category-subtotal-row, .category-discount-row, .category-total-row')
+        .last();
+
+    let $insertionPoint;
+    if ($lastItemInLocation.length > 0) {
+        $insertionPoint = $lastItemInLocation;
+    } else {
+        // If no items exist, insert after the location header row
+        $insertionPoint = $(`#itemTable_${floorId} tbody tr.location-row[data-location-id='${selectedLocationId}']`);
+    }
+
+    // Create the new row HTML
+    let rowId = "custom_" + Date.now();
+    let row = `
+        <tr data-id="${rowId}" 
+            data-floor="${floorId}" 
+            data-category-id="${selectedCatId}" 
+            data-location-id="${selectedLocationId}"
+            data-category="${categoryName}" 
+            data-location="${locationName}">
+            <td>
+                <input type="text" name="item_name[${floorId}][]" class="form-control" placeholder="Item Name">
+                <div class="related-items"></div>
+            </td>
+            <td><input type="text" name="description[${floorId}][]" class="form-control" placeholder="Description"></td>
+            <td><input type="number" name="qty[${floorId}][]" class="form-control qty" value="1"></td>
+            <td><input type="text" name="price[${floorId}][]" class="form-control price" value="0" data-base="0"></td>
+            <td><input type="text" name="tax_rate[${floorId}][]" class="form-control tax_rate" value="0"></td>
+            <td><input type="text" name="total[${floorId}][]" class="form-control total" value="0"></td>
+            <td><button type="button" class="btn btn-danger btn-sm removeRow">X</button></td>
+        </tr>
+    `;
+
+    // Insert the new row at the correct insertion point
+    $insertionPoint.after(row);
+    
+    // Calculate for new row
+    let $newRow = $(`#itemTable_${floorId} tbody tr[data-id='${rowId}']`);
+    calculateRowTotal($newRow);
+});
+
+
+
+$(document).on("change", ".relatedCheckbox", function(){
+    let cb = $(this);
+    let floorId = cb.data("floor");
+    let mainId  = cb.data("main");
+
+    // Only update inside the current floor
+    let row = $(`#floor_${floorId} tr[data-id='${mainId}']`);
+
+    // Add/remove badges
+    if(cb.is(":checked")){
+        let html = `<div class="badge bg-info text-dark related-item" data-id="${cb.data('id')}">+ ${cb.data('name')}</div>`;
+        row.find(".related-items").append(html);
+    } else {
+        row.find(`.related-item[data-id='${cb.data("id")}']`).remove();
+    }
+
+    // Recalculate total
+    let qty = parseFloat(row.find(".qty").val()) || 0;
+    let price = parseFloat(row.find(".price").val()) || 0;
+    let baseTotal = qty * price;
+
+    let extra = 0;
+    row.find(".relatedCheckbox:checked").each(function(){
+        extra += parseFloat($(this).data("price")) || 0;
+    });
+
+    row.find(".total").val((baseTotal + extra).toFixed(2));
+});
+
+
+
+$(document).on("click", ".addItemBtn", function(){
+    let floorId = $(this).data("floor");
+    let name = $(this).data("name");
+    let desc = $(this).data("desc");
+    let price = parseFloat($(this).data("price")) || 0;
+    let category = $(this).data("category"); // make sure backend sends category
+    let location = $(this).data("location"); // make sure backend sends category
+
+    ensureCategorySection(floorId, category, location);
+
+    let row = `
+        <tr data-id="${$(this).data("id")}" data-floor="${floorId}" data-category="${category}"  data-location="${location}" >
+            <td>${name}
+                <input type="hidden" name="item_name[${floorId}][]" value="${name}">
+                <div class="related-items"></div>
+            </td>
+            <td><input type="text" name="description[${floorId}][]" class="form-control" value="${desc}"></td>
+            <td><input type="number" name="qty[${floorId}][]" class="form-control qty" value="1"></td>
+            <td><input type="text" name="price[${floorId}][]" class="form-control price" value="${price}" data-base="${price}"></td>
+            <td><input type="text" name="tax_rate[${floorId}][]" class="form-control tax_rate" value="0"></td>
+            <td><input type="text" name="total[${floorId}][]" class="form-control total" value="${price.toFixed(2)}"></td>
+            <td><button type="button" class="btn btn-danger btn-sm removeRow">X</button>
+              <button type="button" class="btn btn-primary btn-sm addRowAfter">+</button></td>
+        </tr>
+    `;
+    
+ let $locRow = $("#itemTable_" + floorId + " tbody tr.location-row[data-category='" + category + "'][data-location='" + location + "']");
+if ($locRow.length) {
+    $locRow.after(row);
+} else {
+    $("#itemTable_" + floorId + " tbody tr.category-row[data-category='" + category + "']").after(row);
+}
+
+
+        
+        // Calculate totals right away
+let $newRow = $("#itemTable_" + floorId + " tbody tr[data-id='" + $(this).data("id") + "']");
+calculateRowTotal($newRow);
+
+// ✅ Now update the category and floor totals
+let $floor = $newRow.closest(".floor-section");
+calculateCategoryTotals($floor);
+
+});
+
+
+$(document).on("click", ".addRowAfter", function(){
+    let $currentRow = $(this).closest("tr");
+    let floorId = $currentRow.data("floor");
+    let category = $currentRow.data("category");
+    let location = $currentRow.data("location");
+
+    let rowId = "custom_" + Date.now();
+    let newRow = `
+        <tr data-id="${rowId}" 
+            data-floor="${floorId}" 
+            data-category="${category}" 
+            data-location="${location}">
+            <td>
+                <input type="text" name="item_name[${floorId}][]" class="form-control" placeholder="Item Name">
+                <div class="related-items"></div>
+            </td>
+            <td><input type="text" name="description[${floorId}][]" class="form-control" placeholder="Description"></td>
+            <td><input type="number" name="qty[${floorId}][]" class="form-control qty" value="1"></td>
+            <td><input type="text" name="price[${floorId}][]" class="form-control price" value="0"></td>
+            <td><input type="text" name="tax_rate[${floorId}][]" class="form-control tax_rate" value="0"></td>
+            <td><input type="text" name="total[${floorId}][]" class="form-control total" value="0"></td>
+            <td>
+                <button type="button" class="btn btn-danger btn-sm removeRow">X</button>
+                <button type="button" class="btn btn-primary btn-sm addRowAfter">+</button>
+            </td>
+        </tr>
+    `;
+
+    // Insert after current row
+    $currentRow.after(newRow);
+
+    // Calculate totals for new row
+    let $newRow = $(`#itemTable_${floorId} tbody tr[data-id='${rowId}']`);
+        ($newRow);
+});
+
+
+function calculateRowTotal($row){
+    let qty = parseFloat($row.find(".qty").val()) || 0;
+    let taxRate = parseFloat($row.find(".tax_rate").val()) || 0;
+
+    // Check if row is custom
+    let isCustom = ($row.data("id") + "").startsWith("custom_");
+
+    let basePrice = 0;
+    let price = 0;
+
+    if(isCustom){
+        // For manual item, take user-entered price directly
+        price = parseFloat($row.find(".price").val()) || 0;
+    } else {
+        // For system item, recalc base + related
+        basePrice = parseFloat($row.find(".price").attr("data-base")) || 0;
+
+        // Add prices of selected related items
+        let relatedExtra = 0;
+        $row.find(".relatedCheckbox:checked").each(function(){
+            relatedExtra += parseFloat($(this).data("price")) || 0;
+        });
+
+        price = basePrice + relatedExtra;
+
+        // Update price field (system items only)
+        $row.find(".price").val(price.toFixed(2));
+    }
+
+    // Subtotal
+    let subtotal = price * qty;
+
+    // Tax
+    let taxAmount = (subtotal * taxRate) / 100;
+
+    // Final total
+    let total = subtotal + taxAmount;
+
+    $row.find(".total").val(total.toFixed(2));
+
+    // Update floor total
+    calculateFloorTotal($row.closest(".floor-section"));
+}
+
+function calculateFloorTotal($floorSection){
+    let floorTotal = 0;
+    $floorSection.find(".category-total").each(function(){
+        floorTotal += parseFloat($(this).val()) || 0;
+    });
+    $floorSection.find(".floor-final-total").val(floorTotal.toFixed(2));
+
+    // Update grand total (with floor breakdown)
+    calculateGrandTotal();
+}
+
+function calculateGrandTotal(){
+    let grandTotal = 0;
+    let listHtml = "";
+
+    $(".floor-section").each(function(index){
+        let floorId = $(this).attr("id"); // e.g. floor_1, floor_2
+        let floorNum = index + 1;
+
+        let floorTotal = parseFloat($(this).find(".floor-final-total").val()) || 0;
+        grandTotal += floorTotal;
+
+        listHtml += `<h5 class="g-total"><label> ${floorNum} Floor Total:</label> <span>${floorTotal.toFixed(2)}</span></h5>`;
+    });
+
+    $("#grand-total").val(grandTotal.toFixed(2));
+    $("#floor-totals-list").html(listHtml);
+}
+
+ $(document).on("input change", ".qty, .price, .tax_rate, .relatedCheckbox, .category-discount", function(){
+    let $row = $(this).closest("tr");
+    let $floor = $(this).closest(".floor-section");
+
+    // Always recalc category totals for this floor
+    calculateCategoryTotals($floor);
+});
+    // Bind events
+    $(document).on("input change", ".qty, .price, .tax_rate, .relatedCheckbox", function(){
+        let $row = $(this).closest("tr");
+        calculateRowTotal($row);
+    });
+
+    $(document).ready(function(){
+    // Load subcategories dynamically
+  $(document).on("change", ".mainCategory", function(){
+    let floorId = this.id.split("_")[1];  // extract floor number
+    let mainCat = $(this).val();
+
+    $.ajax({
+        url: "<?= base_url('admin/proposals/get_subcategories') ?>",
+        type: "POST",
+        data: { main_category_id: mainCat },
+        dataType: "json",
+        success: function(res){
+            let subSelect = $("#subCategory_" + floorId);
+            subSelect.empty().append('<option value="">-- Select Sub Category --</option>');
+            $.each(res, function(i, sub){
+                subSelect.append(`<option value="${sub.category_id}">${sub.category_name}</option>`);
+            });
+        }
+    });
+});
+ // Floor wise Load Items
+$(document).on("click", ".loadItemsBtn", function(){
+    let floorId = $(this).data("floor");
+    let mainCat = $("#mainCategory_" + floorId).val();
+    let subCat = $("#subCategory_" + floorId).val();
+
+    $.ajax({
+        url: "<?= base_url('admin/proposals/search_by_category') ?>",
+        type: "POST",
+        data: { main_category_id: mainCat, sub_category_id: subCat },
+        dataType: "json",
+        success: function(data){
+            let tbody = $("#availableItems_" + floorId + " tbody");
+            tbody.empty();
+
+            if(data.length > 0){
+                $("#availableItemsSection_" + floorId).show();
+
+               $.each(data, function(i, item) {
+    let listItem = `
+         <li class="available-item-li addItemBtn"
+            data-floor="${floorId}"
+            data-id="${item.saved_items_id}" 
+            data-name="${item.item_name}" 
+            data-desc="${(item.item_desc || '').replace(/"/g, '&quot;')}"
+            data-price="${item.unit_cost}"
+            data-category="${item.main_category_name}" 
+            data-location="${item.location_name}">
+            
+            <span class="item-name">${item.item_name}</span>
+            <span class="item-cost"> (${item.unit_cost} Rs)</span>
+        </li>
+    `;
+    $("#availableItemsList_" + floorId).append(listItem);
+});
+            } else {
+                $("#availableItemsSection_" + floorId).hide();
+            }
+        }
+    });
+});
+});
+
+
+ function ensureCategorySection(floorId, categoryName, locationName){
+    let tbody = $("#itemTable_" + floorId + " tbody");
+
+    // Ensure CATEGORY header exists
+    let categoryRow = tbody.find(`tr.category-row[data-category='${categoryName}']`);
+    if(categoryRow.length === 0){
+        let row = `
+            <tr class="category-row table-secondary" data-category="${categoryName}" >
+                <td colspan="7"><strong>📂 ${categoryName}</strong></td>
+            </tr>
+            <tr class="category-subtotal-row table-light" data-category="${categoryName}">
+                <td colspan="5" class="text-right"><strong>Sub Total:</strong></td>
+                <td><input type="text" class="form-control category-subtotal" readonly></td>
+                <td></td>
+            </tr>
+            <tr class="category-discount-row table-light" data-category="${categoryName}">
+                <td colspan="5" class="text-right"><strong>Discount (%):</strong></td>
+                <td><input type="number" class="form-control category-discount" value="0"></td>
+                <td></td>
+            </tr>
+            <tr class="category-total-row table-light" data-category="${categoryName}">
+                <td colspan="5" class="text-right"><strong>Total:</strong></td>
+                <td><input type="text" class="form-control category-total" readonly></td>
+                <td></td>
+            </tr>
+        `;
+        tbody.append(row);
+        categoryRow = tbody.find(`tr.category-row[data-category='${categoryName}']`);
+    }
+
+    // Ensure LOCATION row exists
+    let locationRow = tbody.find(`tr.location-row[data-category='${categoryName}'][data-location='${locationName}']`);
+    if(locationRow.length === 0){
+        let locRow = `
+            <tr class="location-row table-info" data-category="${categoryName}" data-location="${locationName}">
+                <td colspan="7"><strong>📍 ${locationName}</strong></td>
+            </tr>
+        `;
+        // Insert location row just BEFORE subtotal row
+        tbody.find(`.category-subtotal-row[data-category='${categoryName}']`).before(locRow);
+    }
+}
+ 
+function ensureCustomCategorySection(floorId, categoryId, categoryName, locationId, locationName){
+    let tbody = $("#itemTable_" + floorId + " tbody");
+
+    // 1. Ensure CATEGORY header exists
+    let categoryRow = tbody.find(`tr.category-row[data-category-id='${categoryId}']`);
+    if(categoryRow.length === 0){
+        let row = `<tr class="category-row table-secondary" data-category-id="${categoryId}" data-category="${categoryName}"><td colspan="7"><strong>📂 ${categoryName}</strong></td></tr>`;
+        tbody.append(row);
+    }
+
+    // 2. Ensure LOCATION row exists
+    let locationRow = tbody.find(`tr.location-row[data-category-id='${categoryId}'][data-location-id='${locationId}']`);
+    if(locationRow.length === 0){
+        let locRow = `<tr class="location-row table-info" data-category-id="${categoryId}" data-location-id="${locationId}" data-category="${categoryName}" data-location="${locationName}"><td colspan="7"><strong>📍 ${locationName}</strong></td></tr>`;
+        tbody.find(`.category-subtotal-row[data-category-id='${categoryId}']`).before(locRow);
+    }
+
+    // 3. Ensure Category totals rows exist
+    let subtotalRow = tbody.find(`.category-subtotal-row[data-category-id='${categoryId}']`);
+    if(subtotalRow.length === 0){
+        let totalsRows = `
+            <tr class="category-subtotal-row table-light" data-category-id="${categoryId}">
+                <td colspan="5" class="text-right"><strong>Sub Total:</strong></td>
+                <td><input type="text" class="form-control category-subtotal" readonly></td>
+                <td></td>
+            </tr>
+            <tr class="category-discount-row table-light" data-category-id="${categoryId}">
+                <td colspan="5" class="text-right"><strong>Discount (%):</strong></td>
+                <td><input type="number" class="form-control category-discount" value="0"></td>
+                <td></td>
+            </tr>
+            <tr class="category-total-row table-light" data-category-id="${categoryId}">
+                <td colspan="5" class="text-right"><strong>Total:</strong></td>
+                <td><input type="text" class="form-control category-total" readonly></td>
+                <td></td>
+            </tr>
+        `;
+        tbody.append(totalsRows);
+    }
+}
+
+
+function calculateCategoryTotals($floorSection){
+    let categories = {};
+
+    // Sum item totals per category + location
+    $floorSection.find("tbody tr").each(function(){
+        let $tr = $(this);
+        let category = $tr.data("category");
+        let location = $tr.data("location");
+
+        if(category && !$tr.hasClass("category-row") 
+                   && !$tr.hasClass("category-subtotal-row") 
+                   && !$tr.hasClass("category-discount-row") 
+                   && !$tr.hasClass("category-total-row")
+                   && !$tr.hasClass("location-row")){
+            let total = parseFloat($tr.find(".total").val()) || 0;
+            if(!categories[category]) categories[category] = {};
+            if(!categories[category][location]) categories[category][location] = 0;
+            categories[category][location] += total;
+        }
+    });
+
+    // Update per-category subtotal/discount/total
+    for(let cat in categories){
+        let subtotal = 0;
+        for(let loc in categories[cat]){
+            subtotal += categories[cat][loc];
+        }
+        let $subtotalRow = $floorSection.find(`.category-subtotal-row[data-category='${cat}']`);
+        let $discountRow = $floorSection.find(`.category-discount-row[data-category='${cat}']`);
+        let $totalRow = $floorSection.find(`.category-total-row[data-category='${cat}']`);
+
+        $subtotalRow.find(".category-subtotal").val(subtotal.toFixed(2));
+
+     //   let discount = parseFloat($discountRow.find(".category-discount").val()) || 0;
+      //  let total = subtotal - discount;
+
+        let discountPercent = parseFloat($discountRow.find(".category-discount").val()) || 0;
+let discount = (subtotal * discountPercent) / 100;
+let total = subtotal - discount;
+
+
+        if(total < 0) total = 0;
+
+        $totalRow.find(".category-total").val(total.toFixed(2));
+    }
+
+    // Update floor total
+    calculateFloorTotal($floorSection);
+}
+
+$(document).on("input change", ".category-discount", function(){
+    let $floor = $(this).closest(".floor-section");
+    calculateCategoryTotals($floor);
+});
+
+</script>
+
+
+
+<script>
+$(document).ready(function(){
+
+  $("#saveProposalBtn").on("click", function(e){
+    e.preventDefault();
+
+    let formData = {
+      ref_no: $("#ref_no").val(),
+      lead_id: $("#lead_id").val(),
+      phone: $("#phone").val(),
+      proposal_date: $("#proposal_date").val(),
+      expiry_date: $("#expiry_date").val(),
+      notes: $("#notes").val(),
+      grand_total: $("#grand-total").val(),
+      status: $("#status").val(),
+      floors: []
+    };
+
+    $(".floor-section").each(function(){
+      let floor = {
+    name: $(this).find("h4").text().replace("🏢", "").trim(), // clean name
+       subtotal: null, // we don’t track floor subtotal separately
+        discount: null, // no floor discount input
+        total: $(this).find(".floor-final-total").val(),
+        categories: []
+      };
+
+      $(this).find(".category-row").each(function(){
+        let catName = $(this).data("category");
+            let itemRow = $(this).nextUntil(".category-total-row").filter("tr[data-id]").first();
+    let category_name_id = itemRow.data("category_name_id") || null;
+        let category = {
+          name: catName,
+          category_name_id: category_name_id,
+          subtotal: $(this).nextAll(".category-subtotal-row:first").find(".category-subtotal").val(),
+          discount: $(this).nextAll(".category-discount-row:first").find(".category-discount").val(),
+          total: $(this).nextAll(".category-total-row:first").find(".category-total").val(),
+          items: []
+        };
+
+        $(this).nextUntil(".category-total-row").filter("tr[data-id]").each(function(){
+          let item = {
+            id: $(this).data("id"),
+            name: $(this).find("input[name*='item_name']").val(),
+            desc: $(this).find("input[name*='description']").val(),
+            qty: $(this).find(".qty").val(),
+            price: $(this).find(".price").val(),
+            tax_rate: $(this).find(".tax_rate").val(),
+            total: $(this).find(".total").val(),
+            location: $(this).data("location"),
+            location_name_id: $(this).data("location_name_id"),
+            addons: []
+          };
+
+          $(this).find(".relatedCheckbox:checked").each(function(){
+            item.addons.push({
+              floorId: $(this).data("floor"),
+              id: $(this).data("id"),
+              main_item_id: $(this).data("main"),
+              name: $(this).data("name"),
+              price: $(this).data("price")
+            });
+          });
+
+          category.items.push(item);
+        });
+
+        floor.categories.push(category);
+      });
+
+      formData.floors.push(floor);
+    });
+console.log(formData);
+// return;
+    // Send to controller
+ $.post("<?= base_url('admin/proposals/save') ?>", formData, function(res){
+  if(res.status){
+    alert(res.message);
+    window.location.href = res.redirect_url; // ✅ redirect via JS
+  } else {
+    alert("Something went wrong!");
+  }
+}, 'json');
+
+  });
+
+});
+</script>
+
+
+ 
+
+
+                    <style>
+                    .input-wrapper {
+                        position: relative;
+                    }
+
+                    .input-wrapper input {
+                        padding-right: 30px;
+                        /* space for tick */
+                    }
+
+                    .status-icon {
+                        position: absolute;
+                        right: 25px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        font-size: 18px;
+                        display: none;
+                        color: #009650ff;
+                        /* Bootstrap blue */
+                    }
+                    </style>
+
+                    <style>
+                    .floor-section {
+                        border: 1px solid #ccc;
+                        padding: 15px;
+                        margin-bottom: 20px;
+                        border-radius: 5px;
+                    }
+
+                    .floor-header {
+                        font-weight: bold;
+                        margin-bottom: 10px;
+                    }
+
+                    .floor-section {
+                        border: 1px solid #dedede;
+                        padding: 15px;
+                        margin-bottom: 20px;
+                        border-radius: 0;
+                        position: relative;
+                        box-shadow: 1px 1px 8px 0px #888888;
+                    }
+
+                    .delete-floor-btn {
+                        position: absolute;
+                        top: 5px;
+                        right: 5px;
+                        background: red;
+                        color: white;
+                        border: none;
+                        padding: 5px 10px;
+                        cursor: pointer;
+                        border-radius: 3px;
+                    }
+
+                    .head {
+                        display: flex;
+                    }
+
+                    .toggle-related[aria-expanded="true"]::after {
+                        content: " ▼";
+                    }
+
+                    .toggle-related[aria-expanded="false"]::after {
+                        content: " ▶";
+                    }
+
+                    .items_search {
+                        display: flex;
+                        margin-bottom: 20px;
+                    }
+
+                    .grand-total-box h4 {
+                        display: flex;
+                        float: right;
+                        margin: 0;
+                        margin-right: 17px;
+                    }
+
+
+                    .grand-total-box h4 label {
+
+                        margin: 6px;
+
+                    }
+
+                    .floor_total {
+                        display: flex;
+                        justify-content: space-between;
+                        margin-bottom: 20px;
+                    }
+
+                    .removeblock {
+                        font-size: 17px;
+                        border-radius: 50%;
+                        height: 35px;
+                        width: 35px;
+                        padding: 0px;
+                        margin: 2px;
+                        float: right;
+                    }
+
+                    .floor-totals {
+                        text-align: right;
+                        margin-right: 24px;
+                    }
+
+                    .g-total {
+                        font-size: 18px;
+                    }
+
+                    .g-total span {
+                        font-weight: 800;
+                    }
+
+                    .addFloor {
+                        height: 30px;
+                    }
+
+                    .floor-area {
+                        margin: 1em
+                    }
+
+
+                    /* Container for all items */
+                    .item_list_class {
+                        display: flex;
+                        /* Enables flexbox layout */
+                        flex-wrap: wrap;
+                        /* Allows items to wrap to the next line */
+                        gap: 10px;
+                        /* Provides consistent spacing between items */
+                        margin-top: 10px;
+                        list-style: none;
+                        margin-left: -20px;
+                    }
+
+                    /* Individual item styling */
+                    .available-item-li {
+                        background-color: #e8e8e8;
+                        border: 1px solid #ccc;
+                        padding: 8px 12px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        transition: background-color 0.2s, box-shadow 0.2s;
+                        /* This is the key part to make 3 items per row */
+                        flex-basis: calc(33.333% - 10px);
+                        /* Sets the base width for 3 items with a 10px gap */
+                        text-align: center;
+                        /* Centers the text within each item */
+                    }
+
+                    /* Optional: Add responsiveness for smaller screens */
+                    @media (max-width: 768px) {
+                        .available-item-li {
+                            flex-basis: calc(50% - 10px);
+                            /* 2 items per row on tablets */
+                        }
+                    }
+
+                    @media (max-width: 480px) {
+                        .available-item-li {
+                            flex-basis: 100%;
+                            /* 1 item per row on mobile phones */
+                        }
+                    }
+                    </style>

@@ -1,0 +1,428 @@
+<?php
+    
+   $mom = $this->db
+    ->where('client_id', $client_details->client_id)
+    //->where('design_type', 'Civil Design')
+    ->order_by('id', 'DESC')
+    ->get('tbl_client_mom')
+    ->result();
+    
+    $momCount = is_array($mom) ? count($mom) : 0;
+
+
+
+   $kt_request = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->where('request_type', 'KT1')
+    ->order_by('id', 'DESC')
+    ->get('tbl_client_service_request')
+    ->row();   // sirf ek record
+
+
+    
+ 
+
+ //print_r($two_d_design);
+    $url = $this->uri->segment(5);
+     
+    if ($url == 'kt') {        
+        $id = $this->uri->segment(6);
+        $design_info = $this->db->where('id', $id)->get('tbl_client_service_request')->row();
+    } else {
+        $id = null;
+    }
+    
+                         $user_id = $this->session->userdata('user_id');
+                           $user_type          = $this->session->userdata('user_type'); 
+                           $designation_id     = $this->session->userdata('designations_id');
+                           $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row();  
+
+    ?>
+
+
+
+
+<section class="panel panel-custom">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <strong>
+                <?= lang('KT') ?>
+            </strong>
+
+
+        </div>
+    </div>
+
+    <div class="panel-body">
+
+        <?php if ($momCount == 0) { ?>
+
+        <div class="alert alert-warning">
+            <strong>Warning!</strong> Please Upload MOM
+        </div>
+
+
+        <?php }  else { ?>
+        <div class="request_box">
+            <?php if (empty($kt_request)) { ?>
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <form action="<?= base_url('admin/client/new_client_request') ?>" method="post"
+                        class="form-horizontal">
+
+                        <input type="hidden" name="client_id" value="<?= $client_details->client_id ?>">
+                        <input type="hidden" name="request_type" value="KT1">
+
+                        <div class="form-group">
+                            <label class="col-sm-3 control-label">
+                                Request Date <span class="text-danger">*</span>
+                            </label>
+                            <div class="col-sm-6">
+                                <input type="date" name="request_date" class="form-control" required>
+                            </div>
+
+ 
+<?php if($user_type == 1 || check_permission('kt_request')): ?>
+     <div class="col-sm-3 text-right">
+                                <button class="btn btn-primary">
+                                    <i class="fa fa-paper-plane"></i> Submit KT Request
+                                </button>
+                            </div>
+
+                             <?php else: ?>
+
+                            <div class="col-sm-3 text-right">
+                                <button class="btn btn-primary" disabled>
+                                    <i class="fa fa-paper-plane"></i> KT Requsted by designer
+                                </button>
+                            </div>
+<?php endif; ?>  
+
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+            <?php } ?>
+
+            
+
+            <?php if (!empty($kt_request)) { ?>
+
+
+            <div class="row">
+                <div class="col-sm-3">
+                    <strong>Request Type</strong> :
+                    <span class="text-muted">KT</span>
+                </div>
+
+                <div class="col-sm-3">
+                    <strong>Request Date</strong> :
+                    <?= date('d-m-Y', strtotime($kt_request->request_date)) ?>
+                </div>
+
+                <div class="col-sm-2">
+                    <strong>Status</strong> :
+                    <span class="label label-<?= 
+                    $kt_request->status == 'Approved' ? 'success' :
+                    ($kt_request->status == 'Reject' ? 'danger' : 'warning')
+                ?>">
+                        <?= $kt_request->status ?>
+                    </span>
+
+                    <?php if($kt_request->status == 'Reject') { ?>
+                    <p> <?php echo $kt_request->remark;?>
+                    </p>
+                    <?php } ?>
+
+
+                </div>
+
+                 <div class="col-sm-2">
+                    <strong>KT Check</strong> :
+                    <span class="label label-<?= 
+                    $kt_request->request_done == 'Done' ? 'success' :
+                    ($kt_request->request_done == 'Reject' ? 'danger' : 'warning')
+                ?>">
+                        <?= $kt_request->request_done ?>
+                    </span>
+
+                    <?php if($kt_request->request_done == 'Reject') { ?>
+                    <p> <?php echo $kt_request->remark;?>
+                    </p>
+                    <?php } ?>
+
+
+                </div>
+
+
+                <div class="col-sm-2">
+                   
+                <?php
+$approve_disabled = ($kt_request->status == 'Approved') ? 'disabled' : '';
+$ktcheck_disabled = 
+    ($kt_request->status != 'Approved' || $kt_request->request_done == 'Done') 
+    ? 'disabled' 
+    : '';
+?>
+
+<?php if($user_type == 1 || has_client_permission($client_details->client_id,'kt_accept')): ?>
+
+    <?php if($kt_request->status != 'Approved') { ?>
+        <button class="btn btn-success approve_request_btn"
+                data-toggle="modal"
+                data-target="#approveHandOverModal"
+                data-design_id="<?= $kt_request->id ?>"
+                data-client_id="<?= $kt_request->client_id ?>"
+                <?= $approve_disabled ?>>
+            <i class="fa fa-check"></i>
+            Approve KT
+        </button>
+    <?php } ?>
+
+<?php endif; ?>
+
+
+<?php // if($user_type == 1 || has_client_permission($client_details->client_id,'kt_ack')): ?>
+ <?php if($user_type == 1 || check_permission('kt_done')) :?>
+    <button class="btn btn-success ktcheck_approve_request_btn"
+            data-toggle="modal"
+            data-target="#ktcheck_approveHandOverModal"
+            data-design_id="<?= $kt_request->id ?>"
+            data-client_id="<?= $kt_request->client_id ?>"
+            <?= $ktcheck_disabled ?>>
+        <i class="fa fa-check"></i>
+        KT Check
+    </button>
+
+<?php endif; ?>
+ 
+
+                </div>
+            </div>
+
+
+
+
+            <?php } ?>
+
+            
+        </div>
+        
+
+        <?php } ?>
+
+    </div>
+    </div>
+    <div class="remark_section">
+        <?php 
+$module = $this->uri->segment(5) ?: 'kt';
+
+$data['remarks'] = get_module_remarks($client_details->client_id, $module);
+
+$this->load->view('admin/client/details/remarks_component', [
+    'remarks'   => $data['remarks'],
+    'client_id' => $client_details->client_id,
+    'module'    => $module,
+]);
+?>
+</div>
+</section>
+
+
+<!-- 2D Design Preview Modal -->
+<div class="modal fade" id="designPreviewModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">2D Design Preview</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body text-center" id="designPreviewContent">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).on('click', '.preview-design', function() {
+
+    var filePath = $(this).data('path');
+    var fileType = $(this).data('type');
+    var html = '';
+
+    if (fileType === 'image') {
+        html = '<img src="' + filePath + '" class="img-fluid" style="width:100%;">';
+    } else if (filePath.toLowerCase().endsWith('.pdf')) {
+        html = '<iframe src="' + filePath + '" width="100%" height="600px"></iframe>';
+    } else {
+        html = '<a href="' + filePath + '" target="_blank" class="btn btn-primary">Download File</a>';
+    }
+
+    $('#designPreviewContent').html(html);
+    $('#designPreviewModal').modal('show');
+});
+</script>
+
+
+
+<div class="modal fade" id="approveHandOverModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+
+            <div class="modal-header bg-success">
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+                <h4 class="modal-title">Approve Design Request</h4>
+            </div>
+
+            <form action="<?= base_url('admin/client/client_request_status') ?>" method="post">
+
+                <div class="modal-body text-center">
+
+                    <input type="hidden" name="design_id" id="approve_design_id">
+                    <input type="hidden" name="client_id" id="status_client_id">
+                    <div class="form-group">
+                        <select class="form-control" name="status" id="request_status" required>
+                            <option value="Approved">Approved</option>
+                            <option value="Reject">Reject</option>
+                        </select>
+                    </div>
+
+                    <!-- Remarks Field -->
+                    <div class="form-group" id="remarks_box" style="display:none;">
+                        <textarea name="remark" id="remarks_text" class="form-control"
+                            placeholder="Enter rejection remarks"></textarea>
+                    </div>
+
+                    <p>
+                        Are you sure you want to <strong>Update</strong><br>
+                        this  request?
+                    </p>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-success">
+                        Submit
+                    </button>
+                </div>
+
+            </form>
+
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="ktcheck_approveHandOverModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+
+            <div class="modal-header bg-success">
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+                <h4 class="modal-title">KT Check Request</h4>
+            </div>
+
+            <form action="<?= base_url('admin/client/client_request_status') ?>" method="post">
+
+                <div class="modal-body text-center">
+
+                    <input type="hidden" name="design_id" id="ktcheck_approve_design_id">
+                    <input type="hidden" name="client_id" id="ktcheck_status_client_id">
+                    <input type="hidden" name="request_type" value="KT1">
+                    <div class="form-group">
+                        <select class="form-control" name="request_done" id="kt_check_request_status" required>
+                            <option value="Done">Done</option>
+                            <option value="Reject">Reject</option>
+                        </select>
+                    </div>
+
+                    <!-- Remarks Field -->
+                    <div class="form-group" id="kt_check_remarks_box" style="display:none;">
+                        <textarea name="remark" id="kt_check_remarks_text" class="form-control"
+                            placeholder="Enter rejection remarks"></textarea>
+                    </div>
+
+                    <p>
+                        Are you sure you want to <strong>Update</strong><br>
+                        this  request?
+                    </p>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-success">
+                        Submit
+                    </button>
+                </div>
+
+            </form>
+
+        </div>
+    </div>
+</div>
+
+
+<script>
+$(document).on('click', '.approve_request_btn', function() {
+    var design_id = $(this).data('design_id');
+    var client_id = $(this).data('client_id');
+    $('#approve_design_id').val(design_id);
+    $('#status_client_id').val(client_id);
+});
+
+
+$(document).on('click', '.ktcheck_approve_request_btn', function() {
+    var design_id = $(this).data('design_id');
+    var client_id = $(this).data('client_id');
+    $('#ktcheck_approve_design_id').val(design_id);
+    $('#ktcheck_status_client_id').val(client_id);
+});
+
+
+$(document).on('change', '#request_status', function() {
+
+    var status = $(this).val();
+
+    if (status === 'Reject') {
+        $('#remarks_box').show();
+        $('#remarks_text').prop('required', true);
+    } else {
+        $('#remarks_box').hide();
+        $('#remarks_text').prop('required', false);
+        $('#remarks_text').val('');
+    }
+
+});
+
+
+$(document).on('change', '#kt_check_request_status', function() {
+
+    var request_done = $(this).val();
+
+    if (request_done === 'Reject') {
+        $('#kt_check_remarks_box').show();
+        $('#kt_check_remarks_text').prop('required', true);
+    } else {
+        $('#kt_check_remarks_box').hide();
+        $('#kt_check_remarks_text').prop('required', false);
+        $('#kt_check_remarks_text').val('');
+    }
+
+});
+</script>
+
+
