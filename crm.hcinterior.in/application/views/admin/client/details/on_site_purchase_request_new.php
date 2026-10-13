@@ -293,6 +293,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                     </div>
 
                     <!-- 2. Site Dispatcher Task Section -->
+                    <?php if ($user_type == 1 || check_permission('site_dispatch')) { ?>
                     <div class="panel panel-default mb-md" id="site_dispatcher_panel" style="border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                         <div class="panel-heading" style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
                             <span style="font-weight: 600; color: #1e293b; font-size: 14px;">
@@ -336,8 +337,10 @@ $brand_options_html .= '<option value="Other">Other</option>';
 
                         </div>
                     </div>
+                    <?php } ?>
 
                     <!-- 3. Field Dispatch Section (Received Field Dispatcher Request) -->
+                    <?php if ($user_type == 1 || check_permission('field_dispatch')) { ?>
                     <div class="panel panel-default mb0" id="field_dispatcher_panel" style="border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                         <div class="panel-heading" style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
                             <span style="font-weight: 600; color: #1e293b; font-size: 14px;">
@@ -401,6 +404,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
 
                         </div>
                     </div>
+                    <?php } ?>
 
                 </div>
 
@@ -508,7 +512,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
         </script>
 
         <!-- Master List of Purchase Requests -->
-        <?php if ($user_type == 1 || check_permission('on_site_purchase_request_list') || check_permission('create_on_site_purchase_request') || check_permission('on_site_request_accept_reject') || check_permission('item_received_approved') || check_permission('onsite_purchase_request_only_view') || check_permission('onsite_purchase_request_edit') || check_permission('site_dispatch') || check_permission('field_dispatch')) { ?>
+        <?php if ($user_type == 1 || check_permission('on_site_purchase_request_list') || check_permission('create_on_site_purchase_request') || check_permission('on_site_request_accept_reject') || check_permission('item_received_approved') || check_permission('onsite_purchase_request_only_view') || check_permission('onsite_purchase_request_edit')) { ?>
             <?php
             $purchase_requests = $this->db->where('client_id', $client_details->client_id)
                 ->order_by('id', 'DESC')
@@ -972,7 +976,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                         </h4>
                     </div>
                     <div class="panel-body" style="padding: 16px;">
-                        <?php if ($user_type == 1 || check_permission('onsite_purchase_request_edit') || check_permission('site_dispatch') || check_permission('field_dispatch')) { ?>
+                        <?php if ($user_type == 1 || check_permission('onsite_purchase_request_edit')) { ?>
                             <div class="well well-sm upload-well">
                                 <div class="row" style="display: flex; align-items: center;">
                                     <div class="col-sm-8">
