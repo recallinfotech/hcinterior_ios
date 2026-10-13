@@ -9,10 +9,23 @@ $validation_start_date = $query ? $query->start_date : '';
 
 <?php 
   $user_id = $this->session->userdata('user_id');
-                           $user_type          = $this->session->userdata('user_type'); 
-                           $designation_id     = $this->session->userdata('designations_id');
-                           $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row(); 
-                           ?>
+  $user_type          = $this->session->userdata('user_type'); 
+  $designation_id     = $this->session->userdata('designations_id');
+  $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row(); 
+
+  $this->load->helper('permission_helper');
+  $can_view = ($user_type == 1 || check_permission('final_production_drawing'));
+  if (!$can_view) {
+?>
+    <div class="alert alert-danger text-center" style="margin: 20px;">
+        <i class="fa fa-lock fa-2x m-b-sm"></i>
+        <p><strong>Access Denied</strong></p>
+        <p class="text-muted">You do not have permission to view Final Production Drawing.</p>
+    </div>
+<?php
+    return;
+  }
+?>
 
 <?php
     $validation_files = $this->db
@@ -85,12 +98,7 @@ $(document).on('click', '.preview-design', function() {
 
  
 
- <?php 
- $can_view = ($user_type == 1 || check_permission('final_production_drawing')); 
-?>
-
-
-<section class="panel panel-custom"   style="<?php echo $can_view ? '' : 'display: none !important;'; ?>" >
+<section class="panel panel-custom">
     <div class="panel-heading">
         <div class="panel-title">
             <strong>

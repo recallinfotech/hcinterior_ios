@@ -4603,50 +4603,72 @@ foreach ($tab_tables as $tab_key => $config) {
             }
         }
 
-        if ($CI->session->userdata('user_type') != 1  && $CI->session->userdata('user_id') != 86) {
+        $CI->load->helper('permission_helper');
+
+        // Permission check: Payment Records
+        $can_view_payment = (
+            $CI->session->userdata('user_type') == 1 ||
+            $CI->session->userdata('user_id') == 86 ||
+            check_permission('payment_record') ||
+            check_permission('payment_records_only_view') ||
+            check_permission('payment_records_edit')
+        );
+        if (!$can_view_payment) {
             unset($tabs['payment_record']);
-        //   unset($tabs['final_design']);
         }
 
- 
+        // Permission check: Final Production Drawing
+        $can_view_final_design = (
+            $CI->session->userdata('user_type') == 1 ||
+            check_permission('final_production_drawing')
+        );
+        if (!$can_view_final_design) {
+            unset($tabs['final_design']);
+        }
+
+        // Permission check: Completion File
+        $can_view_completion = (
+            $CI->session->userdata('user_type') == 1 ||
+            check_permission('completion_file')
+        );
+        if (!$can_view_completion) {
+            unset($tabs['completion_file']);
+        }
+
     if($CI->session->userdata('user_type') == 1 || $CI->session->userdata('designations_id') == 45 || $CI->session->userdata('designations_id') == 71 || $CI->session->userdata('designations_id') == 76 || $CI->session->userdata('designations_id') == 72){
-  // if($CI->session->userdata('user_type') == 1 || $CI->session->userdata('designations_id') == 45){
        $tabs = array_values($tabs);
 
     usort($tabs, function ($a, $b) {
         return $a['position'] <=> $b['position'];
     });
 
-    
     return apply_filters('client_details_tabs', $tabs);
     }
 
-    
     $designation_id = $CI->session->userdata('designations_id');
 
   if ( $designation_id == 112 ||  $designation_id == 113 ||  $designation_id == 114 ||  $designation_id == 116 ||  $designation_id == 111) {
 
     $allowed_tabs = [
-         'details',
-
+        'details',
         'boq',
-        'final_design',
-
         'bom',
-
         'purchase_request',
-
         'on_site_purchase_request',
-
         'on_site_purchase_request_new',
-
         'dispatch',
-
         'loose_furniture',
+    ];
 
-        'completion_file',
-
-     ];
+    if ($can_view_final_design) {
+        $allowed_tabs[] = 'final_design';
+    }
+    if ($can_view_completion) {
+        $allowed_tabs[] = 'completion_file';
+    }
+    if ($can_view_payment) {
+        $allowed_tabs[] = 'payment_record';
+    }
 
     foreach($tabs as $key => $tab){
 

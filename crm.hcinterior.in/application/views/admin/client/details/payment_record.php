@@ -69,8 +69,16 @@ $latest_proposal = $this->db
 
 ?>
 
-          <?php if($user_type == 1  || check_permission('payment_records_only_view')) { ?>
-
+<?php 
+$can_view_payment = (
+    $user_type == 1 ||
+    $this->session->userdata('user_id') == 86 ||
+    check_permission('payment_record') ||
+    check_permission('payment_records_only_view') ||
+    check_permission('payment_records_edit')
+);
+if ($can_view_payment) { 
+?>
 <div class="row mb-lg">
 
     <div class="col-md-3">
@@ -721,6 +729,12 @@ if($paidPercent < $requiredPercent){
 
 </section>
 
+<?php } else { ?>
+    <div class="alert alert-danger text-center" style="margin: 20px;">
+        <i class="fa fa-lock fa-2x m-b-sm"></i>
+        <p><strong>Access Denied</strong></p>
+        <p class="text-muted">You do not have permission to view Payment Records.</p>
+    </div>
 <?php } ?>
 
 <script>

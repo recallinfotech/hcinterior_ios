@@ -15,13 +15,20 @@ class OperationPermission extends Admin_Controller
         // 1. Fetch All Roles
         $data['roles'] = $this->db->get('hc_roles')->result();
 
-        // Auto-ensure region_wise_client permission exists
-        $check_perm = $this->db->get_where('hc_permissions', ['permission_key' => 'region_wise_client'])->row();
-        if (!$check_perm) {
-            $this->db->insert('hc_permissions', [
-                'permission_name' => 'Region Wise Client',
-                'permission_key'  => 'region_wise_client'
-            ]);
+        // Auto-ensure required permissions exist
+        $default_new_perms = [
+            'region_wise_client' => 'Region Wise Client',
+            'completion_file'    => 'Completion File',
+            'payment_record'     => 'Payment Records'
+        ];
+        foreach ($default_new_perms as $pkey => $pname) {
+            $check_perm = $this->db->get_where('hc_permissions', ['permission_key' => $pkey])->row();
+            if (!$check_perm) {
+                $this->db->insert('hc_permissions', [
+                    'permission_name' => $pname,
+                    'permission_key'  => $pkey
+                ]);
+            }
         }
 
         // 2. Fetch All Permissions (Order: all_client_list, region_wise_client, only_assigned_client, then others)

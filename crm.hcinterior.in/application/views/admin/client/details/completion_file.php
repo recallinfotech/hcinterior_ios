@@ -11,6 +11,18 @@ $completion_files = $this->db
 
 $user_id = $this->session->userdata('user_id');
 $user_type = $this->session->userdata('user_type');
+
+$can_view_completion = ($user_type == 1 || check_permission('completion_file'));
+if (!$can_view_completion) {
+?>
+    <div class="alert alert-danger text-center" style="margin: 20px;">
+        <i class="fa fa-lock fa-2x m-b-sm"></i>
+        <p><strong>Access Denied</strong></p>
+        <p class="text-muted">You do not have permission to view Completion File.</p>
+    </div>
+<?php
+    return;
+}
 ?>
 
 <section class="panel panel-custom">
