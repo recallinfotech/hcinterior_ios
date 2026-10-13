@@ -1888,8 +1888,9 @@ $brand_options_html .= '<option value="Other">Other</option>';
         $('#dispatch_input_remarks').val('');
         $('#site_reject_remark_container').hide();
         $('#site_reject_remark_text').val('');
-        $('#field_input_photos').val('');
-        $('#field_input_remark').val('');
+        $('#field_input_photos').val('').prop('disabled', false);
+        $('#field_input_remark').val('').prop('disabled', false);
+        $('.field_action_btn').prop('disabled', false).removeClass('disabled').removeAttr('title');
 
         $('#dispatch_modal_loading').show();
         $('#dispatch_modal_content').hide();
@@ -2068,6 +2069,17 @@ $brand_options_html .= '<option value="Other">Other</option>';
                     $('#display_field_photos_section').hide();
                 }
 
+                // Disable action buttons & inputs if already Received
+                if (fieldStatus === 'Received') {
+                    $('.field_action_btn').prop('disabled', true).addClass('disabled').attr('title', 'Material has already been received');
+                    $('#field_input_photos').prop('disabled', true);
+                    $('#field_input_remark').prop('disabled', true);
+                } else {
+                    $('.field_action_btn').prop('disabled', false).removeClass('disabled').removeAttr('title');
+                    $('#field_input_photos').prop('disabled', false);
+                    $('#field_input_remark').prop('disabled', false);
+                }
+
                 // Field log
                 if (fieldStatus !== 'Pending' && d.field_dispatch_by_name) {
                     var fLog = '<strong>Status: ' + fieldStatus + ' by ' + d.field_dispatch_by_name + '</strong> (' + d.field_dispatch_date + ')';
@@ -2228,7 +2240,11 @@ $brand_options_html .= '<option value="Other">Other</option>';
     // Field Dispatch Actions (Reject / Received)
     $(document).on('click', '.field_action_btn', function(e) {
         e.preventDefault();
-        var action = $(this).data('action');
+        var btn = $(this);
+        if (btn.is(':disabled') || btn.hasClass('disabled') || btn.attr('disabled')) {
+            return false;
+        }
+        var action = btn.data('action');
         var remark = $.trim($('#field_input_remark').val());
 
         if (action === 'reject' && !remark) {
