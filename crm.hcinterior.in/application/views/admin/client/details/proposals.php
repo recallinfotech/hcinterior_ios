@@ -1,4 +1,5 @@
 <?php 
+ $this->load->helper('permission_helper');
  $user_id = $this->session->userdata('user_id');
                              $user_type          = $this->session->userdata('user_type'); 
                            $designation_id     = $this->session->userdata('designations_id');
@@ -214,6 +215,10 @@ if (!empty($all_proposals_info)) {
 
 
 
+        <?php 
+        $can_view_old_boq = ($user_type == 1 || check_permission('old_boq'));
+        if ($can_view_old_boq) { 
+        ?>
         <br><br>
 
           <a href="#demo" class="btn btn-info" data-toggle="collapse">See Old BOQ</a>
@@ -350,6 +355,7 @@ if (!empty($all_proposals_info)) {
             </table>
         </div>
         </div>
+        <?php } ?>
 
     </div>
 </div>

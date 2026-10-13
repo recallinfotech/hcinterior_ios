@@ -19,7 +19,8 @@ class OperationPermission extends Admin_Controller
         $default_new_perms = [
             'region_wise_client' => 'Region Wise Client',
             'completion_file'    => 'Completion File',
-            'payment_record'     => 'Payment Records'
+            'payment_record'     => 'Payment Records',
+            'old_boq'            => 'Old BOQ'
         ];
         foreach ($default_new_perms as $pkey => $pname) {
             $check_perm = $this->db->get_where('hc_permissions', ['permission_key' => $pkey])->row();
