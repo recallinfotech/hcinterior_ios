@@ -37,6 +37,7 @@ import { ClientBoqModal } from './components/modals/ClientBoqModal';
 import { CreateOnSitePurchaseModal } from './components/modals/CreateOnSitePurchaseModal';
 import { MarkAttendanceModal } from './components/modals/MarkAttendanceModal';
 import { UserProfileModal } from './components/modals/UserProfileModal';
+import { FaceAttendanceModal } from './components/modals/FaceAttendanceModal';
 
 // Mock Data
 import {
@@ -238,6 +239,7 @@ export default function App() {
   const [onSitePurchaseModalClient, setOnSitePurchaseModalClient] = useState<ClientProject | null>(null);
   const [isMarkAttendanceOpen, setIsMarkAttendanceOpen] = useState(false);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
+  const [isFaceScanOpen, setIsFaceScanOpen] = useState(false);
 
   const handleOpenBoqModal = (client: ClientProject) => {
     setBoqModalClient(client);
@@ -1449,26 +1451,44 @@ export default function App() {
       <MarkAttendanceModal
         isOpen={isMarkAttendanceOpen}
         onClose={() => setIsMarkAttendanceOpen(false)}
-        token={authToken}
-        userId={userData?.user_id}
-        userName={userData?.fullname || currentUser}
+        userData={userData}
+        authToken={authToken}
         showToast={showToast}
+        onOpenFaceScan={() => {
+          setIsMarkAttendanceOpen(false);
+          setIsFaceScanOpen(true);
+        }}
       />
 
       {/* User Profile Modal (Calendar Attendance, Announcements, Request Leave, Holiday List) */}
       <UserProfileModal
         isOpen={isUserProfileOpen}
         onClose={() => setIsUserProfileOpen(false)}
-        token={authToken}
-        userId={userData?.user_id}
-        userName={userData?.fullname || currentUser}
-        userEmail={userData?.email}
-        userRole={userData?.designation_id ? 'Designation #' + userData.designation_id : 'Staff Member'}
+        userData={userData}
+        authToken={authToken}
+        onLogout={handleLogoutApi}
         onOpenMarkAttendance={() => {
           setIsUserProfileOpen(false);
           setIsMarkAttendanceOpen(true);
         }}
+        onOpenFaceScan={() => {
+          setIsUserProfileOpen(false);
+          setIsFaceScanOpen(true);
+        }}
         showToast={showToast}
+      />
+
+      {/* Face Recognition & GPS Attendance Modal */}
+      <FaceAttendanceModal
+        isOpen={isFaceScanOpen}
+        onClose={() => setIsFaceScanOpen(false)}
+        token={authToken}
+        userId={userData?.user_id}
+        userName={userData?.fullname || currentUser}
+        showToast={showToast}
+        onSuccess={() => {
+          showToast('Attendance recorded with Face ID & GPS');
+        }}
       />
     </MobileFrame>
   );

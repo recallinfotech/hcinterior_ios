@@ -10,6 +10,7 @@ import {
   Building,
   Sparkles,
   Coffee,
+  Camera,
 } from 'lucide-react';
 import { markAttendanceApi } from '../../services/userPortalApi';
 import { UserData } from '../../services/authApi';
@@ -21,6 +22,7 @@ interface MarkAttendanceModalProps {
   authToken: string;
   showToast: (msg: string) => void;
   onAttendanceUpdated?: () => void;
+  onOpenFaceScan?: () => void;
 }
 
 export const MarkAttendanceModal: React.FC<MarkAttendanceModalProps> = ({
@@ -30,6 +32,7 @@ export const MarkAttendanceModal: React.FC<MarkAttendanceModalProps> = ({
   authToken,
   showToast,
   onAttendanceUpdated,
+  onOpenFaceScan,
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
@@ -241,16 +244,34 @@ export const MarkAttendanceModal: React.FC<MarkAttendanceModalProps> = ({
             />
           </div>
 
-          {/* Primary Action Buttons */}
-          <div className="pt-2">
+          {/* Face Scan Attendance Button (High Priority) */}
+          {onOpenFaceScan && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenFaceScan();
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-950/60 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-98 border border-cyan-400/40"
+              >
+                <Camera className="w-4 h-4 text-cyan-200 animate-pulse" />
+                <span>Scan Face & Punch (GPS Verified)</span>
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              </button>
+            </div>
+          )}
+
+          {/* Primary Manual Action Buttons */}
+          <div className="pt-1">
             {!isClockedIn ? (
               <button
                 onClick={handleClockIn}
                 disabled={isSubmitting}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/50 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-98 disabled:opacity-50"
+                className="w-full py-2.5 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-semibold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-98 disabled:opacity-50"
               >
-                <CheckCircle2 className="w-5 h-5 text-white" />
-                <span>{isSubmitting ? 'Recording Punch...' : 'Punch In (Clock In)'}</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>{isSubmitting ? 'Recording Punch...' : 'Manual Punch In (Clock In)'}</span>
               </button>
             ) : (
               <button

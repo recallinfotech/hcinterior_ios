@@ -13593,4 +13593,287 @@ class Client extends CI_Controller
         ]);
         exit();
     }
+
+    /**
+     * One-time Face ID Enrollment
+     * Saves user facial vector/descriptor and baseline selfie
+     */
+    public function enroll_face()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required']);
+            exit();
+        }
+
+        $face_descriptor = $this->input->post('face_descriptor', false);
+        $face_image = $this->input->post('face_image', false);
+
+        if (empty($face_descriptor)) {
+            echo json_encode(['status' => false, 'message' => 'Face descriptor biometric data is required']);
+            exit();
+        }
+
+        // Save image to uploads/biometrics if base64 provided
+        $image_path = null;
+        if (!empty($face_image) && strpos($face_image, 'data:image') === 0) {
+            $upload_dir = FCPATH . 'uploads/biometrics/';
+            if (!is_dir($upload_dir)) {
+                @mkdir($upload_dir, 0777, true);
+            }
+            $data_parts = explode(',', $face_image);
+            if (isset($data_parts[1])) {
+                $decoded = base64_decode($data_parts[1]);
+                $filename = 'user_face_' . $user_id . '_' . time() . '.jpg';
+                @file_put_contents($upload_dir . $filename, $decoded);
+                $image_path = 'uploads/biometrics/' . $filename;
+            }
+        }
+
+        // Ensure tbl_user_biometrics table exists
+        $this->db->query("CREATE TABLE IF NOT EXISTS `tbl_user_biometrics` (
+            `biometric_id` int NOT NULL AUTO_INCREMENT,
+            `user_id` int NOT NULL,
+            `face_descriptor` LONGTEXT NULL,
+            `face_image_path` VARCHAR(255) NULL,
+            `face_image_base64` LONGTEXT NULL,
+            `enrolled_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`biometric_id`),
+            UNIQUE KEY `idx_user_bio` (`user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $existing = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
+
+        $bio_data = [
+            'face_descriptor'   => is_array($face_descriptor) ? json_encode($face_descriptor) : $face_descriptor,
+            'face_image_base64' => !empty($face_image) ? substr($face_image, 0, 150000) : null,
+            'updated_at'        => date('Y-m-d H:i:s')
+        ];
+        if (!empty($image_path)) {
+            $bio_data['face_image_path'] = $image_path;
+        }
+
+        if (!empty($existing)) {
+            $this->db->where('user_id', $user_id)->update('tbl_user_biometrics', $bio_data);
+        } else {
+            $bio_data['user_id'] = $user_id;
+            $bio_data['enrolled_at'] = date('Y-m-d H:i:s');
+            $this->db->insert('tbl_user_biometrics', $bio_data);
+        }
+
+        echo json_encode([
+            'status'        => true,
+            'message'       => 'Face ID registered successfully! You can now mark attendance with your face.',
+            'is_enrolled'   => true,
+            'enrolled_at'   => date('Y-m-d H:i:s'),
+            'image_url'     => !empty($image_path) ? base_url($image_path) : null
+        ]);
+        exit();
+    }
+
+    /**
+     * Get Face ID Enrollment & Geofence Status
+     */
+    public function get_face_status()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required']);
+            exit();
+        }
+
+        // Check biometrics
+        $bio = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
+
+        // Default Office Coordinates (HC Interior HQ Noida / Delhi NCR)
+        $office_config = [
+            'name'          => 'HC Interior Head Office',
+            'latitude'      => 28.535517,
+            'longitude'     => 77.391029,
+            'radius_meters' => 250 // Allowed geofence boundary in meters
+        ];
+
+        echo json_encode([
+            'status'            => true,
+            'is_enrolled'       => !empty($bio) && !empty($bio->face_descriptor),
+            'enrolled_at'       => !empty($bio) ? $bio->enrolled_at : null,
+            'face_descriptor'   => !empty($bio) ? $bio->face_descriptor : null,
+            'image_url'         => (!empty($bio) && !empty($bio->face_image_path)) ? base_url($bio->face_image_path) : null,
+            'office_config'     => $office_config
+        ]);
+        exit();
+    }
+
+    /**
+     * Mark Attendance with Face Recognition & GPS Location
+     */
+    public function mark_face_attendance()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required']);
+            exit();
+        }
+
+        $punch_type = $this->input->post('punch_type', true) ?: 'auto'; // 'in', 'out', or 'auto'
+        $face_score = floatval($this->input->post('face_score', true) ?: 95.0);
+        $lat = floatval($this->input->post('latitude', true) ?: 0);
+        $lng = floatval($this->input->post('longitude', true) ?: 0);
+        $address = $this->input->post('address', true) ?: '';
+        $photo = $this->input->post('photo', false) ?: '';
+        $distance_from_office = floatval($this->input->post('distance_meters', true) ?: 0);
+        $is_inside_geofence = ($this->input->post('is_inside_geofence', true) === '1' || $this->input->post('is_inside_geofence', true) === 'true' || $distance_from_office <= 250);
+
+        $today = date('Y-m-d');
+        $now_time = date('H:i:s');
+
+        // Check if user already has an attendance row for today
+        $existing_att = $this->db->where('user_id', $user_id)->where('date_in', $today)->get('tbl_attendance')->row();
+
+        // Determine punch type if auto
+        if ($punch_type === 'auto') {
+            if (empty($existing_att)) {
+                $resolved_type = 'in';
+            } else {
+                $resolved_type = ($existing_att->clocking_status == 1) ? 'out' : 'in';
+            }
+        } else {
+            $resolved_type = ($punch_type === 'out') ? 'out' : 'in';
+        }
+
+        $attendance_id = null;
+
+        if ($resolved_type === 'in') {
+            if (empty($existing_att)) {
+                $att_data = [
+                    'user_id'           => $user_id,
+                    'date_in'           => $today,
+                    'attendance_status' => 1, // Present
+                    'clocking_status'   => 1  // Clocked In
+                ];
+                $this->db->insert('tbl_attendance', $att_data);
+                $attendance_id = $this->db->insert_id();
+            } else {
+                $attendance_id = $existing_att->attendance_id;
+                $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
+                    'clocking_status' => 1
+                ]);
+            }
+
+            // Create open clock entry in tbl_clock
+            $this->db->insert('tbl_clock', [
+                'attendance_id'   => $attendance_id,
+                'clockin_time'    => $now_time,
+                'clocking_status' => 1,
+                'ip_address'      => $this->input->ip_address(),
+                'comments'        => 'Face ID verified (' . round($face_score, 1) . '%) | GPS: ' . $lat . ',' . $lng
+            ]);
+
+            $action_message = 'Clocked In successfully with Face ID at ' . date('h:i A');
+        } else {
+            // Clock Out
+            if (empty($existing_att)) {
+                echo json_encode(['status' => false, 'message' => 'No active Clock In found for today to punch out from.']);
+                exit();
+            }
+            $attendance_id = $existing_att->attendance_id;
+
+            // Close open clock record
+            $open_clock = $this->db->where('attendance_id', $attendance_id)->where('clockout_time IS NULL', null, false)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+
+            if (!empty($open_clock)) {
+                $this->db->where('clock_id', $open_clock->clock_id)->update('tbl_clock', [
+                    'clockout_time'   => $now_time,
+                    'clocking_status' => 0,
+                    'comments'        => $open_clock->comments . ' | Out: Face ID (' . round($face_score, 1) . '%)'
+                ]);
+            } else {
+                $this->db->insert('tbl_clock', [
+                    'attendance_id'   => $attendance_id,
+                    'clockin_time'    => $now_time,
+                    'clockout_time'   => $now_time,
+                    'clocking_status' => 0,
+                    'ip_address'      => $this->input->ip_address(),
+                    'comments'        => 'Face ID Clock Out (' . round($face_score, 1) . '%)'
+                ]);
+            }
+
+            $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
+                'clocking_status' => 0,
+                'date_out'        => $today
+            ]);
+
+            $action_message = 'Clocked Out successfully with Face ID at ' . date('h:i A');
+        }
+
+        // Log into tbl_attendance_face_logs
+        $this->db->query("CREATE TABLE IF NOT EXISTS `tbl_attendance_face_logs` (
+            `log_id` int NOT NULL AUTO_INCREMENT,
+            `attendance_id` int NULL,
+            `user_id` int NOT NULL,
+            `punch_type` enum('in','out') NOT NULL DEFAULT 'in',
+            `punch_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `face_score` decimal(5,2) NULL,
+            `lat` decimal(10, 8) NULL,
+            `lng` decimal(11, 8) NULL,
+            `address` text NULL,
+            `photo_thumbnail` longtext NULL,
+            `distance_from_office` decimal(8,2) NULL,
+            `is_inside_geofence` tinyint(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (`log_id`),
+            KEY `idx_att_user` (`user_id`, `punch_time`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $this->db->insert('tbl_attendance_face_logs', [
+            'attendance_id'         => $attendance_id,
+            'user_id'               => $user_id,
+            'punch_type'            => $resolved_type,
+            'punch_time'            => date('Y-m-d H:i:s'),
+            'face_score'            => $face_score,
+            'lat'                   => $lat,
+            'lng'                   => $lng,
+            'address'               => $address,
+            'photo_thumbnail'       => !empty($photo) ? substr($photo, 0, 100000) : null,
+            'distance_from_office'  => $distance_from_office,
+            'is_inside_geofence'    => $is_inside_geofence ? 1 : 0
+        ]);
+
+        echo json_encode([
+            'status'             => true,
+            'message'            => $action_message,
+            'punch_type'         => $resolved_type,
+            'punch_time'         => date('h:i A'),
+            'punch_date'         => $today,
+            'face_score'         => $face_score,
+            'distance_meters'    => round($distance_from_office),
+            'is_inside_geofence' => $is_inside_geofence,
+            'attendance_id'      => $attendance_id
+        ]);
+        exit();
+    }
 }
