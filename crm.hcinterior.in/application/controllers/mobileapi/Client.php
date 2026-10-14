@@ -13214,4 +13214,383 @@ class Client extends CI_Controller
     {
         $this->update_on_site_purchase_delivery_status_new();
     }
+
+    public function mark_attendance()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User identification required']);
+            exit();
+        }
+
+        $type = $this->input->get_post('type', true) ?: 'clock_in';
+        $comments = $this->input->get_post('comments', true) ?: '';
+        $date = $this->input->get_post('date', true) ?: date('Y-m-d');
+        $time = $this->input->get_post('time', true) ?: date('H:i:s');
+        $lat = $this->input->get_post('latitude', true) ?: null;
+        $long = $this->input->get_post('longitude', true) ?: null;
+
+        $existing_att = $this->db->where('user_id', $user_id)->where('date_in', $date)->get('tbl_attendance')->row();
+
+        if ($type === 'clock_out') {
+            if (empty($existing_att)) {
+                echo json_encode(['status' => false, 'message' => 'No active Clock In found for today.']);
+                exit();
+            }
+
+            // Find last clock entry that has no clockout_time
+            $open_clock = $this->db->where('attendance_id', $existing_att->attendance_id)->where('clockout_time IS NULL', null, false)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+
+            if (!empty($open_clock)) {
+                $this->db->where('clock_id', $open_clock->clock_id)->update('tbl_clock', [
+                    'clockout_time' => $time,
+                    'comments'      => !empty($comments) ? $comments : $open_clock->comments
+                ]);
+            } else {
+                $this->db->insert('tbl_clock', [
+                    'attendance_id' => $existing_att->attendance_id,
+                    'clockin_time'  => $time,
+                    'clockout_time' => $time,
+                    'clocking_status' => 0,
+                    'ip_address'    => $this->input->ip_address(),
+                    'comments'      => $comments
+                ]);
+            }
+
+            $this->db->where('attendance_id', $existing_att->attendance_id)->update('tbl_attendance', [
+                'clocking_status'   => 0,
+                'date_out'          => $date,
+                'attendance_status' => 1
+            ]);
+
+            echo json_encode([
+                'status'        => true,
+                'message'       => 'Clock Out recorded at ' . date('h:i A', strtotime($time)),
+                'is_clocked_in' => false,
+                'clockout_time' => $time
+            ]);
+            exit();
+        }
+
+        // Clock In / Present
+        $att_id = 0;
+        if (!empty($existing_att)) {
+            $att_id = $existing_att->attendance_id;
+            $this->db->where('attendance_id', $att_id)->update('tbl_attendance', [
+                'attendance_status' => 1,
+                'clocking_status'   => 1,
+                'date_out'          => $date
+            ]);
+        } else {
+            $this->db->insert('tbl_attendance', [
+                'user_id'           => $user_id,
+                'date_in'           => $date,
+                'date_out'          => $date,
+                'attendance_status' => 1,
+                'clocking_status'   => 1
+            ]);
+            $att_id = $this->db->insert_id();
+        }
+
+        $clock_data = [
+            'attendance_id'   => $att_id,
+            'clockin_time'    => $time,
+            'clockout_time'   => null,
+            'clocking_status' => 1,
+            'ip_address'      => $this->input->ip_address(),
+            'comments'        => $comments
+        ];
+        if (!empty($lat)) $clock_data['latitude'] = $lat;
+        if (!empty($long)) $clock_data['longitude'] = $long;
+
+        $this->db->insert('tbl_clock', $clock_data);
+        $clock_id = $this->db->insert_id();
+
+        echo json_encode([
+            'status'         => true,
+            'message'        => 'Clock In successful at ' . date('h:i A', strtotime($time)),
+            'is_clocked_in'  => true,
+            'attendance_id'  => (int)$att_id,
+            'clock_id'       => (int)$clock_id,
+            'clockin_time'   => $time,
+            'date'           => $date
+        ]);
+        exit();
+    }
+
+    public function get_my_attendance()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User identification required']);
+            exit();
+        }
+
+        $month = $this->input->get_post('month', true) ?: date('Y-m');
+        $start_date = $month . '-01';
+        $end_date = date('Y-m-t', strtotime($start_date));
+        $today = date('Y-m-d');
+
+        $this->db->where('user_id', $user_id);
+        $this->db->where('date_in >=', $start_date);
+        $this->db->where('date_in <=', $end_date);
+        $att_list = $this->db->get('tbl_attendance')->result();
+
+        $events = [];
+        $summary = [
+            'present' => 0,
+            'absent'  => 0,
+            'leave'   => 0,
+            'holiday' => 0,
+            'total_working_seconds' => 0,
+            'total_working_hours'   => '0h 0m'
+        ];
+
+        foreach ($att_list as $row) {
+            $clocks = $this->db->where('attendance_id', $row->attendance_id)->order_by('clock_id', 'ASC')->get('tbl_clock')->result();
+
+            $day_seconds = 0;
+            $first_in = '';
+            $last_out = '';
+            $comments = '';
+
+            if (!empty($clocks)) {
+                $c_first = reset($clocks);
+                $c_last = end($clocks);
+                $first_in = $c_first->clockin_time;
+                $last_out = $c_last->clockout_time;
+                $comments = $c_first->comments;
+
+                foreach ($clocks as $clk) {
+                    if (!empty($clk->clockin_time) && !empty($clk->clockout_time)) {
+                        $s = strtotime($row->date_in . ' ' . $clk->clockin_time);
+                        $e = strtotime($row->date_out . ' ' . $clk->clockout_time);
+                        if ($e > $s) $day_seconds += ($e - $s);
+                    }
+                }
+            }
+
+            if ($row->attendance_status == 1) {
+                $summary['present']++;
+                $summary['total_working_seconds'] += $day_seconds;
+                $status_code = 'P';
+                $status_text = 'Present';
+            } else if ($row->attendance_status === '0' || $row->attendance_status === 0) {
+                $summary['absent']++;
+                $status_code = 'A';
+                $status_text = 'Absent';
+            } else if ($row->attendance_status == 3) {
+                $summary['leave']++;
+                $status_code = 'L';
+                $status_text = 'On Leave';
+            } else {
+                $summary['holiday']++;
+                $status_code = 'H';
+                $status_text = 'Holiday';
+            }
+
+            $hrs = floor($day_seconds / 3600);
+            $mins = floor(($day_seconds % 3600) / 60);
+
+            $events[] = [
+                'date'           => $row->date_in,
+                'status'         => $status_code,
+                'status_text'    => $status_text,
+                'clockin'        => $first_in,
+                'clockout'       => $last_out,
+                'working_hours'  => $day_seconds > 0 ? ($hrs . 'h ' . $mins . 'm') : '',
+                'clocking_status'=> (int)$row->clocking_status,
+                'comments'       => $comments
+            ];
+        }
+
+        // Total hours calculation
+        $tot_hrs = floor($summary['total_working_seconds'] / 3600);
+        $tot_mins = floor(($summary['total_working_seconds'] % 3600) / 60);
+        $summary['total_working_hours'] = $tot_hrs . 'h ' . $tot_mins . 'm';
+
+        // Leave Balances
+        $year_str = date('Y', strtotime($start_date));
+        $this->load->helper('admin_helper');
+        $leave_balances = get_user_leave_balance_details($user_id, $year_str);
+        $summary['el_balance'] = isset($leave_balances['EL']) ? number_format($leave_balances['EL']['balance'], 2) : '0.00';
+        $summary['sl_balance'] = isset($leave_balances['SL']) ? number_format($leave_balances['SL']['balance'], 2) : '0.00';
+        $summary['cl_balance'] = isset($leave_balances['CL']) ? number_format($leave_balances['CL']['balance'], 2) : '0.00';
+
+        // Today's Clock Status
+        $today_att = $this->db->where('user_id', $user_id)->where('date_in', $today)->get('tbl_attendance')->row();
+        $today_clock = null;
+        if (!empty($today_att)) {
+            $today_clock = $this->db->where('attendance_id', $today_att->attendance_id)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+        }
+
+        $is_clocked_in = (!empty($today_att) && $today_att->clocking_status == 1);
+
+        echo json_encode([
+            'status'        => true,
+            'month'         => $month,
+            'summary'       => $summary,
+            'events'        => $events,
+            'leave_balances'=> $leave_balances,
+            'today'         => [
+                'date'              => $today,
+                'is_clocked_in'     => $is_clocked_in,
+                'attendance_id'     => !empty($today_att) ? (int)$today_att->attendance_id : 0,
+                'clockin_time'      => !empty($today_clock) ? $today_clock->clockin_time : '',
+                'clockout_time'     => !empty($today_clock) ? $today_clock->clockout_time : '',
+                'attendance_status' => !empty($today_att) ? (int)$today_att->attendance_status : 0
+            ]
+        ]);
+        exit();
+    }
+
+    public function get_announcements()
+    {
+        header('Content-Type: application/json');
+        $list = $this->db->where('status', 'published')->order_by('announcements_id', 'DESC')->limit(50)->get('tbl_announcements')->result_array();
+
+        foreach ($list as &$item) {
+            $poster = get_any_field('tbl_account_details', ['user_id' => $item['user_id']], 'fullname');
+            $item['posted_by'] = $poster ?: 'Admin';
+            $item['date_formatted'] = date('d M Y', strtotime($item['start_date']));
+        }
+
+        echo json_encode([
+            'status' => true,
+            'total'  => count($list),
+            'data'   => $list
+        ]);
+        exit();
+    }
+
+    public function get_holidays()
+    {
+        header('Content-Type: application/json');
+        $year = $this->input->get_post('year', true) ?: date('Y');
+        $this->db->where("YEAR(start_date)", $year);
+        $this->db->order_by('start_date', 'ASC');
+        $list = $this->db->get('tbl_holiday')->result_array();
+
+        foreach ($list as &$h) {
+            $h['date_formatted'] = date('d M Y', strtotime($h['start_date']));
+            $h['day_name'] = date('l', strtotime($h['start_date']));
+        }
+
+        echo json_encode([
+            'status' => true,
+            'year'   => $year,
+            'total'  => count($list),
+            'data'   => $list
+        ]);
+        exit();
+    }
+
+    public function get_leave_types()
+    {
+        header('Content-Type: application/json');
+        $list = $this->db->get('tbl_leave_category')->result_array();
+        echo json_encode([
+            'status' => true,
+            'data'   => $list
+        ]);
+        exit();
+    }
+
+    public function request_leave()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User identification required']);
+            exit();
+        }
+
+        $leave_cat_id = (int)$this->input->get_post('leave_category_id', true);
+        $leave_type = $this->input->get_post('leave_type', true) ?: 'single_day';
+        $start_date = $this->input->get_post('start_date', true);
+        $end_date = $this->input->get_post('end_date', true) ?: $start_date;
+        $reason = $this->input->get_post('reason', true);
+
+        if (empty($start_date) || empty($leave_cat_id)) {
+            echo json_encode(['status' => false, 'message' => 'Leave category and start date are required.']);
+            exit();
+        }
+
+        $data = [
+            'user_id'            => $user_id,
+            'leave_category_id'  => $leave_cat_id,
+            'leave_type'         => $leave_type,
+            'leave_start_date'   => $start_date,
+            'leave_end_date'     => $end_date,
+            'reason'             => $reason,
+            'application_status' => 1, // Pending
+            'view_status'        => 2
+        ];
+
+        $this->db->insert('tbl_leave_application', $data);
+        $app_id = $this->db->insert_id();
+
+        echo json_encode([
+            'status'               => true,
+            'message'              => 'Leave application submitted successfully. Pending approval.',
+            'leave_application_id' => (int)$app_id
+        ]);
+        exit();
+    }
+
+    public function get_my_leaves()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? $user->user_id : $this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        $this->load->helper('admin_helper');
+        $balances = get_user_leave_balance_details($user_id, date('Y'));
+
+        $apps = $this->db->where('user_id', $user_id)->order_by('leave_application_id', 'DESC')->get('tbl_leave_application')->result_array();
+
+        foreach ($apps as &$app) {
+            $cat = $this->db->where('leave_category_id', $app['leave_category_id'])->get('tbl_leave_category')->row();
+            $app['category_name'] = !empty($cat) ? $cat->leave_category : 'Leave';
+            $status_text = 'Pending';
+            if ($app['application_status'] == 2) $status_text = 'Approved';
+            elseif ($app['application_status'] == 3) $status_text = 'Rejected';
+            $app['status_text'] = $status_text;
+        }
+
+        echo json_encode([
+            'status'   => true,
+            'balances' => $balances,
+            'leaves'   => $apps
+        ]);
+        exit();
+    }
 }

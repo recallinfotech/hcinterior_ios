@@ -56,9 +56,14 @@ $office_hours = config_item('office_hours');
                                         <?php
                                         $all_leave_category = $this->db->get('tbl_leave_category')->result();
                                         if (!empty($all_leave_category)) {
-                                            foreach ($all_leave_category as $v_category) : ?>
+                                            foreach ($all_leave_category as $v_category) : 
+                                                $cat_label = $v_category->leave_category;
+                                                if ($cat_label == 'EL') $cat_label = 'EL (Earn Leave)';
+                                                elseif ($cat_label == 'SL') $cat_label = 'SL (Sick Leave)';
+                                                elseif ($cat_label == 'CL') $cat_label = 'CL (Casual Leave)';
+                                            ?>
                                                 <option value="<?php echo $v_category->leave_category_id ?>">
-                                                    <?php echo $v_category->leave_category ?></option>
+                                                    <?php echo $cat_label ?></option>
                                         <?php endforeach;
                                         }
                                         $_created = can_action('122', 'created');

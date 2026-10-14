@@ -661,7 +661,24 @@ class Leave_Management extends Admin_Controller
         $result = null;
         if (!empty($leave_category_id) && !empty($start_date)) {
             $total_leave = $this->application_model->check_by(array('leave_category_id' => $leave_category_id), 'tbl_leave_category');
-            $leave_total = $total_leave->leave_quota;
+            $leave_total = floatval($total_leave->leave_quota);
+            // Check if employee has monthly accrued credits
+            $user_cr = $this->db->select_sum('credits')
+                ->where('user_id', $user_id)
+                ->group_start()
+                    ->where('leave_category_id', $leave_category_id)
+                    ->or_where('leave_type', strtoupper(trim($total_leave->leave_category)))
+                ->group_end()
+                ->get('tbl_user_leave_credits')->row();
+            $cr_count = $this->db->where('user_id', $user_id)
+                ->group_start()
+                    ->where('leave_category_id', $leave_category_id)
+                    ->or_where('leave_type', strtoupper(trim($total_leave->leave_category)))
+                ->group_end()
+                ->count_all_results('tbl_user_leave_credits');
+            if ($cr_count > 0 && !empty($user_cr) && $user_cr->credits !== null) {
+                $leave_total = floatval($user_cr->credits);
+            }
             $all_leave = $this->db->where(array('leave_application_id !=' => $leave_application_id, 'user_id' => $user_id))->get('tbl_leave_application')->result();
             if (!empty($all_leave)) {
                 foreach ($all_leave as $v_all_leave) {
@@ -968,4 +985,363 @@ class Leave_Management extends Admin_Controller
         echo json_encode(array("status" => 'success', 'message' => lang('leave_application_delete')));
         exit();
     }
-}
+
+    public function leave_credits()
+    {
+        $data['title'] = lang('leave_credits') ? lang('leave_credits') : 'Earn & Sick Leave (Monthly Credits)';
+        $data['active'] = 5;
+        $data['leave_active'] = 5;
+
+        // Fetch all active staff
+        $this->db->select('tbl_users.user_id, tbl_users.username, tbl_users.email, tbl_account_details.fullname, tbl_account_details.emp_code, tbl_account_details.employment_id, tbl_account_details.avatar, tbl_designations.designations, tbl_departments.deptname');
+        $this->db->from('tbl_users');
+        $this->db->join('tbl_account_details', 'tbl_account_details.user_id = tbl_users.user_id', 'left');
+        $this->db->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left');
+        $this->db->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left');
+        $this->db->where('tbl_users.role_id !=', 2);
+        $this->db->where('tbl_users.activated', 1);
+        $this->db->where('tbl_users.banned', 0);
+        $this->db->order_by('tbl_account_details.fullname', 'ASC');
+        $staff_list = $this->db->get()->result();
+
+        $employees = array();
+        $current_year = date('Y');
+        $current_month = date('Y-m');
+
+        foreach ($staff_list as $staff) {
+            $balances = get_user_leave_balance_details($staff->user_id, $current_year);
+            $staff->balances = $balances;
+            $employees[] = $staff;
+        }
+        $data['employees'] = $employees;
+
+        // Credit history (most recent 200)
+        $this->db->select('tbl_user_leave_credits.*, emp.fullname as employee_name, emp.emp_code, admin_user.fullname as added_by_name');
+        $this->db->from('tbl_user_leave_credits');
+        $this->db->join('tbl_account_details as emp', 'emp.user_id = tbl_user_leave_credits.user_id', 'left');
+        $this->db->join('tbl_account_details as admin_user', 'admin_user.user_id = tbl_user_leave_credits.added_by', 'left');
+        $this->db->order_by('tbl_user_leave_credits.leave_credit_id', 'DESC');
+        $this->db->limit(200);
+        $data['credit_history'] = $this->db->get()->result();
+
+        // Statistics
+        $data['total_staff'] = count($staff_list);
+
+        $cur_el = $this->db->select_sum('credits')->where(array('leave_type' => 'EL', 'month_year' => $current_month))->get('tbl_user_leave_credits')->row();
+        $data['cur_month_el_credited'] = (!empty($cur_el) && $cur_el->credits !== null) ? floatval($cur_el->credits) : 0;
+
+        $cur_sl = $this->db->select_sum('credits')->where(array('leave_type' => 'SL', 'month_year' => $current_month))->get('tbl_user_leave_credits')->row();
+        $data['cur_month_sl_credited'] = (!empty($cur_sl) && $cur_sl->credits !== null) ? floatval($cur_sl->credits) : 0;
+
+        $ytd_el = $this->db->select_sum('credits')->where('leave_type', 'EL')->where("DATE_FORMAT(CONCAT(month_year, '-01'), '%Y') =", $current_year)->get('tbl_user_leave_credits')->row();
+        $data['ytd_el_credited'] = (!empty($ytd_el) && $ytd_el->credits !== null) ? floatval($ytd_el->credits) : 0;
+
+        $ytd_sl = $this->db->select_sum('credits')->where('leave_type', 'SL')->where("DATE_FORMAT(CONCAT(month_year, '-01'), '%Y') =", $current_year)->get('tbl_user_leave_credits')->row();
+        $data['ytd_sl_credited'] = (!empty($ytd_sl) && $ytd_sl->credits !== null) ? floatval($ytd_sl->credits) : 0;
+
+        $data['all_categories'] = $this->db->get('tbl_leave_category')->result();
+
+        $subview = 'leave_credits';
+        $data['subview'] = $this->load->view('admin/leave_management/' . $subview, $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
+
+    public function save_leave_credit()
+    {
+        $user_id_sess = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && empty(admin()) && empty(admin_head())) {
+            if ($this->input->is_ajax_request()) {
+                echo json_encode(array('status' => 'error', 'message' => 'Permission denied. Only admins or HR can credit leaves.'));
+                exit();
+            } else {
+                set_message('error', 'Permission denied.');
+                redirect('admin/leave_management/leave_credits');
+            }
+        }
+
+        $credit_scope = $this->input->post('credit_scope', TRUE); // 'single' or 'bulk'
+        $month_year = $this->input->post('month_year', TRUE);
+        $remarks = $this->input->post('remarks', TRUE);
+
+        if (empty($month_year)) {
+            $month_year = date('Y-m');
+        }
+
+        $categories = $this->db->get('tbl_leave_category')->result();
+        $cat_map = array();
+        foreach ($categories as $cat) {
+            $cat_map[strtoupper(trim($cat->leave_category))] = $cat->leave_category_id;
+        }
+
+        $credited_count = 0;
+        $skipped_count = 0;
+
+        if ($credit_scope == 'bulk') {
+            // Bulk monthly accrual for all active staff
+            $el_credits = floatval($this->input->post('el_credits', TRUE));
+            $sl_credits = floatval($this->input->post('sl_credits', TRUE));
+            $skip_existing = $this->input->post('skip_existing', TRUE);
+
+            if ($el_credits <= 0 && $sl_credits <= 0) {
+                $msg = 'Please enter valid credits for Earn Leave or Sick Leave.';
+                if ($this->input->is_ajax_request()) {
+                    echo json_encode(array('status' => 'error', 'message' => $msg));
+                    exit();
+                } else {
+                    set_message('error', $msg);
+                    redirect('admin/leave_management/leave_credits');
+                }
+            }
+
+            $active_users = $this->db->where('role_id !=', 2)->where('activated', 1)->where('banned', 0)->get('tbl_users')->result();
+
+            foreach ($active_users as $u) {
+                $uid = $u->user_id;
+
+                // 1. Credit EL
+                if ($el_credits > 0 && isset($cat_map['EL'])) {
+                    $exists = $this->db->where(array('user_id' => $uid, 'leave_type' => 'EL', 'month_year' => $month_year))->get('tbl_user_leave_credits')->row();
+                    if (!empty($exists)) {
+                        if (empty($skip_existing)) {
+                            $this->db->where('leave_credit_id', $exists->leave_credit_id)->update('tbl_user_leave_credits', array(
+                                'credits' => $el_credits,
+                                'remarks' => !empty($remarks) ? $remarks : 'Updated monthly bulk credit',
+                                'added_by' => $user_id_sess,
+                                'added_type' => 'monthly_auto'
+                            ));
+                            $credited_count++;
+                        } else {
+                            $skipped_count++;
+                        }
+                    } else {
+                        $this->db->insert('tbl_user_leave_credits', array(
+                            'user_id' => $uid,
+                            'leave_category_id' => $cat_map['EL'],
+                            'leave_type' => 'EL',
+                            'month_year' => $month_year,
+                            'credits' => $el_credits,
+                            'added_by' => $user_id_sess,
+                            'added_type' => 'monthly_auto',
+                            'remarks' => !empty($remarks) ? $remarks : ('Monthly bulk credit for ' . $month_year)
+                        ));
+                        $credited_count++;
+                    }
+                }
+
+                // 2. Credit SL
+                if ($sl_credits > 0 && isset($cat_map['SL'])) {
+                    $exists = $this->db->where(array('user_id' => $uid, 'leave_type' => 'SL', 'month_year' => $month_year))->get('tbl_user_leave_credits')->row();
+                    if (!empty($exists)) {
+                        if (empty($skip_existing)) {
+                            $this->db->where('leave_credit_id', $exists->leave_credit_id)->update('tbl_user_leave_credits', array(
+                                'credits' => $sl_credits,
+                                'remarks' => !empty($remarks) ? $remarks : 'Updated monthly bulk credit',
+                                'added_by' => $user_id_sess,
+                                'added_type' => 'monthly_auto'
+                            ));
+                            $credited_count++;
+                        } else {
+                            $skipped_count++;
+                        }
+                    } else {
+                        $this->db->insert('tbl_user_leave_credits', array(
+                            'user_id' => $uid,
+                            'leave_category_id' => $cat_map['SL'],
+                            'leave_type' => 'SL',
+                            'month_year' => $month_year,
+                            'credits' => $sl_credits,
+                            'added_by' => $user_id_sess,
+                            'added_type' => 'monthly_auto',
+                            'remarks' => !empty($remarks) ? $remarks : ('Monthly bulk credit for ' . $month_year)
+                        ));
+                        $credited_count++;
+                    }
+                }
+            }
+
+            $success_msg = "Successfully processed monthly leave credits for " . $month_year . ". ($credited_count credited/updated, $skipped_count already existed and skipped)";
+
+            // Log activity
+            $this->application_model->_table_name = "tbl_activities";
+            $this->application_model->_primary_key = "activities_id";
+            $this->application_model->save(array(
+                'user' => $user_id_sess,
+                'module' => 'leave_management',
+                'module_field_id' => 0,
+                'activity' => 'activity_monthly_leave_credited',
+                'icon' => 'fa-calendar-plus-o',
+                'value1' => $month_year . ' (EL: ' . $el_credits . ', SL: ' . $sl_credits . ')',
+                'value2' => $credited_count . ' staff credited'
+            ));
+
+            if ($this->input->is_ajax_request()) {
+                echo json_encode(array('status' => 'success', 'message' => $success_msg));
+                exit();
+            } else {
+                set_message('success', $success_msg);
+                redirect('admin/leave_management/leave_credits');
+            }
+
+        } else {
+            // Single user credit
+            $user_id = $this->input->post('user_id', TRUE);
+            $leave_type = strtoupper(trim($this->input->post('leave_type', TRUE)));
+            $credits = floatval($this->input->post('credits', TRUE));
+
+            if (empty($user_id) || empty($leave_type) || $credits <= 0) {
+                $msg = 'Please fill all required fields: Employee, Leave Type, and valid Days.';
+                if ($this->input->is_ajax_request()) {
+                    echo json_encode(array('status' => 'error', 'message' => $msg));
+                    exit();
+                } else {
+                    set_message('error', $msg);
+                    redirect('admin/leave_management/leave_credits');
+                }
+            }
+
+            $cat_id = isset($cat_map[$leave_type]) ? $cat_map[$leave_type] : 0;
+            if (empty($cat_id)) {
+                $cat_row = $this->db->where('leave_category', $leave_type)->get('tbl_leave_category')->row();
+                if (!empty($cat_row)) {
+                    $cat_id = $cat_row->leave_category_id;
+                }
+            }
+
+            $this->db->insert('tbl_user_leave_credits', array(
+                'user_id' => $user_id,
+                'leave_category_id' => $cat_id,
+                'leave_type' => $leave_type,
+                'month_year' => $month_year,
+                'credits' => $credits,
+                'added_by' => $user_id_sess,
+                'added_type' => 'monthly_manual',
+                'remarks' => $remarks
+            ));
+
+            $emp_profile = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+            $emp_name = !empty($emp_profile) ? $emp_profile->fullname : 'Employee';
+
+            $success_msg = "Successfully added $credits $leave_type leave(s) for $emp_name (Month: $month_year).";
+
+            if ($this->input->is_ajax_request()) {
+                echo json_encode(array('status' => 'success', 'message' => $success_msg));
+                exit();
+            } else {
+                set_message('success', $success_msg);
+                redirect('admin/leave_management/leave_credits');
+            }
+        }
+    }
+
+    public function delete_leave_credit($id = null)
+    {
+        $user_id_sess = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && empty(admin()) && empty(admin_head())) {
+            echo json_encode(array('status' => 'error', 'message' => 'Permission denied.'));
+            exit();
+        }
+
+        if (empty($id)) {
+            $id = $this->input->post('leave_credit_id', TRUE);
+        }
+
+        if (!empty($id)) {
+            $this->db->where('leave_credit_id', $id)->delete('tbl_user_leave_credits');
+            echo json_encode(array('status' => 'success', 'message' => 'Leave credit record removed successfully.'));
+            exit();
+        }
+
+        echo json_encode(array('status' => 'error', 'message' => 'Invalid credit ID.'));
+        exit();
+    }
+
+    public function get_user_leave_balance_ajax($user_id = null)
+    {
+        if (empty($user_id)) {
+            $user_id = $this->input->get_post('user_id', TRUE);
+        }
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        $year = $this->input->get_post('year', TRUE);
+        if (empty($year)) {
+            $year = date('Y');
+        }
+
+        $balances = get_user_leave_balance_details($user_id, $year);
+        $emp = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+
+        echo json_encode(array(
+            'status' => 'success',
+            'user_id' => $user_id,
+            'fullname' => !empty($emp) ? $emp->fullname : '',
+            'emp_code' => !empty($emp) ? $emp->emp_code : '',
+            'balances' => $balances
+        ));
+        exit();
+    }
+
+    public function save_leave_category_ajax()
+    {
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && empty(admin()) && empty(admin_head())) {
+            echo json_encode(array('status' => 'error', 'message' => 'Permission denied. Only admins can create leave types.'));
+            exit();
+        }
+
+        $code = strtoupper(trim($this->input->post('leave_category', TRUE)));
+        $name = trim($this->input->post('category_name', TRUE));
+        $quota = intval($this->input->post('leave_quota', TRUE));
+
+        if (empty($code)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Leave Type code is required.'));
+            exit();
+        }
+        if ($quota <= 0) {
+            $quota = 12;
+        }
+
+        $exists = $this->db->where('leave_category', $code)->get('tbl_leave_category')->row();
+        if (!empty($exists)) {
+            echo json_encode(array('status' => 'error', 'message' => "Leave Type '$code' already exists!"));
+            exit();
+        }
+
+        $data = array(
+            'leave_category' => $code,
+            'leave_quota' => $quota
+        );
+        $this->db->insert('tbl_leave_category', $data);
+        $cat_id = $this->db->insert_id();
+
+        // Activity log
+        $activity = array(
+            'user' => $this->session->userdata('user_id'),
+            'module' => 'leave_management',
+            'module_field_id' => $cat_id,
+            'activity' => 'activity_added_a_leave_category',
+            'icon' => 'fa-pagelines',
+            'value1' => $code . (!empty($name) ? " ($name)" : '')
+        );
+        $this->application_model->_table_name = 'tbl_activities';
+        $this->application_model->_primary_key = 'activities_id';
+        $this->application_model->save($activity);
+
+        $display_label = $code . (!empty($name) ? " ($name)" : '');
+
+        echo json_encode(array(
+            'status' => 'success',
+            'message' => "Leave Type '$code' added successfully!",
+            'category' => array(
+                'leave_category_id' => $cat_id,
+                'leave_category' => $code,
+                'leave_quota' => $quota,
+                'label' => $display_label
+            )
+        ));
+        exit();
+    }
+}

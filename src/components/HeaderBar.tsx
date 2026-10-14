@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, SlidersHorizontal, ChevronLeft, LogOut, User } from 'lucide-react';
+import { Search, Bell, SlidersHorizontal, ChevronLeft, LogOut, User, Clock } from 'lucide-react';
 import { CompanyLogo } from './CompanyLogo';
 
 interface HeaderBarProps {
@@ -13,6 +13,8 @@ interface HeaderBarProps {
   currentUser?: string;
   onLogout?: () => void;
   onNotificationClick?: () => void;
+  onMarkAttendance?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -26,6 +28,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   currentUser,
   onLogout,
   onNotificationClick,
+  onMarkAttendance,
+  onOpenProfile,
 }) => {
   return (
     <div className="bg-zinc-950 text-white border-b border-zinc-800 sticky top-0 z-20 shadow-md">
@@ -52,7 +56,19 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           )}
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          {/* Mark Attendance Button (Prominent at top) */}
+          {onMarkAttendance && (
+            <button
+              onClick={onMarkAttendance}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer border border-emerald-400/30"
+              title="Mark Attendance (Clock In/Out)"
+            >
+              <Clock className="w-3.5 h-3.5 text-emerald-100" />
+              <span className="hidden xs:inline">Attendance</span>
+            </button>
+          )}
+
           {onOpenFilter && (
             <button
               onClick={onOpenFilter}
@@ -73,6 +89,19 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-zinc-950 animate-pulse"></span>
             </button>
           </div>
+
+          {/* User Profile Trigger Button */}
+          {onOpenProfile && (
+            <button
+              onClick={onOpenProfile}
+              className="p-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 transition-colors cursor-pointer border border-zinc-800 flex items-center justify-center"
+              title={`User Profile: ${currentUser || 'User'}`}
+            >
+              <div className="w-7 h-7 rounded-md bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 flex items-center justify-center font-bold text-xs shadow-xs">
+                {currentUser ? currentUser.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5" />}
+              </div>
+            </button>
+          )}
 
           {onLogout && (
             <button

@@ -2537,12 +2537,95 @@ function leave_report($id = null)
                 $total_hours = number_format($total_hours, 2);
             }
         }
+        $quota = $v_category->leave_quota;
+        if (!empty($id)) {
+            $user_cr = $CI->db->select_sum('credits')
+                ->where('user_id', $id)
+                ->group_start()
+                    ->where('leave_category_id', $v_category->leave_category_id)
+                    ->or_where('leave_type', strtoupper(trim($v_category->leave_category)))
+                ->group_end()
+                ->get('tbl_user_leave_credits')->row();
+            if (!empty($user_cr) && $user_cr->credits !== null) {
+                $quota = floatval($user_cr->credits);
+            }
+        }
         $result['leave_category'][] = $v_category->leave_category;
-        $result['leave_quota'][] = $v_category->leave_quota;
+        $result['leave_quota'][] = $quota;
         $result['leave_taken'][] = $total_days + $total_hours;
     }
     return $result;
 }
+
+function get_user_leave_balance_details($user_id, $year = null)
+{
+    $CI = &get_instance();
+    if (empty($year)) {
+        $year = date('Y');
+    }
+
+    $all_category = $CI->db->get('tbl_leave_category')->result();
+    $result = array();
+
+    foreach ($all_category as $v_category) {
+        $cat_key = strtoupper(trim($v_category->leave_category));
+        $cat_id = $v_category->leave_category_id;
+        $quota = floatval($v_category->leave_quota);
+
+        // Fetch sum of credits from tbl_user_leave_credits
+        $CI->db->select_sum('credits');
+        $CI->db->where('user_id', $user_id);
+        $CI->db->group_start();
+        $CI->db->where('leave_category_id', $cat_id);
+        $CI->db->or_where('leave_type', $cat_key);
+        $CI->db->group_end();
+        $credit_row = $CI->db->get('tbl_user_leave_credits')->row();
+
+        $CI->db->where('user_id', $user_id);
+        $CI->db->group_start();
+        $CI->db->where('leave_category_id', $cat_id);
+        $CI->db->or_where('leave_type', $cat_key);
+        $CI->db->group_end();
+        $credit_count = $CI->db->count_all_results('tbl_user_leave_credits');
+
+        $total_credited = (!empty($credit_row) && $credit_row->credits !== null) ? floatval($credit_row->credits) : 0;
+
+        // If user has monthly credits added, use total_credited as allocated, otherwise quota
+        $total_allocated = ($credit_count > 0) ? $total_credited : $quota;
+
+        // Calculate taken leaves in tbl_leave_application for current year
+        $where_taken = array(
+            'user_id' => $user_id,
+            'leave_category_id' => $cat_id,
+            'YEAR(`leave_start_date`)' => $year,
+            'application_status' => 2
+        );
+        $taken_list = $CI->db->where($where_taken)->get('tbl_leave_application')->result();
+        $taken_days = 0;
+        $taken_hours = 0;
+        if (!empty($taken_list)) {
+            $taken_res = calculate_taken_leave($taken_list);
+            $taken_days = floatval($taken_res['total_taken']);
+            $taken_hours = floatval($taken_res['total_hourly']);
+        }
+        $total_taken = $taken_days + $taken_hours;
+        $balance = $total_allocated - $total_taken;
+
+        $result[$cat_key] = array(
+            'category_id' => $cat_id,
+            'category_name' => $v_category->leave_category,
+            'credit_count' => $credit_count,
+            'credited' => $total_credited,
+            'quota' => $quota,
+            'allocated' => $total_allocated,
+            'taken' => $total_taken,
+            'balance' => $balance
+        );
+    }
+
+    return $result;
+}
+
 
 function get_any_field($table, $where, $table_field, $result = null)
 {

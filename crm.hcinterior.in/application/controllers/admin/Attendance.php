@@ -23,14 +23,18 @@ class Attendance extends Admin_Controller
     {
         $data['title'] = lang('time_history');
         $search = $this->input->post('search', TRUE);
-        if (!empty($search)) {
-            $data['edit'] = true;
-        }
         $user_id = $this->input->post('user_id', TRUE);
+        if (empty($user_id)) {
+            $user_id = $this->input->get('user_id', TRUE);
+        }
         if (!empty($user_id)) {
             $data['user_id'] = $user_id;
+            $data['edit'] = true;
         } else {
             $data['user_id'] = $this->session->userdata('user_id');
+        }
+        if (!empty($search)) {
+            $data['edit'] = true;
         }
         $data['active'] = date('Y');
 
@@ -39,9 +43,518 @@ class Attendance extends Admin_Controller
 
         // retrive all data from department table
         $data['all_employee'] = $this->attendance_model->get_all_employee();
+        $data['selected_user'] = $this->db->where('user_id', $data['user_id'])->get('tbl_account_details')->row();
 
         $data['subview'] = $this->load->view('admin/attendance/time_history', $data, TRUE);
         $this->load->view('admin/_layout_main', $data);
+    }
+
+    public function get_user_attendance_calendar($user_id = null)
+    {
+        if (empty($user_id)) {
+            $user_id = $this->input->post('user_id', TRUE);
+        }
+        if (empty($user_id)) {
+            $user_id = $this->input->get('user_id', TRUE);
+        }
+        if (empty($user_id)) {
+            $user_id = $this->session->userdata('user_id');
+        }
+
+        $start_date = $this->input->post('start', TRUE);
+        if (empty($start_date)) {
+            $start_date = $this->input->get('start', TRUE);
+        }
+        $end_date = $this->input->post('end', TRUE);
+        if (empty($end_date)) {
+            $end_date = $this->input->get('end', TRUE);
+        }
+
+        if (!empty($start_date) && is_numeric($start_date)) {
+            $start_date = date('Y-m-d', $start_date);
+        } elseif (!empty($start_date)) {
+            $start_date = date('Y-m-d', strtotime($start_date));
+        } else {
+            $start_date = date('Y-m-01');
+        }
+
+        if (!empty($end_date) && is_numeric($end_date)) {
+            $end_date = date('Y-m-d', $end_date);
+        } elseif (!empty($end_date)) {
+            $end_date = date('Y-m-d', strtotime($end_date));
+        } else {
+            $end_date = date('Y-m-t');
+        }
+
+        // Active middle month for monthly KPI summary
+        $mid_timestamp = (strtotime($start_date) + strtotime($end_date)) / 2;
+        $active_month = date('Y-m', $mid_timestamp);
+        $active_month_start = $active_month . '-01';
+        $active_month_end = date('Y-m-t', $mid_timestamp);
+        $active_month_name = date('F Y', $mid_timestamp);
+
+        $user_info = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+
+        // 1. Fetch attendance records
+        $this->db->where('user_id', $user_id);
+        $this->db->where('date_in >=', $start_date);
+        $this->db->where('date_in <=', $end_date);
+        $attendance_list = $this->db->get('tbl_attendance')->result();
+
+        $events = array();
+        $recorded_dates = array();
+
+        $summary = array(
+            'month_label' => $active_month_name,
+            'present' => 0,
+            'absent' => 0,
+            'leave' => 0,
+            'holiday' => 0,
+            'total_working_seconds' => 0,
+            'total_working_hours' => '0h 0m'
+        );
+
+        foreach ($attendance_list as $att) {
+            $recorded_dates[$att->date_in] = true;
+            $att_date = $att->date_in;
+            $is_in_active_month = ($att_date >= $active_month_start && $att_date <= $active_month_end);
+
+            if ($att->attendance_status == 1) {
+                // Present
+                if ($is_in_active_month) {
+                    $summary['present']++;
+                }
+                $clock_records = $this->db->where('attendance_id', $att->attendance_id)->order_by('clock_id', 'ASC')->get('tbl_clock')->result();
+
+                $day_seconds = 0;
+                $clockin_str = '';
+                $clockout_str = '';
+                $clockin_raw = '';
+                $clockout_raw = '';
+                $clock_comments = '';
+                $clock_id = 0;
+
+                if (!empty($clock_records)) {
+                    $first_clock = reset($clock_records);
+                    $last_clock = end($clock_records);
+                    $clock_id = $first_clock->clock_id;
+                    $clockin_raw = $first_clock->clockin_time;
+                    $clockin_str = display_time($first_clock->clockin_time);
+                    if (!empty($last_clock->clockout_time)) {
+                        $clockout_raw = $last_clock->clockout_time;
+                        $clockout_str = display_time($last_clock->clockout_time);
+                    }
+                    $clock_comments = $first_clock->comments;
+
+                    foreach ($clock_records as $clk) {
+                        if (!empty($clk->clockin_time) && !empty($clk->clockout_time)) {
+                            $s_time = strtotime($att->date_in . ' ' . $clk->clockin_time);
+                            $e_time = strtotime($att->date_out . ' ' . $clk->clockout_time);
+                            if ($e_time > $s_time) {
+                                $day_seconds += ($e_time - $s_time);
+                            }
+                        }
+                    }
+                }
+
+                if ($is_in_active_month) {
+                    $summary['total_working_seconds'] += $day_seconds;
+                }
+                $hrs = floor($day_seconds / 3600);
+                $mins = floor(($day_seconds % 3600) / 60);
+                $hours_str = ($day_seconds > 0) ? ($hrs . 'h ' . $mins . 'm') : '';
+
+                $title = 'Present';
+                if (!empty($clockin_str) && !empty($clockout_str)) {
+                    $title .= ' (' . $clockin_str . ' - ' . $clockout_str . ($hours_str ? ' | ' . $hours_str : '') . ')';
+                } elseif (!empty($clockin_str)) {
+                    $title .= ' (In: ' . $clockin_str . ')';
+                }
+
+                $events[] = array(
+                    'id' => 'att_' . $att->attendance_id,
+                    'title' => $title,
+                    'start' => $att_date,
+                    'end' => $att_date,
+                    'allDay' => true,
+                    'color' => '#27ae60',
+                    'textColor' => '#ffffff',
+                    'className' => 'fc-event-present',
+                    'attendance_id' => $att->attendance_id,
+                    'clock_id' => $clock_id,
+                    'date' => $att_date,
+                    'status' => '1',
+                    'status_label' => 'Present',
+                    'clockin' => $clockin_raw,
+                    'clockout' => $clockout_raw,
+                    'hours' => $hours_str,
+                    'comments' => $clock_comments
+                );
+            } elseif ($att->attendance_status === '0' || $att->attendance_status === 0) {
+                // Absent
+                if ($is_in_active_month) {
+                    $summary['absent']++;
+                }
+                $events[] = array(
+                    'id' => 'att_' . $att->attendance_id,
+                    'title' => '✖ Absent',
+                    'start' => $att_date,
+                    'end' => $att_date,
+                    'allDay' => true,
+                    'color' => '#e74c3c',
+                    'textColor' => '#ffffff',
+                    'className' => 'fc-event-absent',
+                    'attendance_id' => $att->attendance_id,
+                    'clock_id' => 0,
+                    'date' => $att_date,
+                    'status' => '0',
+                    'status_label' => 'Absent',
+                    'clockin' => '',
+                    'clockout' => '',
+                    'hours' => '',
+                    'comments' => ''
+                );
+            } elseif ($att->attendance_status == 3 || $att->attendance_status === '3') {
+                // On Leave
+                if ($is_in_active_month) {
+                    $summary['leave']++;
+                }
+                $leave_cat_code = 'Leave';
+                if (!empty($att->leave_application_id)) {
+                    $l_app = $this->db->where('leave_application_id', $att->leave_application_id)->get('tbl_leave_application')->row();
+                    if (!empty($l_app)) {
+                        $l_cat = $this->db->where('leave_category_id', $l_app->leave_category_id)->get('tbl_leave_category')->row();
+                        if (!empty($l_cat)) {
+                            $leave_cat_code = $l_cat->leave_category;
+                        }
+                    }
+                }
+                $leave_title = '⏳ ' . $leave_cat_code . ' (On Leave)';
+                $events[] = array(
+                    'id' => 'att_' . $att->attendance_id,
+                    'title' => $leave_title,
+                    'start' => $att_date,
+                    'end' => $att_date,
+                    'allDay' => true,
+                    'color' => '#f39c12',
+                    'textColor' => '#ffffff',
+                    'className' => 'fc-event-leave',
+                    'attendance_id' => $att->attendance_id,
+                    'clock_id' => 0,
+                    'date' => $att_date,
+                    'status' => '3',
+                    'status_label' => $leave_cat_code . ' Leave',
+                    'leave_type' => $leave_cat_code,
+                    'clockin' => '',
+                    'clockout' => '',
+                    'hours' => '',
+                    'comments' => ''
+                );
+            } elseif ($att->attendance_status === 'H') {
+                // Holiday
+                if ($is_in_active_month) {
+                    $summary['holiday']++;
+                }
+                $events[] = array(
+                    'id' => 'att_' . $att->attendance_id,
+                    'title' => '★ Holiday',
+                    'start' => $att_date,
+                    'end' => $att_date,
+                    'allDay' => true,
+                    'color' => '#3498db',
+                    'textColor' => '#ffffff',
+                    'className' => 'fc-event-holiday',
+                    'attendance_id' => $att->attendance_id,
+                    'clock_id' => 0,
+                    'date' => $att_date,
+                    'status' => 'H',
+                    'status_label' => 'Holiday',
+                    'clockin' => '',
+                    'clockout' => '',
+                    'hours' => '',
+                    'comments' => ''
+                );
+            }
+        }
+
+        // 2. Fetch Public Holidays from tbl_holiday
+        $this->db->where('start_date <=', $end_date);
+        $this->db->where('end_date >=', $start_date);
+        $public_holidays = $this->db->get('tbl_holiday')->result();
+        foreach ($public_holidays as $p_hol) {
+            $cur = strtotime($p_hol->start_date);
+            $last = strtotime($p_hol->end_date);
+            while ($cur <= $last) {
+                $p_date = date('Y-m-d', $cur);
+                if ($p_date >= $start_date && $p_date <= $end_date) {
+                    if (empty($recorded_dates[$p_date])) {
+                        if ($p_date >= $active_month_start && $p_date <= $active_month_end) {
+                            $summary['holiday']++;
+                        }
+                        $recorded_dates[$p_date] = true;
+                        $events[] = array(
+                            'id' => 'hol_' . $p_hol->holiday_id . '_' . $p_date,
+                            'title' => '★ ' . $p_hol->event_name,
+                            'start' => $p_date,
+                            'end' => $p_date,
+                            'allDay' => true,
+                            'color' => '#2980b9',
+                            'textColor' => '#ffffff',
+                            'className' => 'fc-event-pub-holiday',
+                            'attendance_id' => 0,
+                            'clock_id' => 0,
+                            'date' => $p_date,
+                            'status' => 'H',
+                            'status_label' => 'Holiday (' . $p_hol->event_name . ')',
+                            'clockin' => '',
+                            'clockout' => '',
+                            'hours' => '',
+                            'comments' => $p_hol->event_name
+                        );
+                    }
+                }
+                $cur = strtotime('+1 day', $cur);
+            }
+        }
+
+        // 3. Fetch Weekend non-working days from tbl_working_days where flag = 0
+        $this->load->model('common_model');
+        $non_working_days = $this->common_model->get_holidays(); // e.g. Sunday
+        $off_days = array();
+        if (!empty($non_working_days)) {
+            foreach ($non_working_days as $nwd) {
+                $off_days[strtolower($nwd->day)] = true;
+            }
+        }
+
+        if (!empty($off_days)) {
+            $cur_d = strtotime($start_date);
+            $end_d = strtotime($end_date);
+            while ($cur_d <= $end_d) {
+                $c_date = date('Y-m-d', $cur_d);
+                $day_l = strtolower(date('l', $cur_d));
+                if (!empty($off_days[$day_l]) && empty($recorded_dates[$c_date])) {
+                    if ($c_date >= $active_month_start && $c_date <= $active_month_end) {
+                        $summary['holiday']++;
+                    }
+                    $events[] = array(
+                        'id' => 'weekend_' . $c_date,
+                        'title' => '★ ' . ucfirst($day_l) . ' (Off)',
+                        'start' => $c_date,
+                        'end' => $c_date,
+                        'allDay' => true,
+                        'color' => '#7f8c8d',
+                        'textColor' => '#ffffff',
+                        'className' => 'fc-event-weekend',
+                        'attendance_id' => 0,
+                        'clock_id' => 0,
+                        'date' => $c_date,
+                        'status' => 'H',
+                        'status_label' => ucfirst($day_l) . ' Off',
+                        'clockin' => '',
+                        'clockout' => '',
+                        'hours' => '',
+                        'comments' => 'Weekly Off'
+                    );
+                }
+                $cur_d = strtotime('+1 day', $cur_d);
+            }
+        }
+
+        $tot_hrs = floor($summary['total_working_seconds'] / 3600);
+        $tot_mins = floor(($summary['total_working_seconds'] % 3600) / 60);
+        $summary['total_working_hours'] = $tot_hrs . 'h ' . $tot_mins . 'm';
+
+        // Include leave balances (EL, SL, CL)
+        $leave_balances = get_user_leave_balance_details($user_id, date('Y', $mid_timestamp));
+        $summary['el_balance'] = isset($leave_balances['EL']) ? number_format($leave_balances['EL']['balance'], 2) : '0.00';
+        $summary['sl_balance'] = isset($leave_balances['SL']) ? number_format($leave_balances['SL']['balance'], 2) : '0.00';
+        $summary['cl_balance'] = isset($leave_balances['CL']) ? number_format($leave_balances['CL']['balance'], 2) : '0.00';
+        $summary['leave_balances'] = $leave_balances;
+
+        echo json_encode(array(
+            'events' => $events,
+            'summary' => $summary,
+            'user' => array(
+                'user_id' => $user_id,
+                'name' => !empty($user_info->fullname) ? $user_info->fullname : 'Employee'
+            )
+        ));
+        exit();
+    }
+
+    public function save_user_attendance()
+    {
+        $user_type = $this->session->userdata('user_type');
+        $admin = admin();
+        if ($user_type != 1 && empty($admin) && !can_do(26)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Permission denied. Only admins can mark or update attendance.'));
+            exit();
+        }
+
+        $user_id = $this->input->post('user_id', TRUE);
+        $date = $this->input->post('date', TRUE);
+        $status = $this->input->post('status', TRUE);
+        $leave_type = strtoupper(trim($this->input->post('leave_type', TRUE)));
+        $clockin_time = $this->input->post('clockin_time', TRUE);
+        $clockout_time = $this->input->post('clockout_time', TRUE);
+        $comments = $this->input->post('comments', TRUE);
+
+        if (empty($user_id) || empty($date)) {
+            echo json_encode(array('status' => 'error', 'message' => 'User ID and Date are required.'));
+            exit();
+        }
+
+        $formatted_date = date('Y-m-d', strtotime($date));
+
+        $existing = $this->db->where('user_id', $user_id)->where('date_in', $formatted_date)->get('tbl_attendance')->row();
+
+        if ($status === 'delete') {
+            if (!empty($existing)) {
+                if (!empty($existing->leave_application_id)) {
+                    $this->db->where('leave_application_id', $existing->leave_application_id)->delete('tbl_leave_application');
+                }
+                $this->db->where('attendance_id', $existing->attendance_id)->delete('tbl_clock');
+                $this->db->where('attendance_id', $existing->attendance_id)->delete('tbl_attendance');
+            }
+            echo json_encode(array('status' => 'success', 'message' => 'Attendance record removed for ' . $formatted_date));
+            exit();
+        }
+
+        if ($status === '3') {
+            // On Leave - link to tbl_leave_application with selected category (EL, SL, CL)
+            if (empty($leave_type)) {
+                $leave_type = 'EL';
+            }
+            $cat_row = $this->db->where('leave_category', $leave_type)->get('tbl_leave_category')->row();
+            $cat_id = !empty($cat_row) ? $cat_row->leave_category_id : 2;
+
+            $leave_app_id = 0;
+            if (!empty($existing) && !empty($existing->leave_application_id)) {
+                $this->db->where('leave_application_id', $existing->leave_application_id)->update('tbl_leave_application', array(
+                    'leave_category_id' => $cat_id,
+                    'reason' => !empty($comments) ? $comments : 'Marked from attendance',
+                    'comments' => $comments,
+                    'application_status' => 2
+                ));
+                $leave_app_id = $existing->leave_application_id;
+            } else {
+                $this->db->insert('tbl_leave_application', array(
+                    'user_id' => $user_id,
+                    'leave_category_id' => $cat_id,
+                    'reason' => !empty($comments) ? $comments : 'Marked from attendance',
+                    'leave_type' => 'single_day',
+                    'leave_start_date' => $formatted_date,
+                    'leave_end_date' => $formatted_date,
+                    'application_status' => 2,
+                    'view_status' => 2,
+                    'comments' => $comments,
+                    'approve_by' => $this->session->userdata('user_id')
+                ));
+                $leave_app_id = $this->db->insert_id();
+            }
+
+            if (!empty($existing)) {
+                $this->db->where('attendance_id', $existing->attendance_id)->update('tbl_attendance', array(
+                    'attendance_status' => 3,
+                    'leave_application_id' => $leave_app_id,
+                    'clocking_status' => 0,
+                    'date_out' => $formatted_date
+                ));
+                $this->db->where('attendance_id', $existing->attendance_id)->delete('tbl_clock');
+            } else {
+                $this->db->insert('tbl_attendance', array(
+                    'user_id' => $user_id,
+                    'date_in' => $formatted_date,
+                    'date_out' => $formatted_date,
+                    'attendance_status' => 3,
+                    'leave_application_id' => $leave_app_id,
+                    'clocking_status' => 0
+                ));
+            }
+            echo json_encode(array('status' => 'success', 'message' => 'Attendance marked as On Leave (' . $leave_type . ') for ' . $formatted_date));
+            exit();
+        }
+
+        if ($status === '0' || $status === 'H') {
+            if (!empty($existing)) {
+                if (!empty($existing->leave_application_id)) {
+                    $this->db->where('leave_application_id', $existing->leave_application_id)->delete('tbl_leave_application');
+                }
+                $this->db->where('attendance_id', $existing->attendance_id)->update('tbl_attendance', array(
+                    'attendance_status' => $status,
+                    'leave_application_id' => 0,
+                    'clocking_status' => 0,
+                    'date_out' => $formatted_date
+                ));
+                $this->db->where('attendance_id', $existing->attendance_id)->delete('tbl_clock');
+            } else {
+                $this->db->insert('tbl_attendance', array(
+                    'user_id' => $user_id,
+                    'date_in' => $formatted_date,
+                    'date_out' => $formatted_date,
+                    'attendance_status' => $status,
+                    'leave_application_id' => 0,
+                    'clocking_status' => 0
+                ));
+            }
+            $status_text = ($status === '0') ? 'Absent' : 'Holiday';
+            echo json_encode(array('status' => 'success', 'message' => 'Attendance marked as ' . $status_text . ' for ' . $formatted_date));
+            exit();
+        }
+
+        if ($status === '1') {
+            if (!empty($existing)) {
+                if (!empty($existing->leave_application_id)) {
+                    $this->db->where('leave_application_id', $existing->leave_application_id)->delete('tbl_leave_application');
+                }
+                $this->db->where('attendance_id', $existing->attendance_id)->update('tbl_attendance', array(
+                    'attendance_status' => 1,
+                    'leave_application_id' => 0,
+                    'clocking_status' => 0,
+                    'date_out' => $formatted_date
+                ));
+                $attendance_id = $existing->attendance_id;
+            } else {
+                $this->db->insert('tbl_attendance', array(
+                    'user_id' => $user_id,
+                    'date_in' => $formatted_date,
+                    'date_out' => $formatted_date,
+                    'attendance_status' => 1,
+                    'clocking_status' => 0
+                ));
+                $attendance_id = $this->db->insert_id();
+            }
+
+            $in_time = !empty($clockin_time) ? date('H:i:s', strtotime($clockin_time)) : '09:30:00';
+            $out_time = !empty($clockout_time) ? date('H:i:s', strtotime($clockout_time)) : '18:30:00';
+
+            $existing_clock = $this->db->where('attendance_id', $attendance_id)->get('tbl_clock')->row();
+            if (!empty($existing_clock)) {
+                $this->db->where('clock_id', $existing_clock->clock_id)->update('tbl_clock', array(
+                    'clockin_time' => $in_time,
+                    'clockout_time' => $out_time,
+                    'clocking_status' => 0,
+                    'comments' => $comments,
+                    'ip_address' => $this->input->ip_address()
+                ));
+            } else {
+                $this->db->insert('tbl_clock', array(
+                    'attendance_id' => $attendance_id,
+                    'clockin_time' => $in_time,
+                    'clockout_time' => $out_time,
+                    'clocking_status' => 0,
+                    'comments' => $comments,
+                    'ip_address' => $this->input->ip_address()
+                ));
+            }
+
+            echo json_encode(array('status' => 'success', 'message' => 'Attendance marked as Present for ' . $formatted_date . ' (' . display_time($in_time) . ' - ' . display_time($out_time) . ')'));
+            exit();
+        }
+
+        echo json_encode(array('status' => 'error', 'message' => 'Invalid status provided.'));
+        exit();
     }
 
     public function time_history_pdf($user_id)

@@ -26,6 +26,11 @@ $office_hours = config_item('office_hours');
             <li class="<?= $active == 4 ? 'active' : '' ?>"><a
                     href="<?= base_url('admin/leave_management/leave_report') ?>"><?= lang('leave_report') ?></a>
             </li>
+            <?php if (!empty(admin_head())) { ?>
+            <li class="<?= $active == 5 ? 'active' : '' ?>"><a
+                    href="<?= base_url('admin/leave_management/leave_credits') ?>"><i class="fa fa-calendar-plus-o text-success"></i> Earn &amp; Sick Leaves (Monthly Credit)</a>
+            </li>
+            <?php } ?>
             <li class="pull-right">
                 <a href="<?= base_url() ?>admin/leave_management/apply_leave" class="bg-info" data-toggle="modal"
                     data-placement="top" data-target="#myModal_extra_lg">

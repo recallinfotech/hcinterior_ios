@@ -35,6 +35,8 @@ import { AddPaymentModal } from './components/modals/AddPaymentModal';
 import { AddBOMModal } from './components/modals/AddBOMModal';
 import { ClientBoqModal } from './components/modals/ClientBoqModal';
 import { CreateOnSitePurchaseModal } from './components/modals/CreateOnSitePurchaseModal';
+import { MarkAttendanceModal } from './components/modals/MarkAttendanceModal';
+import { UserProfileModal } from './components/modals/UserProfileModal';
 
 // Mock Data
 import {
@@ -234,6 +236,8 @@ export default function App() {
   const [boqModalClient, setBoqModalClient] = useState<ClientProject | null>(null);
   const [isOnSitePurchaseModalOpen, setIsOnSitePurchaseModalOpen] = useState(false);
   const [onSitePurchaseModalClient, setOnSitePurchaseModalClient] = useState<ClientProject | null>(null);
+  const [isMarkAttendanceOpen, setIsMarkAttendanceOpen] = useState(false);
+  const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
 
   const handleOpenBoqModal = (client: ClientProject) => {
     setBoqModalClient(client);
@@ -991,6 +995,8 @@ export default function App() {
         onNotificationClick={() => {
           showToast('Push Notifications active in APK (FCM connected)');
         }}
+        onMarkAttendance={() => setIsMarkAttendanceOpen(true)}
+        onOpenProfile={() => setIsUserProfileOpen(true)}
       />
 
       {/* Floating Toast Notification */}
@@ -1437,6 +1443,32 @@ export default function App() {
         authToken={authToken}
         showToast={showToast}
         onSuccess={handleRefreshOnSitePurchase}
+      />
+
+      {/* Mark Attendance Modal (Clock In / Clock Out) */}
+      <MarkAttendanceModal
+        isOpen={isMarkAttendanceOpen}
+        onClose={() => setIsMarkAttendanceOpen(false)}
+        token={authToken}
+        userId={userData?.user_id}
+        userName={userData?.fullname || currentUser}
+        showToast={showToast}
+      />
+
+      {/* User Profile Modal (Calendar Attendance, Announcements, Request Leave, Holiday List) */}
+      <UserProfileModal
+        isOpen={isUserProfileOpen}
+        onClose={() => setIsUserProfileOpen(false)}
+        token={authToken}
+        userId={userData?.user_id}
+        userName={userData?.fullname || currentUser}
+        userEmail={userData?.email}
+        userRole={userData?.designation_id ? 'Designation #' + userData.designation_id : 'Staff Member'}
+        onOpenMarkAttendance={() => {
+          setIsUserProfileOpen(false);
+          setIsMarkAttendanceOpen(true);
+        }}
+        showToast={showToast}
       />
     </MobileFrame>
   );
