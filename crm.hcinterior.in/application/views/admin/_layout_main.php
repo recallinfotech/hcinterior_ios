@@ -128,7 +128,8 @@ if (empty($timezone)) {
                         &nbsp;<?php echo lang(date('l')) . ' ' . lang(date('jS')) . ' ' . lang(date('F')) . ' ' . date('\- Y,'); ?>
                         &nbsp;<?= lang('time') ?>
                         &nbsp;<span id="txt"></span></small>
-                    <?php if (!empty($clocking->clock_id)) : ?>
+                    <?php /*
+                    if (!empty($clocking->clock_id)) : ?>
                         <a href="<?php echo base_url() ?>admin/dashboard/set_clocking/<?php
                         if (!empty($clocking)) {
                             echo $clocking->clock_id;
@@ -148,8 +149,8 @@ if (empty($timezone)) {
                         echo '/' . my_id() . '/1';
                         ?>" class="btn btn-success <?= $clock_button_loc ?>"><i
                                     class="fa fa-sign-out"></i> <?= lang('clock_in') ?></a>
-                        </button>
-                    <?php endif; ?>
+                    <?php endif;
+                    */ ?>
                 
                 </div>
             </div>

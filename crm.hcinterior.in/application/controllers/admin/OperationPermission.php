@@ -17,12 +17,16 @@ class OperationPermission extends Admin_Controller
 
         // Auto-ensure required permissions exist
         $default_new_perms = [
-            'region_wise_client' => 'Region Wise Client',
-            'completion_file'    => 'Completion File',
-            'payment_record'     => 'Payment Records',
-            'old_boq'            => 'Old BOQ',
-            'site_dispatch'      => 'Site Dispatch',
-            'field_dispatch'     => 'Field Dispatch'
+            'region_wise_client'   => 'Region Wise Client',
+            'completion_file'      => 'Completion File',
+            'payment_record'       => 'Payment Records',
+            'old_boq'              => 'Old BOQ',
+            'site_dispatch'        => 'Site Dispatch',
+            'field_dispatch'       => 'Field Dispatch',
+            'client_dashboard_kpi' => 'Client Dashboard (KPI Cards)',
+            'client_filters'       => 'Client Filters (Date & Filters)',
+            'client_invoice_view'   => 'Client Invoice View',
+            'client_invoice_upload' => 'Client Invoice Upload'
         ];
         foreach ($default_new_perms as $pkey => $pname) {
             $check_perm = $this->db->get_where('hc_permissions', ['permission_key' => $pkey])->row();
@@ -34,11 +38,13 @@ class OperationPermission extends Admin_Controller
             }
         }
 
-        // 2. Fetch All Permissions (Order: all_client_list, region_wise_client, only_assigned_client, then others)
+        // 2. Fetch All Permissions (Order: all_client_list, region_wise_client, only_assigned_client, client_dashboard_kpi, client_filters, then others)
         $this->db->order_by("CASE 
             WHEN permission_key = 'all_client_list' THEN 1 
             WHEN permission_key = 'region_wise_client' THEN 2 
             WHEN permission_key = 'only_assigned_client' THEN 3 
+            WHEN permission_key = 'client_dashboard_kpi' THEN 4
+            WHEN permission_key = 'client_filters' THEN 5
             ELSE 100 END, id ASC", "", FALSE);
         $data['permissions'] = $this->db->get('hc_permissions')->result();
 

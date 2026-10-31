@@ -16,7 +16,7 @@
                 <?= lang('Civil Drawing') ?>
             </strong>
                <?php if($user_type == 1 || check_permission('civil_drawing_add_edit')) { ?>
-            <button id="new_design" class="btn btn-xs pull-right b0">Add Civil Drawing</button>
+            <button id="new_design" class="btn btn-purple btn-xs pull-right" style="color: #ffffff !important;"><i class="fa fa-plus"></i> <?= !empty($design_info) ? 'Edit Civil Drawing' : 'Add Civil Drawing' ?></button>
             <?php } ?>
         </div>
     </div>
@@ -51,11 +51,46 @@ $two_d_design = get_order_by_with_user(
 
 
     $url = $this->uri->segment(5);
-    if ($url == '2ddesign') {        
-        $id = $this->uri->segment(6);
-        $design_info = $this->db->where('id', $id)->get('tbl_client_two_d_design')->row();
-    } else {
-        $id = null;
+    $id = null;
+    $design_info = null;
+    $edit_after_kt_id = null;
+    $design_info_after_kt = null;
+
+    if ($url == '2ddesign') {
+        if ($this->uri->segment(6) === 'after_kt') {
+            $edit_after_kt_id = $this->uri->segment(7);
+            if (!empty($edit_after_kt_id)) {
+                $design_info_after_kt = $this->db->where('id', $edit_after_kt_id)->get('tbl_client_civil_drawing_after_kt')->row();
+            }
+        } else {
+            $id = $this->uri->segment(6);
+            if (!empty($id)) {
+                $design_info = $this->db->where('id', $id)->get('tbl_client_two_d_design')->row();
+            }
+        }
+    }
+
+    $two_d_design_after_kt = get_order_by_with_user(
+        'tbl_client_civil_drawing_after_kt d',
+        [
+            'd.client_id' => $client_details->client_id,
+        ],
+        'd.id',
+        [
+            [
+                'table' => 'tbl_account_details a',
+                'condition' => 'a.user_id = d.uploaded_by',
+                'type' => 'left'
+            ]
+        ]
+    );
+
+    $latest_proposal_after_kt = null;
+    $other_proposals_after_kt = [];
+
+    if (!empty($two_d_design_after_kt)) {
+        $latest_proposal_after_kt = $two_d_design_after_kt[0]; // first = latest
+        $other_proposals_after_kt = array_slice($two_d_design_after_kt, 1);
     }
     
     ?>
@@ -491,6 +526,323 @@ $this->load->view('admin/client/details/remarks_component', [
 
 </section>
 
+<section class="panel panel-custom">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <strong>
+                Civil Drawing after KT
+            </strong>
+            <?php if($user_type == 1 || check_permission('civil_drawing_add_edit')) { ?>
+            <button id="new_design_after_kt" class="btn btn-purple btn-xs pull-right" style="color: #ffffff !important;"><i class="fa fa-plus"></i> <?= !empty($design_info_after_kt) ? 'Edit Civil Drawing after KT' : 'Add Civil Drawing after KT' ?></button>
+            <?php } ?>
+        </div>
+    </div>
+
+    <div class="panel-body">
+        <div class="new_design_after_kt mb-lg" style="display: <?= !empty($design_info_after_kt) ? 'block' : 'none' ?>">
+            <form action="<?php echo base_url() ?>admin/client/new_civil_drawing_after_kt/<?= $edit_after_kt_id ?>" method="post"
+                enctype="multipart/form-data" class="form-horizontal">
+
+                <input type="hidden" name="client_id" value="<?= $client_details->client_id ?>">
+
+                <div class="form-group">
+                    <label class="col-lg-4 control-label">Design Type
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="col-lg-8">
+                        <select class="form-control" name="design_type">
+                            <option value="Civil Design"
+                                <?= (!empty($design_info_after_kt) && $design_info_after_kt->design_type == 'Civil Design') ? 'selected' : '' ?>>
+                                Civil Design
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="col-lg-4 control-label">File Name
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="col-lg-8">
+                        <?php
+                        $default_file_name_after_kt = !empty($design_info_after_kt->file_name)
+                            ? $design_info_after_kt->file_name
+                            : $client_details->name . '_Drawing_file_after_kt';
+                        ?>
+                        <input type="text" 
+                               name="file_name" 
+                               class="form-control" 
+                               value="<?= $default_file_name_after_kt ?>">
+                    </div>
+                </div>
+
+                <div class="form-group" id="upload_url_box_after_kt">
+                    <label class="col-lg-4 control-label">Upload URL</label>
+                    <div class="col-lg-8">
+                        <input type="text" name="upload_url" id="upload_url_after_kt" class="form-control"
+                            value="<?= !empty($design_info_after_kt) ? $design_info_after_kt->upload_url : '' ?>">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="col-lg-4 control-label">
+                        Upload Files
+                        <span class="text-danger">*</span>
+                    </label>
+
+                    <div class="col-lg-8">
+                        <input type="file" name="design_files[]" class="form-control" multiple
+                            accept=".jpg,.jpeg,.png,.pdf,.dwg,.ppt,.pptx">
+                        <small class="text-muted">
+                            Allowed: JPG, PNG, PDF, DWG
+                        </small>
+
+                        <?php if (!empty($design_info_after_kt->upload_file)) { 
+                            $exist_files = json_decode($design_info_after_kt->upload_file);
+                            if (!empty($exist_files)) {
+                                echo '<div class="mt-sm"><strong>Existing Files:</strong><br>';
+                                foreach ($exist_files as $ef) {
+                                    echo '<input type="hidden" name="fileName[]" value="'.htmlspecialchars($ef->fileName).'">';
+                                    echo '<input type="hidden" name="path[]" value="'.htmlspecialchars($ef->path).'">';
+                                    echo '<input type="hidden" name="fullPath[]" value="'.htmlspecialchars($ef->fullPath).'">';
+                                    echo '<input type="hidden" name="size[]" value="'.htmlspecialchars($ef->size).'">';
+                                    echo '<input type="hidden" name="is_image[]" value="'.htmlspecialchars($ef->is_image).'">';
+                                    echo '<span class="badge badge-info mr-sm">'.htmlspecialchars($ef->fileName).'</span> ';
+                                }
+                                echo '</div>';
+                            }
+                        } ?>
+                    </div>
+                </div>
+
+                <div>
+                    <button class="btn btn-primary pull-right mt-lg mb-lg" id="btn_save_design_after_kt" type="submit"><?= lang('save') ?></button>
+                </div>
+            </form>
+        </div>
+
+        <table class="table table-striped" cellspacing="0" width="100%" style="<?php echo $can_view ? '' : 'display: none !important;'; ?>">
+            <thead>
+                <tr>
+                    <th><?= lang('File Name') ?></th>
+                    <th><?= lang('File') ?></th>
+                    <th><?= lang('Design Type') ?></th>
+                    <th class="col-sm-3"><?= lang('URL') ?></th>
+                    <th><?= lang('Status') ?></th>
+                    <th><?= lang('Uploaded By') ?></th>
+                    <th class="col-sm-2"><?= lang('date') ?></th>
+                    <th class="col-sm-2"><?= lang('action') ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!empty($latest_proposal_after_kt)) { 
+                    $design = $latest_proposal_after_kt;
+                ?>
+                <tr>
+                    <td>
+                        <?php if($design->is_final == 1){ ?>
+                        <span class="label label-success">Final Design</span>
+                        <?php } ?>
+                        <?= $design->file_name ?>
+                    </td>
+                    <td>
+                        <?php
+                        $files = json_decode($design->upload_file);
+                        if (!empty($files)) {
+                            foreach ($files as $file) {
+                                if ($file->is_image) {
+                                    echo '<img src="'.base_url($file->path).'" 
+                                    width="60" 
+                                    class="mr-sm preview-design" 
+                                    data-path="'.base_url($file->path).'"
+                                    data-type="image"
+                                    style="cursor:pointer">';
+                                } else {
+                                    echo '<a href="javascript:void(0)" 
+                                    class="preview-design mr-sm" 
+                                    data-path="'.base_url($file->path).'"
+                                    data-type="pdf">'.$file->fileName.'</a>';
+                                }
+                            }
+                        }
+                        ?>
+                    </td>
+                    <td><?= $design->design_type ?></td>
+                    <td><p class="nowrap"><?= $design->upload_url ?></p></td>
+                    <td>
+                        <span class="label label-<?= 
+                            $design->status == 'Approved' ? 'success' :
+                            ($design->status == 'Reject' ? 'danger' : 'warning')
+                        ?>">
+                            <?= $design->status ?>
+                        </span>
+                        <?php if($design->status == 'Reject') { ?>
+                            <p><?= $design->remark; ?></p>
+                            <?php if(!empty($design->remark_file)) { 
+                                $filePath = base_url($design->remark_file);
+                                $ext = pathinfo($design->remark_file, PATHINFO_EXTENSION);
+                                $is_image = in_array(strtolower($ext), ['jpg','jpeg','png']);
+                                if ($is_image) { ?>
+                                    <img src="<?= $filePath ?>" width="60" class="preview-design" data-path="<?= $filePath ?>" data-type="image" style="cursor:pointer">
+                                <?php } else { ?>
+                                    <a href="javascript:void(0)" class="preview-design label label-info" data-path="<?= $filePath ?>" data-type="pdf">View Remark File</a>
+                                <?php } ?>
+                            <?php } ?>
+                        <?php } ?>
+                    </td>
+                    <td><?= !empty($design->fullname) ? $design->fullname : '-' ?></td>
+                    <td><?= strftime(config_item('date_format'), strtotime($design->created_date)) . ' ' . display_time($design->created_date); ?></td>
+                    <td>
+                        <?php if ($user_type == 1) { ?>
+                        <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/after_kt/' . $design->id) ?>
+                        <?php } ?>
+                        <?php 
+                        if($user_type == 1 || $designation_id == 76 || $designation_id == 45 || $designation_id == 77) {
+                            $disabled = ($design->status == 'Approved') ? 'disabled' : '';
+                            $d_none = ($design->status == 'Approved') ? 'd-none' : '';
+                            echo '<button 
+                                type="button"
+                                class="btn btn-xs btn-success approve_after_kt_btn '.$d_none.'"
+                                title="Approve Design"
+                                data-toggle="modal"
+                                data-target="#approveAfterKtModal"
+                                data-design_id="'.$design->id.'"
+                                data-uploaded_by="'.$design->uploaded_by.'"
+                                data-client_id="'.$design->client_id.'"
+                                '.$disabled.'
+                                >
+                                <span class="fa fa-check"></span>
+                            </button>';
+                        }
+                        ?>
+                    </td>
+                </tr>
+                <?php } ?>
+            </tbody>
+        </table>
+
+        <hr>
+        <a href="#demo_after_kt" class="btn btn-info" data-toggle="collapse" style="<?php echo $can_view ? '' : 'display: none !important;'; ?>">See Old Design</a>
+        <hr>
+        <div id="demo_after_kt" class="collapse" style="<?php echo $can_view ? '' : 'display: none !important;'; ?>">
+            <table class="table table-striped" cellspacing="0" width="100%">
+                <thead>
+                    <tr>
+                        <th><?= lang('File Name') ?></th>
+                        <th><?= lang('File') ?></th>
+                        <th><?= lang('Design Type') ?></th>
+                        <th class="col-sm-3"><?= lang('URL') ?></th>
+                        <th><?= lang('Status') ?></th>
+                        <th><?= lang('Uploaded By') ?></th>
+                        <th class="col-sm-2"><?= lang('date') ?></th>
+                        <th class="col-sm-2"><?= lang('action') ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (!empty($other_proposals_after_kt)) {
+                        foreach ($other_proposals_after_kt as $design) { ?>
+                        <tr>
+                            <td><?= $design->file_name ?></td>
+                            <td>
+                                <?php
+                                $files = json_decode($design->upload_file);
+                                if (!empty($files)) {
+                                    foreach ($files as $file) {
+                                        if ($file->is_image) {
+                                            echo '<img src="'.base_url($file->path).'" width="60" class="mr-sm preview-design" data-path="'.base_url($file->path).'" data-type="image" style="cursor:pointer">';
+                                        } else {
+                                            echo '<a href="javascript:void(0)" class="preview-design mr-sm" data-path="'.base_url($file->path).'" data-type="pdf">'.$file->fileName.'</a>';
+                                        }
+                                    }
+                                }
+                                ?>
+                            </td>
+                            <td><?= $design->design_type ?></td>
+                            <td><p class="nowrap"><?= $design->upload_url ?></p></td>
+                            <td>
+                                <span class="label label-<?= 
+                                    $design->status == 'Approved' ? 'success' :
+                                    ($design->status == 'Reject' ? 'danger' : 'warning')
+                                ?>">
+                                    <?= $design->status ?>
+                                </span>
+                                <?php if($design->status == 'Reject') { ?>
+                                    <p><?= $design->remark; ?></p>
+                                    <?php if(!empty($design->remark_file)) { 
+                                        $filePath = base_url($design->remark_file);
+                                        $ext = pathinfo($design->remark_file, PATHINFO_EXTENSION);
+                                        $is_image = in_array(strtolower($ext), ['jpg','jpeg','png']);
+                                        if ($is_image) { ?>
+                                            <img src="<?= $filePath ?>" width="60" class="preview-design" data-path="<?= $filePath ?>" data-type="image" style="cursor:pointer">
+                                        <?php } else { ?>
+                                            <a href="javascript:void(0)" class="preview-design label label-info" data-path="<?= $filePath ?>" data-type="pdf">View Remark File</a>
+                                        <?php } ?>
+                                    <?php } ?>
+                                <?php } ?>
+                            </td>
+                            <td><?= !empty($design->fullname) ? $design->fullname : '-' ?></td>
+                            <td><?= strftime(config_item('date_format'), strtotime($design->created_date)) . ' ' . display_time($design->created_date); ?></td>
+                            <td>
+                                <?php if ($user_type != 54) { ?>
+                                <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/after_kt/' . $design->id) ?>
+                                <?php } ?>
+                                <?php 
+                                $user_id = $this->session->userdata('user_id');
+                                $assign_team = $this->db->where('user_id', $user_id)->get('tbl_client_assign_team')->row();   
+                                if($assign_team->member_profile != 'Operation Team') {
+                                    $disabled = ($design->status == 'Approved') ? 'disabled' : '';
+                                    echo '<button 
+                                        type="button"
+                                        class="btn btn-xs btn-success approve_after_kt_btn"
+                                        title="Approve Design"
+                                        data-toggle="modal"
+                                        data-target="#approveAfterKtModal"
+                                        data-design_id="'.$design->id.'"
+                                        data-uploaded_by="'.$design->uploaded_by.'"
+                                        data-client_id="'.$design->client_id.'"
+                                        '.$disabled.'
+                                        >
+                                        <span class="fa fa-check"></span>
+                                    </button>';
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                        <?php }
+                    } ?>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="remark_section">
+            <?php 
+            $remarks_after_kt = get_module_remarks($client_details->client_id, 'civil_drawing_after_kt');
+            ?>
+            <div class="remarks-box">
+                <h3>Remarks (Civil Drawing after KT)</h3>
+                <div id="remarks_list_after_kt">
+                    <?php if (!empty($remarks_after_kt)) {
+                        foreach ($remarks_after_kt as $r) { ?>
+                            <div class="remark-item mb-sm">
+                                <strong><?= $r->fullname ?></strong>
+                                <small class="text-muted">
+                                    (<?= date('d M Y h:i A', strtotime($r->created_at)) ?>)
+                                </small>
+                                <p><?= $r->remarks ?></p>
+                            </div>
+                    <?php } } ?>
+                </div>
+                <hr>
+                <textarea class="form-control mb-sm" id="remark_text_after_kt" placeholder="Enter remark..."></textarea>
+                <button class="btn btn-primary btn-sm" id="save_remark_btn_after_kt">
+                    Add Remark
+                </button>
+            </div>
+        </div>
+
+    </div>
+</section>
+
 
 
 
@@ -682,6 +1034,123 @@ $(document).on('change', 'select[name="design_type"]', function () {
 // 🔁 Page load pe bhi check
 $(document).ready(function () {
     $('select[name="design_type"]').trigger('change');
+});
+</script>
+
+<div class="modal fade" id="approveAfterKtModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-success">
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+                <h4 class="modal-title">Approve Design Request (After KT)</h4>
+            </div>
+
+            <form action="<?= base_url('admin/client/civil_drawing_after_kt_status') ?>" method="post" enctype="multipart/form-data">
+                <div class="modal-body text-center">
+                    <input type="hidden" name="design_id" id="approve_after_kt_design_id">
+                    <input type="hidden" name="client_id" id="status_after_kt_client_id">
+                    <input type="hidden" name="uploaded_by" id="status_after_kt_uploaded_by">
+                    <select class="form-control" name="status" id="request_status_after_kt" required>
+                        <option value="Approved">Approved</option>
+                        <option value="Reject">Reject</option>
+                    </select>
+
+                    <div id="remarks_box_after_kt" style="display:none; margin-bottom:10px; margin-top:10px;">
+                        <div class="form-group">
+                            <textarea name="remark" id="remarks_text_after_kt" class="form-control"
+                                placeholder="Enter rejection remarks"></textarea>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <label class="col-lg-4 control-label">
+                                Upload Files
+                                <span class="text-danger">*</span>
+                            </label>
+                            <div class="col-lg-8">
+                                <input type="file" name="remark_file" class="form-control"
+                                    accept=".jpg,.jpeg,.png,.pdf,.dwg,.ppt,.pptx">
+                                <small class="text-muted">
+                                    Allowed: JPG, PNG, PDF, DWG
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#new_design_after_kt').click(function() {
+        $('.new_design_after_kt').toggle('slow');
+    });
+
+    $('.new_design_after_kt form').on('submit', function() {
+        var $btn = $(this).find('button[type="submit"]');
+        $btn.html('<i class="fa fa-spinner fa-spin"></i> Please wait...').css({
+            'pointer-events': 'none',
+            'opacity': '0.7'
+        });
+        setTimeout(function() {
+            $btn.prop('disabled', true);
+        }, 20);
+    });
+});
+
+$(document).on('click', '.approve_after_kt_btn', function() {
+    var design_id = $(this).data('design_id');
+    var client_id = $(this).data('client_id');
+    var uploaded_by = $(this).data('uploaded_by');
+    $('#approve_after_kt_design_id').val(design_id);
+    $('#status_after_kt_client_id').val(client_id);
+    $('#status_after_kt_uploaded_by').val(uploaded_by);
+});
+
+$('#approveAfterKtModal form').on('submit', function() {
+    var $btn = $(this).find('button[type="submit"]');
+    $btn.html('<i class="fa fa-spinner fa-spin"></i> Please wait...').css({
+        'pointer-events': 'none',
+        'opacity': '0.7'
+    });
+    setTimeout(function() {
+        $btn.prop('disabled', true);
+    }, 20);
+});
+
+$(document).on('change', '#request_status_after_kt', function() {
+    var status = $(this).val();
+    if (status === 'Reject') {
+        $('#remarks_box_after_kt').show();
+        $('#remarks_text_after_kt').prop('required', true);
+    } else {
+        $('#remarks_box_after_kt').hide();
+        $('#remarks_text_after_kt').prop('required', false);
+        $('#remarks_text_after_kt').val('');
+    }
+});
+
+$(document).on('click', '#save_remark_btn_after_kt', function(){
+    var remark = $('#remark_text_after_kt').val();
+    if(!remark){
+        alert('Enter remark');
+        return;
+    }
+    $.post("<?= base_url('admin/client/save_remark') ?>", {
+        client_id: "<?= $client_details->client_id ?>",
+        module: "civil_drawing_after_kt",
+        remarks: remark
+    }, function(res){
+        location.reload();
+    });
 });
 </script>
 

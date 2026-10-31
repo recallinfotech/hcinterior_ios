@@ -290,7 +290,27 @@ class Common extends MY_Controller
         $result = null;
         if (!empty($leave_category_id) && !empty($start_date)) {
             $total_leave = $this->admin_model->check_by(array('leave_category_id' => $leave_category_id), 'tbl_leave_category');
-            $leave_total = $total_leave->leave_quota;
+            $leave_total = (!empty($total_leave)) ? floatval($total_leave->leave_quota) : 0;
+
+            // Check if employee has custom credits / opening balance
+            if ($this->db->table_exists('tbl_user_leave_credits') && !empty($total_leave)) {
+                $user_cr = $this->db->select_sum('credits')
+                    ->where('user_id', $user_id)
+                    ->group_start()
+                        ->where('leave_category_id', $leave_category_id)
+                        ->or_where('leave_type', strtoupper(trim($total_leave->leave_category)))
+                    ->group_end()
+                    ->get('tbl_user_leave_credits')->row();
+                $cr_count = $this->db->where('user_id', $user_id)
+                    ->group_start()
+                        ->where('leave_category_id', $leave_category_id)
+                        ->or_where('leave_type', strtoupper(trim($total_leave->leave_category)))
+                    ->group_end()
+                    ->count_all_results('tbl_user_leave_credits');
+                if ($cr_count > 0 && !empty($user_cr) && $user_cr->credits !== null) {
+                    $leave_total = floatval($user_cr->credits);
+                }
+            }
 
             $all_leave = $this->db->where(array('leave_application_id !=' => $leave_application_id, 'user_id' => $user_id))->get('tbl_leave_application')->result();
             //            $leave_info = $this->db->where(array('leave_application_id' => $leave_application_id))->get('tbl_leave_application')->row();

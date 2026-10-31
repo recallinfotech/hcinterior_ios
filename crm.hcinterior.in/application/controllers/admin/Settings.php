@@ -69,6 +69,26 @@ class Settings extends Admin_Controller
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
                 }
             }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -156,6 +176,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
             $date_format = $this->input->post('date_format', true);
@@ -264,6 +304,26 @@ class Settings extends Admin_Controller
                 }
             }
 
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
+
             // messages for user
             $type = "success";
             $message = lang('payment_update_success');
@@ -326,6 +386,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
             $activity = array(
@@ -446,6 +526,26 @@ class Settings extends Admin_Controller
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
                 }
             }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
             $smtp_pass = $this->input->post('smtp_pass', true);
 
             if (!empty($smtp_pass)) {
@@ -542,6 +642,26 @@ class Settings extends Admin_Controller
                 }
             }
 
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
+
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -594,6 +714,26 @@ class Settings extends Admin_Controller
                 }
             }
 
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
+
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -642,6 +782,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
 
@@ -714,6 +874,26 @@ class Settings extends Admin_Controller
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
                 }
             }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -763,6 +943,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
             $activity = array(
@@ -876,6 +1076,26 @@ class Settings extends Admin_Controller
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
                 }
             }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -925,6 +1145,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
             $activity = array(
@@ -977,6 +1217,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
             $activity = array(
@@ -2155,6 +2415,26 @@ class Settings extends Admin_Controller
                 }
             }
 
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
+                }
+            }
+
             $activity = array(
                 'user' => $this->session->userdata('user_id'),
                 'module' => 'settings',
@@ -2916,6 +3196,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
         }
@@ -3798,6 +4098,26 @@ class Settings extends Admin_Controller
                 $exists = $this->db->where('config_key', $key)->get('tbl_config');
                 if ($exists->num_rows() == 0) {
                     $this->db->insert('tbl_config', array("config_key" => $key, "value" => $value));
+                }
+            }
+
+            // Sync default office in tbl_office_locations if office config was updated
+            $new_office_name = $this->input->post('office_location', true);
+            $new_office_lat  = $this->input->post('office_lat', true);
+            $new_office_long = $this->input->post('office_long', true);
+            $new_radius      = $this->input->post('allowed_radius', true);
+            if (!empty($new_office_name) && !empty($new_office_lat) && !empty($new_office_long)) {
+                if ($this->db->table_exists('tbl_office_locations')) {
+                    $def_office = $this->db->where('is_default', 1)->get('tbl_office_locations')->row();
+                    if (!empty($def_office)) {
+                        $this->db->where('id', $def_office->id)->update('tbl_office_locations', [
+                            'location_name'  => $new_office_name,
+                            'latitude'       => $new_office_lat,
+                            'longitude'      => $new_office_long,
+                            'allowed_radius' => intval($new_radius ?: 250),
+                            'updated_at'     => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
 

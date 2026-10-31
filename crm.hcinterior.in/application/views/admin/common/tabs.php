@@ -125,7 +125,11 @@ if (!empty($active)) {
 
         <?php
         $view = tab_load_view($all_tabs, $active);
-        $this->load->view($view);
+        if (!empty($view)) {
+            $this->load->view($view);
+        } else {
+            echo '<div class="alert alert-danger" style="margin:20px;"><i class="fa fa-lock"></i> Access Denied: You do not have permission to view this tab or it is not available.</div>';
+        }
         ?>
 
     </div>

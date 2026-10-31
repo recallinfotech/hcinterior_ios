@@ -1,3 +1,15 @@
+<?php
+$CI = &get_instance();
+$CI->load->model('payroll_model');
+
+if (!empty($salary_payment_info)) {
+    $uid = $salary_payment_info->user_id;
+    $p_month = $salary_payment_info->payment_month;
+    $slip_data = $CI->payroll_model->get_high_creation_salary_data($uid, $p_month);
+    echo $CI->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data, TRUE);
+    return;
+}
+?>
 <!DOCTYPE html>
 <html>
 <head>

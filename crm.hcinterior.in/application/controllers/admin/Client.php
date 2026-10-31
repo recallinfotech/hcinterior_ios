@@ -109,8 +109,132 @@ class Client extends Admin_Controller
         }
         $data['all_regions'] = $all_regions;
 
+        $can_view_kpi = ($user_type == 1 || check_permission('client_dashboard_kpi', $user_id));
+        $can_view_filters = ($user_type == 1 || check_permission('client_filters', $user_id));
+        $data['can_view_kpi'] = $can_view_kpi;
+        $data['can_view_filters'] = $can_view_filters;
+
+        $is_finance_manager = is_finance_manager($user_id);
+        $data['is_finance_manager'] = $is_finance_manager;
+        $data['can_export_client'] = can_export_client_data($user_id);
+
+        if ($can_view_kpi) {
+            $data['client_stats'] = $this->get_client_summary_stats();
+        } else {
+            $data['client_stats'] = [];
+        }
+
         $data['subview'] = $this->load->view('admin/client/manage_client', $data, TRUE);
         $this->load->view('admin/_layout_main', $data); //page load
+    }
+
+    public function ajax_client_summary_stats()
+    {
+        $user_id = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        $this->load->helper('permission_helper');
+        if ($user_type != 1 && !check_permission('client_dashboard_kpi', $user_id)) {
+            echo json_encode([]);
+            exit;
+        }
+        $stats = $this->get_client_summary_stats();
+        echo json_encode($stats);
+        exit;
+    }
+
+    public function get_client_summary_stats()
+    {
+        $user_id = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        $designation_id = $this->session->userdata('designations_id');
+        $this->load->helper('permission_helper');
+        $has_all_client_perm = check_permission('all_client_list', $user_id);
+        $has_region_client_perm = check_permission('region_wise_client', $user_id);
+        $has_only_assigned_perm = check_permission('only_assigned_client', $user_id);
+
+        $user_assigned_regions = [];
+        $assigned_client_ids = [];
+        $permission_lead_ids = [];
+
+        // Prerequisite Lookups executed BEFORE initializing the main query
+        if ($user_type == 1 || $has_all_client_perm) {
+            // Admin or all_client_list -> all clients
+        } elseif ($has_region_client_perm) {
+            $user_acc_row = $this->db->select('user_region')->where('user_id', $user_id)->get('tbl_account_details')->row();
+            if (!empty($user_acc_row->user_region)) {
+                $raw_parts = explode(',', $user_acc_row->user_region);
+                foreach ($raw_parts as $rp) {
+                    $rp = trim($rp);
+                    if ($rp !== '') $user_assigned_regions[] = $rp;
+                }
+            }
+        } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150, 153])) {
+            $assign_team = $this->db->select('client_id')->where('user_id', $user_id)->get('tbl_client_assign_team')->result();
+            if (!empty($assign_team)) {
+                foreach ($assign_team as $row) {
+                    $assigned_client_ids[] = $row->client_id;
+                }
+            }
+            $perm_leads = $this->db->select('leads_id')->like('permission', '"' . $user_id . '"')->get('tbl_leads')->result_array();
+            if (!empty($perm_leads)) {
+                $permission_lead_ids = array_column($perm_leads, 'leads_id');
+            }
+        }
+
+        $this->db->select("
+            COUNT(*) as total_clients,
+            SUM(CASE WHEN (operation_status IS NULL OR operation_status = '' OR operation_status = 'Unhold' OR operation_status = 'Active') AND (client_hold IS NULL OR client_hold = 0) THEN 1 ELSE 0 END) as active_clients,
+            SUM(CASE WHEN (operation_status = 'Hold' OR client_hold = 1) THEN 1 ELSE 0 END) as hold_clients,
+            SUM(CASE WHEN (operation_status IN ('Completed', 'Closed')) THEN 1 ELSE 0 END) as closed_clients,
+            SUM(CASE WHEN DATE(date_added) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as week_clients,
+            SUM(CASE WHEN YEAR(date_added) = YEAR(CURDATE()) AND MONTH(date_added) = MONTH(CURDATE()) THEN 1 ELSE 0 END) as month_clients,
+            SUM(CASE WHEN DATE(date_added) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as last_30_days_clients
+        ");
+        $this->db->from('tbl_client');
+
+        if ($user_type == 1 || $has_all_client_perm) {
+            // Admin or all_client_list -> all clients
+        } elseif ($has_region_client_perm) {
+            if (!empty($user_assigned_regions)) {
+                $this->db->join('tbl_leads', 'tbl_leads.leads_id = tbl_client.leads_id', 'left');
+                $this->db->group_start();
+                    $this->db->where_in('tbl_leads.region', $user_assigned_regions);
+                    $this->db->or_where_in('tbl_client.lead_region', $user_assigned_regions);
+                $this->db->group_end();
+            } else {
+                $this->db->where('tbl_client.client_id', 0);
+            }
+        } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150,153])) {
+            $this->db->group_start();
+            $has_cond = false;
+            if (!empty($assigned_client_ids)) {
+                $this->db->where_in('tbl_client.client_id', $assigned_client_ids);
+                $has_cond = true;
+            }
+            if (!empty($permission_lead_ids)) {
+                if ($has_cond) {
+                    $this->db->or_where_in('tbl_client.leads_id', $permission_lead_ids);
+                } else {
+                    $this->db->where_in('tbl_client.leads_id', $permission_lead_ids);
+                    $has_cond = true;
+                }
+            }
+            if (!$has_cond) {
+                $this->db->where('tbl_client.client_id', 0);
+            }
+            $this->db->group_end();
+        }
+
+        $row = $this->db->get()->row_array();
+        return [
+            'total_clients'         => intval($row['total_clients'] ?? 0),
+            'active_clients'        => intval($row['active_clients'] ?? 0),
+            'hold_clients'          => intval($row['hold_clients'] ?? 0),
+            'closed_clients'        => intval($row['closed_clients'] ?? 0),
+            'week_clients'          => intval($row['week_clients'] ?? 0),
+            'month_clients'         => intval($row['month_clients'] ?? 0),
+            'last_30_days_clients'  => intval($row['last_30_days_clients'] ?? 0),
+        ];
     }
 
     public function manage_client_factory($id = NULL)
@@ -235,6 +359,21 @@ class Client extends Admin_Controller
         $hand_over_request_date_from = $this->input->get_post('hand_over_request_date_from');
         $hand_over_request_date_to   = $this->input->get_post('hand_over_request_date_to');
 
+        $onboard_date_from = $this->input->get_post('onboard_date_from');
+        $onboard_date_to   = $this->input->get_post('onboard_date_to');
+        $onboard_preset    = $this->input->get_post('onboard_preset');
+
+        if ($onboard_preset == '1_week' || $onboard_preset == '7_days') {
+            $onboard_date_from = date('Y-m-d', strtotime('-7 days'));
+            $onboard_date_to   = date('Y-m-d');
+        } elseif ($onboard_preset == 'this_month') {
+            $onboard_date_from = date('Y-m-01');
+            $onboard_date_to   = date('Y-m-d');
+        } elseif ($onboard_preset == '1_month' || $onboard_preset == '30_days') {
+            $onboard_date_from = date('Y-m-d', strtotime('-30 days'));
+            $onboard_date_to   = date('Y-m-d');
+        }
+
         $operation_status_filter = $this->input->get_post('operation_status_filter');
         $region_filter           = $this->input->get_post('region_filter');
 
@@ -258,7 +397,7 @@ class Client extends Admin_Controller
             $this->datatables->order = array('client_id' => 'desc');
 
             $permission_lead_ids = [];
-            if ($user_type != 1 && !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128,150])) {
+            if ($user_type != 1 && !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128,150, 153])) {
                 $perm_leads = $this->db->select('leads_id')
                     ->like('permission', '"' . $user_id . '"')
                     ->get('tbl_leads')
@@ -280,14 +419,20 @@ class Client extends Admin_Controller
                     $assigned_client_ids[] = $row->client_id;
                 }
             }
+            $assigned_client_ids = array_values(array_unique(array_filter($assigned_client_ids)));
+            $permission_lead_ids = array_values(array_unique(array_filter($permission_lead_ids)));
 
-            $custom_where = [];
+            $base_custom_where = [];
 
             // Check Operation Role permissions
             $this->load->helper('permission_helper');
             $has_all_client_perm     = check_permission('all_client_list', $user_id);
             $has_region_client_perm  = check_permission('region_wise_client', $user_id);
             $has_only_assigned_perm  = check_permission('only_assigned_client', $user_id);
+            $can_view_invoice        = ($user_type == 1) || check_permission('client_invoice_view', $user_id);
+            $can_upload_invoice      = ($user_type == 1) || check_permission('client_invoice_upload', $user_id);
+            $has_invoice_access      = $can_view_invoice || $can_upload_invoice;
+            $is_finance_manager      = is_finance_manager($user_id);
 
             // Fetch user's assigned regions from tbl_account_details
             $user_acc_row = $this->db->select('user_region')
@@ -316,46 +461,64 @@ class Client extends Admin_Controller
                     $this->db->join('tbl_leads', 'tbl_leads.leads_id = tbl_client.leads_id', 'left');
                     $this->db->group_start();
                         $this->db->where_in('tbl_leads.region', $user_assigned_regions);
-                        $this->db->or_group_start();
-                            $this->db->group_start();
-                                $this->db->where('tbl_client.leads_id IS NULL', null, false);
-                                $this->db->or_where('tbl_client.leads_id', 0);
-                            $this->db->group_end();
-                            $this->db->where_in('tbl_client.lead_region', $user_assigned_regions);
-                        $this->db->group_end();
+                        $this->db->or_where_in('tbl_client.lead_region', $user_assigned_regions);
                     $this->db->group_end();
                     $region_clients = $this->db->get()->result_array();
                     $region_cids = !empty($region_clients) ? array_unique(array_column($region_clients, 'client_id')) : [0];
 
-                    $custom_where[] = [
+                    $base_custom_where[] = [
                         'type'  => 'where_in',
                         'field' => 'tbl_client.client_id',
                         'value' => !empty($region_cids) ? $region_cids : [0]
                     ];
                 } else {
                     // No region assigned to user -> show nothing
-                    $custom_where[] = [
+                    $base_custom_where[] = [
                         'type'  => 'where_in',
                         'field' => 'tbl_client.client_id',
                         'value' => [0]
                     ];
                 }
-            } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150])) {
+            } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150, 153])) {
                 // NORMAL USER -> only assigned clients or permitted leads
-                $this->db->group_start();
-                if (!empty($assigned_client_ids)) {
-                    $this->db->where_in('tbl_client.client_id', $assigned_client_ids);
+                if (!empty($assigned_client_ids) && empty($permission_lead_ids)) {
+                    $base_custom_where[] = [
+                        'type'  => 'where_in',
+                        'field' => 'tbl_client.client_id',
+                        'value' => array_values(array_unique(array_map('intval', $assigned_client_ids)))
+                    ];
+                } elseif (empty($assigned_client_ids) && !empty($permission_lead_ids)) {
+                    $base_custom_where[] = [
+                        'type'  => 'where_in',
+                        'field' => 'tbl_client.leads_id',
+                        'value' => array_values(array_unique(array_map('intval', $permission_lead_ids)))
+                    ];
+                } else {
+                    $or_conds = [];
+                    if (!empty($assigned_client_ids)) {
+                        $or_conds[] = "tbl_client.client_id IN (" . implode(',', array_map('intval', $assigned_client_ids)) . ")";
+                    }
+                    if (!empty($permission_lead_ids)) {
+                        $or_conds[] = "tbl_client.leads_id IN (" . implode(',', array_map('intval', $permission_lead_ids)) . ")";
+                    }
+                    if (!empty($or_conds)) {
+                        $base_custom_where[] = [
+                            'type'      => 'where_raw',
+                            'condition' => '(' . implode(' OR ', $or_conds) . ')'
+                        ];
+                    } else {
+                        $base_custom_where[] = [
+                            'type'  => 'where',
+                            'field' => 'tbl_client.client_id',
+                            'value' => 0
+                        ];
+                    }
                 }
-                if (!empty($permission_lead_ids)) {
-                    $this->db->or_where_in('tbl_client.leads_id', $permission_lead_ids);
-                }
-                if (empty($assigned_client_ids) && empty($permission_lead_ids)) {
-                    $this->db->where('tbl_client.client_id', 0);
-                }
-                $this->db->group_end();
             } else {
                 // Legacy designation bypass
             }
+
+            $custom_where = $base_custom_where;
 
             // Helper closure for timeline ranges
             $filter_timeline_range_fn = function ($table_field, $from, $to, $db) {
@@ -551,13 +714,47 @@ class Client extends Admin_Controller
                 ];
             }
 
-            // Operation status filter
-            if (!empty($operation_status_filter)) {
+            // Onboard date filters (date_added)
+            if (!empty($onboard_date_from)) {
                 $custom_where[] = [
                     'type'  => 'where',
-                    'field' => 'tbl_client.operation_status',
-                    'value' => $operation_status_filter
+                    'field' => 'DATE(tbl_client.date_added) >=',
+                    'value' => $onboard_date_from
                 ];
+            }
+            if (!empty($onboard_date_to)) {
+                $custom_where[] = [
+                    'type'  => 'where',
+                    'field' => 'DATE(tbl_client.date_added) <=',
+                    'value' => $onboard_date_to
+                ];
+            }
+
+            // Operation status filter
+            if (!empty($operation_status_filter)) {
+                if (strcasecmp($operation_status_filter, 'Active') === 0) {
+                    $custom_where[] = [
+                        'type'      => 'where_raw',
+                        'condition' => "((tbl_client.operation_status IS NULL OR tbl_client.operation_status = '' OR tbl_client.operation_status = 'Unhold' OR tbl_client.operation_status = 'Active') AND (tbl_client.client_hold IS NULL OR tbl_client.client_hold = 0))"
+                    ];
+                } elseif (strcasecmp($operation_status_filter, 'Hold') === 0) {
+                    $custom_where[] = [
+                        'type'      => 'where_raw',
+                        'condition' => "(tbl_client.operation_status = 'Hold' OR tbl_client.client_hold = 1)"
+                    ];
+                } elseif (strcasecmp($operation_status_filter, 'Closed') === 0 || strcasecmp($operation_status_filter, 'Completed') === 0) {
+                    $custom_where[] = [
+                        'type'  => 'where_in',
+                        'field' => 'tbl_client.operation_status',
+                        'value' => ['Completed', 'Closed']
+                    ];
+                } else {
+                    $custom_where[] = [
+                        'type'  => 'where',
+                        'field' => 'tbl_client.operation_status',
+                        'value' => $operation_status_filter
+                    ];
+                }
             }
 
             // Region filter
@@ -567,13 +764,7 @@ class Client extends Admin_Controller
                 $this->db->join('tbl_leads', 'tbl_leads.leads_id = tbl_client.leads_id', 'left');
                 $this->db->group_start();
                     $this->db->where('tbl_leads.region', $region_filter);
-                    $this->db->or_group_start();
-                        $this->db->group_start();
-                            $this->db->where('tbl_client.leads_id IS NULL', null, false);
-                            $this->db->or_where('tbl_client.leads_id', 0);
-                        $this->db->group_end();
-                        $this->db->where('tbl_client.lead_region', $region_filter);
-                    $this->db->group_end();
+                    $this->db->or_where('tbl_client.lead_region', $region_filter);
                 $this->db->group_end();
                 $matching_clients = $this->db->get()->result_array();
                 $matching_cids = !empty($matching_clients) ? array_unique(array_column($matching_clients, 'client_id')) : [0];
@@ -851,6 +1042,8 @@ class Client extends Admin_Controller
                             ? min(100, round(($total_paid / $freeze_boq_calc) * 100, 2))
                             : 0;
 
+                        $balance_amount = ($freeze_boq_calc > $total_paid) ? ($freeze_boq_calc - $total_paid) : 0;
+
                         $advanceStatus    = ($clean_amount_received > 0) ? 'Done' : 'Pending';
                         $designerStatus   = !empty($task_status_map[$cid]['designer_site_visit_date']) ? 'Done' : 'Pending';
                         $siteStartStatus  = !empty($task_status_map[$cid]['site_start_date']) ? 'Done' : 'Pending';
@@ -899,6 +1092,19 @@ class Client extends Admin_Controller
                             $textClass = 'text-success';
                         }
 
+                        $inv_btn_cell = '';
+                        if ($has_invoice_access) {
+                            $inv_btn_cell = '
+<button type="button" class="btn btn-xs btn-default client_invoice_modal_btn" 
+    data-client-id="' . $cid . '" 
+    data-client-name="' . html_escape($client_name) . '" 
+    data-client-sr-id="' . html_escape($client_details->client_sr_id) . '" 
+    title="Invoices" 
+    style="margin-top:3px; padding:1px 6px; font-size:10px; border-color:#cbd5e1; color:#0284c7; background:#f8fafc; border-radius:3px; display:inline-block;">
+    <i class="fa fa-file-text-o"></i> Invoices
+</button>';
+                        }
+
                         $sub_array[] = '
 <b class="' . $textClass . '">₹' . number_format($total_paid, 0) . '</b>
 <br>
@@ -908,11 +1114,16 @@ class Client extends Admin_Controller
          style="width:' . $payment_percentage . '%">
     </div>
 </div>
-<small>' . $payment_percentage . '% Paid</small>';
+<small>' . $payment_percentage . '% Paid</small>
+<div style="margin-top:2px; font-size:11px; line-height:1.2;">
+    <span style="color:#64748b; font-weight:600;">Bal:</span> <b class="text-danger" style="font-size:11px;">₹' . number_format($balance_amount, 0) . '</b>
+</div>' . $inv_btn_cell;
                     }
                 }
 
-                $sub_array[] = $client_details->sales_person_name;
+                if (empty($is_finance_manager)) {
+                    $sub_array[] = $client_details->sales_person_name;
+                }
 
                 // Assigned Team HTML
                 $assign_team_html = '';
@@ -934,7 +1145,9 @@ class Client extends Admin_Controller
                 } else {
                     $assign_team_html = '-';
                 }
-                $sub_array[] = $assign_team_html;
+                if (empty($is_finance_manager)) {
+                    $sub_array[] = $assign_team_html;
+                }
 
                 // Hand Over Request Status
                 $status = $client_details->hand_over_request_status;
@@ -961,7 +1174,9 @@ class Client extends Admin_Controller
                     $formatted_date = 'NA';
                 }
 
-                $sub_array[] = $status_html . '<br> Date : ' . $formatted_date;
+                if (empty($is_finance_manager)) {
+                    $sub_array[] = $status_html . '<br> Date : ' . $formatted_date;
+                }
 
                 // Actions
                 $action .= btn_view('admin/client/details/' . $client_details->client_id) . ' ';
@@ -987,6 +1202,19 @@ class Client extends Admin_Controller
     title="Escalation">
     <i class="fa fa-exclamation-triangle"></i>
 </button>';
+
+                if ($has_invoice_access) {
+                    $action .= '
+<button
+    type="button"
+    class="btn btn-xs btn-warning client_invoice_modal_btn"
+    data-client-id="' . $client_details->client_id . '"
+    data-client-name="' . html_escape($client_name) . '"
+    data-client-sr-id="' . html_escape($client_details->client_sr_id) . '"
+    title="Invoices">
+    <i class="fa fa-file-text-o"></i>
+</button> ';
+                }
 
                 if (empty($ho_status) || $ho_status == 'Reject') {
                     $action .= '
@@ -1152,17 +1380,24 @@ class Client extends Admin_Controller
                     $phase_html .= '<br><span class="label label-danger" style="margin-top:4px; display:inline-block; font-size:10px; padding:3px 6px;"><i class="fa fa-clock-o"></i> Delay: ' . $client_total_delay_days . ' ' . (($client_total_delay_days == 1) ? 'Day' : 'Days') . '</span>';
                 }
 
-                $sub_array[] = $phase_html;
+                if (empty($is_finance_manager)) {
+                    $sub_array[] = $phase_html;
+                }
                 $sub_array[] = $action;
                 $data[] = $sub_array;
             }
 
+            $records_total = !empty($base_custom_where)
+                ? $this->datatables->count_filtered_custom($where, null, $base_custom_where)
+                : $this->datatables->get_all_data($where);
+
             $output = array(
                 "draw" => intval($_POST["draw"] ?? 1),
-                "recordsTotal" => $this->datatables->get_all_data($where),
+                "recordsTotal" => $records_total,
                 "recordsFiltered" => $this->datatables
                     ->count_filtered_custom($where, null, $custom_where),
-                "data" => $data
+                "data" => $data,
+                "stats" => $this->get_client_summary_stats()
             );
 
             echo json_encode($output);
@@ -1170,6 +1405,851 @@ class Client extends Admin_Controller
         } else {
             redirect('admin/dashboard');
         }
+    }
+
+    /**
+     * Fetch filtered clients data without pagination limit for Excel and PDF exports
+     */
+    private function get_filtered_clients_data()
+    {
+        $kt_meeting_from = $this->input->get_post('kt_meeting_from');
+        $kt_meeting_to   = $this->input->get_post('kt_meeting_to');
+
+        $site_validation_from = $this->input->get_post('site_validation_from');
+        $site_validation_to   = $this->input->get_post('site_validation_to');
+
+        $dispatch_date_from = $this->input->get_post('dispatch_date_from');
+        $dispatch_date_to   = $this->input->get_post('dispatch_date_to');
+
+        $site_start_date_from = $this->input->get_post('site_start_date_from');
+        $site_start_date_to   = $this->input->get_post('site_start_date_to');
+
+        $hand_over_request_date_from = $this->input->get_post('hand_over_request_date_from');
+        $hand_over_request_date_to   = $this->input->get_post('hand_over_request_date_to');
+
+        $onboard_date_from = $this->input->get_post('onboard_date_from');
+        $onboard_date_to   = $this->input->get_post('onboard_date_to');
+        $onboard_preset    = $this->input->get_post('onboard_preset');
+
+        if ($onboard_preset == '1_week' || $onboard_preset == '7_days') {
+            $onboard_date_from = date('Y-m-d', strtotime('-7 days'));
+            $onboard_date_to   = date('Y-m-d');
+        } elseif ($onboard_preset == 'this_month') {
+            $onboard_date_from = date('Y-m-01');
+            $onboard_date_to   = date('Y-m-d');
+        } elseif ($onboard_preset == '1_month' || $onboard_preset == '30_days') {
+            $onboard_date_from = date('Y-m-d', strtotime('-30 days'));
+            $onboard_date_to   = date('Y-m-d');
+        }
+
+        $operation_status_filter = $this->input->get_post('operation_status_filter');
+        $region_filter           = $this->input->get_post('region_filter');
+        $assign_user_id          = $this->input->get_post('assign_user_id');
+        $payment_filter          = $this->input->get_post('payment_filter');
+        $search                  = trim($this->input->get_post('search') ?? '');
+
+        $user_id        = $this->session->userdata('user_id');
+        $user_type      = $this->session->userdata('user_type');
+        $designation_id = $this->session->userdata('designations_id');
+
+        $this->load->helper('permission_helper');
+        $has_all_client_perm     = check_permission('all_client_list', $user_id);
+        $has_region_client_perm  = check_permission('region_wise_client', $user_id);
+        $has_only_assigned_perm  = check_permission('only_assigned_client', $user_id);
+
+        $filter_descriptions = [];
+
+        // 1. Resolve Permissions Lookups
+        $user_assigned_regions = [];
+        $assigned_client_ids = [];
+        $permission_lead_ids = [];
+
+        if ($user_type == 1 || $has_all_client_perm) {
+            // Admin or all_client_list
+        } elseif ($has_region_client_perm) {
+            $user_acc_row = $this->db->select('user_region')->where('user_id', $user_id)->get('tbl_account_details')->row();
+            if (!empty($user_acc_row->user_region)) {
+                $raw_parts = explode(',', $user_acc_row->user_region);
+                foreach ($raw_parts as $rp) {
+                    $rp = trim($rp);
+                    if ($rp !== '') $user_assigned_regions[] = $rp;
+                }
+            }
+        } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150, 153])) {
+            $assign_team = $this->db->select('client_id')->where('user_id', $user_id)->get('tbl_client_assign_team')->result();
+            if (!empty($assign_team)) {
+                foreach ($assign_team as $row) {
+                    $assigned_client_ids[] = $row->client_id;
+                }
+            }
+            $perm_leads = $this->db->select('leads_id')->like('permission', '"' . $user_id . '"')->get('tbl_leads')->result_array();
+            if (!empty($perm_leads)) {
+                $permission_lead_ids = array_column($perm_leads, 'leads_id');
+            }
+        }
+
+        // 2. Assign user filter lookup
+        $filtered_assign_user_cids = null;
+        if (!empty($assign_user_id)) {
+            $u_row = $this->db->select('fullname')->where('user_id', $assign_user_id)->get('tbl_account_details')->row();
+            if ($u_row) $filter_descriptions[] = 'Assigned User: ' . $u_row->fullname;
+            $filtered_cids = $this->db->select('client_id')->where('user_id', $assign_user_id)->get('tbl_client_assign_team')->result_array();
+            $filtered_assign_user_cids = !empty($filtered_cids) ? array_unique(array_column($filtered_cids, 'client_id')) : [0];
+        }
+
+        // 3. Helper closure for timeline ranges
+        $filter_timeline_range_fn = function ($table_field, $from, $to, $db) {
+            if (empty($from) || empty($to)) return [];
+            $rows = $db->select('client_id, ' . $table_field)->get('timeline_manual_dates')->result();
+            $client_ids = [];
+            foreach ($rows as $row) {
+                $value = $row->$table_field;
+                if (empty($value)) continue;
+                $dates = (strpos($value, ' - ') !== false) ? explode(' - ', $value) : [$value];
+                foreach ($dates as $single_date) {
+                    $single_date = trim($single_date);
+                    $date = DateTime::createFromFormat('d-m-Y', $single_date);
+                    if (!$date) continue;
+                    $current = $date->format('Y-m-d');
+                    if ($current >= $from && $current <= $to) {
+                        $client_ids[] = $row->client_id;
+                        break;
+                    }
+                }
+            }
+            return array_unique($client_ids);
+        };
+
+        // Site validation filter lookup
+        $filtered_site_val_cids = null;
+        if (!empty($site_validation_from) && !empty($site_validation_to)) {
+            $cids = $filter_timeline_range_fn('site_validation', $site_validation_from, $site_validation_to, $this->db);
+            $filtered_site_val_cids = !empty($cids) ? $cids : [0];
+            $filter_descriptions[] = 'Site Validation: ' . $site_validation_from . ' to ' . $site_validation_to;
+        }
+
+        // Dispatch date filter lookup
+        $filtered_dispatch_cids = null;
+        if (!empty($dispatch_date_from) && !empty($dispatch_date_to)) {
+            $filtered_cids = $this->db->select('client_id')->where('request_type', 'dispatch')->where('DATE(request_date) >=', $dispatch_date_from)->where('DATE(request_date) <=', $dispatch_date_to)->get('tbl_client_service_request')->result_array();
+            $cids = array_unique(array_column($filtered_cids, 'client_id'));
+            $filtered_dispatch_cids = !empty($cids) ? $cids : [0];
+            $filter_descriptions[] = 'Dispatch: ' . $dispatch_date_from . ' to ' . $dispatch_date_to;
+        }
+
+        // Site start filter lookup
+        $filtered_site_start_cids = null;
+        if (!empty($site_start_date_from) && !empty($site_start_date_to)) {
+            $cids = $filter_timeline_range_fn('site_start_date', $site_start_date_from, $site_start_date_to, $this->db);
+            $filtered_site_start_cids = !empty($cids) ? $cids : [0];
+            $filter_descriptions[] = 'Site Start: ' . $site_start_date_from . ' to ' . $site_start_date_to;
+        }
+
+        // KT meeting filter lookup
+        $filtered_kt_cids = null;
+        if (!empty($kt_meeting_from) && !empty($kt_meeting_to)) {
+            $filtered_cids = $this->db->select('client_id')->where('task_name', 'KT meetings done')->where('start_date >=', $kt_meeting_from)->where('start_date <=', $kt_meeting_to)->get('tbl_client_timeline')->result_array();
+            $cids = array_unique(array_column($filtered_cids, 'client_id'));
+            $filtered_kt_cids = !empty($cids) ? $cids : [0];
+            $filter_descriptions[] = 'KT Meeting: ' . $kt_meeting_from . ' to ' . $kt_meeting_to;
+        }
+
+        // Payment filter lookup
+        $filtered_payment_cids = null;
+        if (in_array($payment_filter, ['red', 'green'])) {
+            $filter_descriptions[] = 'Payment: ' . ucfirst($payment_filter);
+            $all_clients = $this->db->select('client_id, leads_id, amount_received, payment_plan')->get('tbl_client')->result();
+            $all_cids = array_column($all_clients, 'client_id');
+            $all_lids = array_filter(array_column($all_clients, 'leads_id'));
+
+            $all_payments = [];
+            if (!empty($all_cids)) {
+                $pr = $this->db->select('client_id, SUM(paid_amount) as total_paid')->where_in('client_id', $all_cids)->group_by('client_id')->get('tbl_client_payment_record')->result();
+                foreach ($pr as $row) {
+                    $all_payments[$row->client_id] = $row->total_paid;
+                }
+            }
+
+            $all_proposals = [];
+            if (!empty($all_lids)) {
+                $prp = $this->db->select('id, lead_id, totalToBePaid')->where_in('lead_id', $all_lids)->order_by('id', 'ASC')->get('proposals')->result();
+                foreach ($prp as $row) {
+                    $all_proposals[$row->lead_id] = $row->totalToBePaid;
+                }
+            }
+
+            $all_tasks = [];
+            if (!empty($all_cids)) {
+                $tsks = $this->db->select('client_id, task_name, status')->where_in('client_id', $all_cids)->where_in('task_name', ['designer_site_visit_date', 'site_start_date', 'site_validation', 'dispatch_date'])->get('timeline_task_status')->result();
+                foreach ($tsks as $row) {
+                    $all_tasks[$row->client_id][$row->task_name] = ($row->status == 'Done');
+                }
+            }
+
+            $matching_client_ids = [];
+            foreach ($all_clients as $cl) {
+                $cid = $cl->client_id;
+                $lid = $cl->leads_id;
+                $total_paid = isset($all_payments[$cid]) && $all_payments[$cid] > 0 ? $all_payments[$cid] : (!empty($cl->amount_received) ? $cl->amount_received : 0);
+                $freeze_boq_amt = isset($all_proposals[$lid]) ? $all_proposals[$lid] : 0;
+                $payment_pct = ($freeze_boq_amt > 0) ? min(100, round(($total_paid / $freeze_boq_amt) * 100, 2)) : 0;
+
+                $advStatus = (!empty($cl->amount_received) && $cl->amount_received > 0) ? 'Done' : 'Pending';
+                $dsgStatus = !empty($all_tasks[$cid]['designer_site_visit_date']) ? 'Done' : 'Pending';
+                $stStatus  = !empty($all_tasks[$cid]['site_start_date']) ? 'Done' : 'Pending';
+                $valStatus = !empty($all_tasks[$cid]['site_validation']) ? 'Done' : 'Pending';
+                $dspStatus = !empty($all_tasks[$cid]['dispatch_date']) ? 'Done' : 'Pending';
+
+                $plan = trim($cl->payment_plan ?? '');
+                $reqPercent = 0;
+                if (in_array($plan, ['Plan 1', 'Plan 3'])) {
+                    if ($advStatus == 'Done') $reqPercent = 10;
+                    if ($dsgStatus == 'Done') $reqPercent = 20;
+                    if ($stStatus == 'Done') $reqPercent = 40;
+                    if ($valStatus == 'Done') $reqPercent = 80;
+                    if ($dspStatus == 'Done') $reqPercent = 100;
+                } elseif ($plan == 'Plan 2') {
+                    if ($advStatus == 'Done') $reqPercent = 10;
+                    if ($dsgStatus == 'Done') $reqPercent = 20;
+                    if ($valStatus == 'Done') $reqPercent = 60;
+                    if ($dspStatus == 'Done') $reqPercent = 100;
+                }
+
+                if (($payment_filter == 'red' && $payment_pct > $reqPercent) || ($payment_filter == 'green' && $payment_pct <= $reqPercent)) {
+                    $matching_client_ids[] = $cid;
+                }
+            }
+
+            $filtered_payment_cids = !empty($matching_client_ids) ? $matching_client_ids : [0];
+        }
+
+        // =========================================================================
+        // NOW BUILD AND EXECUTE THE MAIN EXPORT QUERY
+        // =========================================================================
+        $this->db->select('
+            tbl_client.*,
+            tbl_customer_group.customer_group,
+            tbl_account_details.fullname as primary_contact_name,
+            tbl_leads.region as lead_region_from_leads
+        ');
+        $this->db->from('tbl_client');
+        $this->db->join('tbl_customer_group', 'tbl_customer_group.customer_group_id = tbl_client.customer_group_id', 'left');
+        $this->db->join('tbl_account_details', 'tbl_account_details.user_id = tbl_client.primary_contact', 'left');
+        $this->db->join('tbl_leads', 'tbl_leads.leads_id = tbl_client.leads_id', 'left');
+
+        // Apply Permissions
+        if ($user_type == 1 || $has_all_client_perm) {
+            // Admin or all_client_list
+        } elseif ($has_region_client_perm) {
+            if (!empty($user_assigned_regions)) {
+                $this->db->group_start();
+                    $this->db->where_in('tbl_leads.region', $user_assigned_regions);
+                    $this->db->or_where_in('tbl_client.lead_region', $user_assigned_regions);
+                $this->db->group_end();
+            } else {
+                $this->db->where('tbl_client.client_id', 0);
+            }
+        } elseif ($has_only_assigned_perm || !in_array($designation_id, [45, 39, 76, 71, 72, 77, 128, 150, 153])) {
+            $this->db->group_start();
+            $has_cond = false;
+            if (!empty($assigned_client_ids)) {
+                $this->db->where_in('tbl_client.client_id', $assigned_client_ids);
+                $has_cond = true;
+            }
+            if (!empty($permission_lead_ids)) {
+                if ($has_cond) {
+                    $this->db->or_where_in('tbl_client.leads_id', $permission_lead_ids);
+                } else {
+                    $this->db->where_in('tbl_client.leads_id', $permission_lead_ids);
+                    $has_cond = true;
+                }
+            }
+            if (!$has_cond) {
+                $this->db->where('tbl_client.client_id', 0);
+            }
+            $this->db->group_end();
+        }
+
+        // Onboard date filters
+        if (!empty($onboard_date_from)) {
+            $this->db->where('DATE(tbl_client.date_added) >=', $onboard_date_from);
+            $filter_descriptions[] = 'From: ' . date('d-m-Y', strtotime($onboard_date_from));
+        }
+        if (!empty($onboard_date_to)) {
+            $this->db->where('DATE(tbl_client.date_added) <=', $onboard_date_to);
+            $filter_descriptions[] = 'To: ' . date('d-m-Y', strtotime($onboard_date_to));
+        }
+
+        // Operation status filter
+        if (!empty($operation_status_filter)) {
+            $filter_descriptions[] = 'Status: ' . $operation_status_filter;
+            if (strcasecmp($operation_status_filter, 'Active') === 0) {
+                $this->db->where("((tbl_client.operation_status IS NULL OR tbl_client.operation_status = '' OR tbl_client.operation_status = 'Unhold' OR tbl_client.operation_status = 'Active') AND (tbl_client.client_hold IS NULL OR tbl_client.client_hold = 0))", null, false);
+            } elseif (strcasecmp($operation_status_filter, 'Hold') === 0) {
+                $this->db->where("(tbl_client.operation_status = 'Hold' OR tbl_client.client_hold = 1)", null, false);
+            } elseif (strcasecmp($operation_status_filter, 'Closed') === 0 || strcasecmp($operation_status_filter, 'Completed') === 0) {
+                $this->db->where_in('tbl_client.operation_status', ['Completed', 'Closed']);
+            } else {
+                $this->db->where('tbl_client.operation_status', $operation_status_filter);
+            }
+        }
+
+        // Region filter
+        if (!empty($region_filter)) {
+            $filter_descriptions[] = 'Region: ' . $region_filter;
+            $this->db->group_start();
+                $this->db->where('tbl_leads.region', $region_filter);
+                $this->db->or_where('tbl_client.lead_region', $region_filter);
+            $this->db->group_end();
+        }
+
+        // Assign user filter
+        if ($filtered_assign_user_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_assign_user_cids);
+        }
+
+        // Site validation filter
+        if ($filtered_site_val_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_site_val_cids);
+        }
+
+        // Dispatch date filter
+        if ($filtered_dispatch_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_dispatch_cids);
+        }
+
+        // Site start filter
+        if ($filtered_site_start_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_site_start_cids);
+        }
+
+        // Handover date filter
+        if (!empty($hand_over_request_date_from)) {
+            $this->db->where('tbl_client.hand_over_request_date >=', $hand_over_request_date_from);
+            $filter_descriptions[] = 'Handover From: ' . $hand_over_request_date_from;
+        }
+        if (!empty($hand_over_request_date_to)) {
+            $this->db->where('tbl_client.hand_over_request_date <=', $hand_over_request_date_to);
+            $filter_descriptions[] = 'Handover To: ' . $hand_over_request_date_to;
+        }
+
+        // KT meeting filter
+        if ($filtered_kt_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_kt_cids);
+        }
+
+        // Payment filter
+        if ($filtered_payment_cids !== null) {
+            $this->db->where_in('tbl_client.client_id', $filtered_payment_cids);
+        }
+
+        // Search term
+        if (!empty($search)) {
+            $filter_descriptions[] = 'Search: "' . $search . '"';
+            $this->db->group_start();
+            $this->db->like('tbl_client.name', $search);
+            $this->db->or_like('tbl_client.client_sr_id', $search);
+            $this->db->or_like('tbl_client.mobile', $search);
+            $this->db->or_like('tbl_client.email', $search);
+            $this->db->or_like('tbl_client.sales_manage_name', $search);
+            $this->db->group_end();
+        }
+
+        $this->db->order_by('tbl_client.client_id', 'DESC');
+        $fetch_data = $this->db->get()->result();
+
+        // High performance batch preloading
+        $batch_client_ids = [];
+        $batch_leads_ids  = [];
+        foreach ($fetch_data as $row) {
+            $batch_client_ids[] = $row->client_id;
+            if (!empty($row->leads_id)) {
+                $batch_leads_ids[] = $row->leads_id;
+            }
+        }
+        $batch_client_ids = array_unique($batch_client_ids);
+        $batch_leads_ids  = array_unique($batch_leads_ids);
+
+        // 1. Proposals Map
+        $proposals_map = [];
+        if (!empty($batch_leads_ids)) {
+            $pr_res = $this->db->select('id, lead_id, totalToBePaid, grand_total')->where_in('lead_id', $batch_leads_ids)->order_by('id', 'ASC')->get('proposals')->result();
+            foreach ($pr_res as $pr) {
+                $proposals_map[$pr->lead_id] = $pr;
+            }
+        }
+
+        // 2. Payments Map
+        $payments_map = [];
+        if (!empty($batch_client_ids)) {
+            $pay_res = $this->db->select('client_id, SUM(paid_amount) as total_paid')->where_in('client_id', $batch_client_ids)->group_by('client_id')->get('tbl_client_payment_record')->result();
+            foreach ($pay_res as $pay) {
+                $payments_map[$pay->client_id] = $pay->total_paid;
+            }
+        }
+
+        // 3. Assign Team Map
+        $assign_team_map = [];
+        if (!empty($batch_client_ids)) {
+            $atm_res = $this->db
+                ->select('tbl_client_assign_team.client_id, tbl_client_assign_team.member_profile, tbl_account_details.fullname')
+                ->join('tbl_account_details', 'tbl_account_details.user_id = tbl_client_assign_team.user_id', 'left')
+                ->where_in('tbl_client_assign_team.client_id', $batch_client_ids)
+                ->where_in('tbl_client_assign_team.member_profile', ['Designer', 'Project Manager', 'Supervisor'])
+                ->get('tbl_client_assign_team')
+                ->result();
+            foreach ($atm_res as $atm) {
+                if (!empty($atm->fullname)) {
+                    $assign_team_map[$atm->client_id][$atm->member_profile][] = $atm->fullname;
+                }
+            }
+        }
+
+        // 4. Task Statuses Map
+        $task_status_map = [];
+        $task_status_full_map = [];
+        if (!empty($batch_client_ids)) {
+            $tsk_res = $this->db->select('client_id, task_name, status, task_date, delay_days, completed_at')->where_in('client_id', $batch_client_ids)->get('timeline_task_status')->result();
+            foreach ($tsk_res as $tsk) {
+                $task_status_map[$tsk->client_id][$tsk->task_name] = ($tsk->status == 'Done') ? 1 : 0;
+                $task_status_full_map[$tsk->client_id][$tsk->task_name] = $tsk;
+            }
+        }
+
+        $timeline_task_columns = [
+            'designer_site_visit_date', 'site_start_date', 'factory_start_date', 'design_presentation',
+            'design_finalization', 'wall_design', 'material_selection', 'three_d_design',
+            'site_validation', 'washroom_plumbing', 'correction_drawing', 'production_drawing',
+            'dispatch_date', 'mom_checklist', 'wall_electrical_drawing'
+        ];
+
+        // 5. Timeline Manual Dates Map
+        $timeline_dates_map = [];
+        if (!empty($batch_client_ids)) {
+            $tmd_res = $this->db->where_in('client_id', $batch_client_ids)->get('timeline_manual_dates')->result();
+            foreach ($tmd_res as $tmd) {
+                $timeline_dates_map[$tmd->client_id] = $tmd;
+            }
+        }
+
+        // 6. 2D Designs Map & Counts
+        $two_d_design_map = [];
+        $two_d_counts = [];
+        if (!empty($batch_client_ids)) {
+            $d2_res = $this->db->select('client_id, design_type, is_final, status')->where_in('client_id', $batch_client_ids)->get('tbl_client_two_d_design')->result();
+            foreach ($d2_res as $d2) {
+                $two_d_counts[$d2->client_id] = ($two_d_counts[$d2->client_id] ?? 0) + 1;
+                if ($d2->design_type == 'Modular Design' && $d2->is_final == 1 && $d2->status == 'Approved') {
+                    $two_d_design_map[$d2->client_id] = true;
+                }
+            }
+        }
+
+        // 7. Validation Files Map
+        $validation_map = [];
+        if (!empty($batch_client_ids)) {
+            $vf_res = $this->db->select('client_id, validation_checklist, manual_correction_file')->where_in('client_id', $batch_client_ids)->get('tbl_client_validation_files')->result();
+            foreach ($vf_res as $vf) {
+                $validation_map[$vf->client_id] = $vf;
+            }
+        }
+
+        // 8. Service Requests Map
+        $service_req_map = [];
+        if (!empty($batch_client_ids)) {
+            $sr_res = $this->db->select('client_id, request_type')->where_in('client_id', $batch_client_ids)->where_in('request_type', ['3d Design', 'bom'])->get('tbl_client_service_request')->result();
+            foreach ($sr_res as $sr) {
+                $service_req_map[$sr->client_id][$sr->request_type] = true;
+            }
+        }
+
+        // Process formatted rows
+        $processed_clients = [];
+        foreach ($fetch_data as $client) {
+            $cid = $client->client_id;
+            $lid = $client->leads_id;
+
+            // Freeze BOQ Amount
+            $freeze_boq = 0;
+            if (!empty($lid) && isset($proposals_map[$lid])) {
+                $freeze_boq = $proposals_map[$lid]->totalToBePaid;
+            } elseif (!empty($client->freeze_boq_amount)) {
+                $freeze_boq = $client->freeze_boq_amount;
+            }
+
+            // Amount Received
+            $raw_amt = !empty($client->amount_received) ? str_replace(',', '', (string)$client->amount_received) : 0;
+            $total_paid = isset($payments_map[$cid]) && $payments_map[$cid] > 0 ? $payments_map[$cid] : floatval($raw_amt);
+
+            // Region
+            $region = !empty($client->lead_region_from_leads) ? trim($client->lead_region_from_leads) : (!empty($client->lead_region) ? trim($client->lead_region) : '-');
+
+            // Operation Status
+            $op_status = !empty($client->operation_status) ? trim($client->operation_status) : ((!empty($client->client_hold) && $client->client_hold == 1) ? 'Hold' : 'Active');
+
+            // Assign Team
+            $designer = isset($assign_team_map[$cid]['Designer']) ? implode(', ', array_unique($assign_team_map[$cid]['Designer'])) : '-';
+            $pm       = isset($assign_team_map[$cid]['Project Manager']) ? implode(', ', array_unique($assign_team_map[$cid]['Project Manager'])) : '-';
+            $sup      = isset($assign_team_map[$cid]['Supervisor']) ? implode(', ', array_unique($assign_team_map[$cid]['Supervisor'])) : '-';
+
+            // Phase calculation
+            $validation_checklist_status = (
+                !empty($validation_map[$cid]) &&
+                !empty($validation_map[$cid]->validation_checklist) &&
+                !empty($validation_map[$cid]->manual_correction_file)
+            ) ? 1 : 0;
+
+            $handover_status = ($client->go_ahead == 'Done') ? 1 : 0;
+
+            $tracker = [
+                'Civil Drawing'       => !empty($two_d_counts[$cid]) ? 1 : 0,
+                'Design Finalization' => !empty($task_status_map[$cid]['design_finalization']) ? 1 : 0,
+                'Material Selection'  => !empty($task_status_map[$cid]['material_selection']) ? 1 : 0,
+                '3D'                  => !empty($service_req_map[$cid]['3d Design']) ? 1 : 0,
+                'Validation'          => $validation_checklist_status,
+                'Wall Electrical'     => !empty($task_status_map[$cid]['wall_electrical_drawing']) ? 1 : 0,
+                'Production File'     => !empty($two_d_design_map[$cid]) ? 1 : 0,
+                'Site Start'          => !empty($task_status_map[$cid]['site_start_date']) ? 1 : 0,
+                'BOM'                 => !empty($service_req_map[$cid]['bom']) ? 1 : 0,
+                'Dispatch'            => !empty($task_status_map[$cid]['dispatch_date']) ? 1 : 0,
+                'Handover'            => $handover_status,
+            ];
+
+            $phases = [
+                1 => ['Civil Drawing', 'Design Finalization', 'Material Selection', '3D', 'Validation', 'Wall Electrical', 'Production File'],
+                2 => ['Site Start'],
+                3 => ['BOM', 'Dispatch'],
+                4 => ['Handover']
+            ];
+
+            $currentPhase = 1;
+            foreach ($phases as $phaseNo => $items) {
+                $complete = true;
+                foreach ($items as $item) {
+                    if (empty($tracker[$item])) {
+                        $complete = false;
+                        $currentPhase = $phaseNo;
+                        break;
+                    }
+                }
+                if (!$complete) break;
+                $currentPhase = 4;
+            }
+
+            // Total delay
+            $client_total_delay_days = 0;
+            $t_manual = $timeline_dates_map[$cid] ?? null;
+            $c_tasks = $task_status_full_map[$cid] ?? [];
+            $all_c_keys = array_unique(array_merge($timeline_task_columns, array_keys($c_tasks)));
+
+            foreach ($all_c_keys as $col_key) {
+                $raw_task_date = (!empty($t_manual) && isset($t_manual->$col_key) && !empty($t_manual->$col_key))
+                    ? trim($t_manual->$col_key)
+                    : (!empty($c_tasks[$col_key]->task_date) ? trim($c_tasks[$col_key]->task_date) : '');
+
+                $is_valid_date = false;
+                $target_date_str = '';
+                if (!empty($raw_task_date)) {
+                    if (preg_match_all('/\b\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}\b/', $raw_task_date, $matches) && !empty($matches[0])) {
+                        $target_date_str = end($matches[0]);
+                    } else {
+                        $target_date_str = trim($raw_task_date);
+                    }
+                    $ts_target = strtotime($target_date_str);
+                    if ($ts_target !== false && $ts_target > 0 && (int)date('Y', $ts_target) > 2000) {
+                        $is_valid_date = true;
+                    }
+                }
+
+                $status_row = $c_tasks[$col_key] ?? null;
+                $is_done = (!empty($status_row) && $status_row->status == 'Done');
+                $completed_at = ($is_done && !empty($status_row->completed_at) && $status_row->completed_at != '0000-00-00 00:00:00') ? $status_row->completed_at : null;
+
+                if ($is_done) {
+                    $delay_days = null;
+                    if ($status_row->delay_days !== null && $status_row->delay_days !== '') {
+                        $delay_days = (int)$status_row->delay_days;
+                    } elseif ($is_valid_date && !empty($completed_at)) {
+                        $date_target = new DateTime(date('Y-m-d', strtotime($target_date_str)));
+                        $date_completed = new DateTime(date('Y-m-d', strtotime($completed_at)));
+                        $diff = $date_target->diff($date_completed);
+                        $delay_days = (int)$diff->format('%r%a');
+                    }
+                    if ($delay_days !== null && $delay_days > 0) {
+                        $client_total_delay_days += $delay_days;
+                    }
+                } else {
+                    if ($is_valid_date) {
+                        $date_target = new DateTime(date('Y-m-d', strtotime($target_date_str)));
+                        $date_today = new DateTime(date('Y-m-d'));
+                        $diff = $date_target->diff($date_today);
+                        $running_days = (int)$diff->format('%r%a');
+                        if ($running_days > 0) {
+                            $client_total_delay_days += $running_days;
+                        }
+                    }
+                }
+            }
+
+            $processed_clients[] = [
+                'client_id'          => $cid,
+                'client_sr_id'       => $client->client_sr_id,
+                'name'               => $client->name,
+                'mobile'             => !empty($client->mobile) ? $client->mobile : (!empty($client->phone) ? $client->phone : '-'),
+                'email'              => !empty($client->email) ? $client->email : '-',
+                'region'             => $region,
+                'date_added'         => !empty($client->date_added) ? date('d-m-Y', strtotime($client->date_added)) : '-',
+                'operation_status'   => $op_status,
+                'freeze_boq_amount'  => is_numeric($freeze_boq) ? number_format((float)$freeze_boq, 2) : $freeze_boq,
+                'amount_received'    => is_numeric($total_paid) ? number_format((float)$total_paid, 2) : $total_paid,
+                'payment_plan'       => !empty($client->payment_plan) ? $client->payment_plan : '-',
+                'sales_manager'      => !empty($client->sales_manage_name) ? $client->sales_manage_name : (!empty($client->sales_person_name) ? $client->sales_person_name : '-'),
+                'designer'           => $designer,
+                'project_manager'    => $pm,
+                'supervisor'         => $sup,
+                'hand_over_status'   => !empty($client->hand_over_request_status) ? $client->hand_over_request_status : '-',
+                'hand_over_date'     => !empty($client->hand_over_request_date) ? date('d-m-Y', strtotime($client->hand_over_request_date)) : '-',
+                'phase'              => 'Phase ' . $currentPhase,
+                'total_delay'        => $client_total_delay_days
+            ];
+        }
+
+        $filter_desc_text = !empty($filter_descriptions) ? implode(' | ', $filter_descriptions) : 'All Clients (No Active Filter)';
+
+        return [
+            'clients'     => $processed_clients,
+            'filter_desc' => $filter_desc_text
+        ];
+    }
+
+    /**
+     * Download Filtered Client List as Excel (CSV with UTF-8 BOM for MS Excel)
+     */
+    public function export_excel()
+    {
+        $user_id   = $this->session->userdata('user_id');
+        $this->load->helper('permission_helper');
+
+        if (!can_export_client_data($user_id)) {
+            set_alert('error', 'Access Denied: Only Admin and Finance Manager can export data.');
+            redirect('admin/client/manage_client');
+            return;
+        }
+
+        $export_data = $this->get_filtered_clients_data();
+        $clients = $export_data['clients'];
+
+        $filename = 'Client_List_' . date('Y-m-d_His') . '.csv';
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $output = fopen('php://output', 'w');
+        // UTF-8 BOM so Microsoft Excel opens Unicode cleanly
+        fputs($output, "\xEF\xBB\xBF");
+
+        // CSV Header
+        fputcsv($output, [
+            '#',
+            'Client ID',
+            'Client Name',
+            'Mobile',
+            'Email',
+            'Region',
+            'Onboarded Date',
+            'Operation Status',
+            'Freeze BOQ Amount',
+            'Amount Received',
+            'Payment Plan',
+            'Sales Manager',
+            'Designer',
+            'Project Manager',
+            'Supervisor',
+            'Handover Request Status',
+            'Handover Request Date',
+            'Phase',
+            'Total Delay (Days)'
+        ]);
+
+        $i = 1;
+        foreach ($clients as $c) {
+            fputcsv($output, [
+                $i++,
+                $c['client_sr_id'],
+                $c['name'],
+                $c['mobile'],
+                $c['email'],
+                $c['region'],
+                $c['date_added'],
+                $c['operation_status'],
+                $c['freeze_boq_amount'],
+                $c['amount_received'],
+                $c['payment_plan'],
+                $c['sales_manager'],
+                $c['designer'],
+                $c['project_manager'],
+                $c['supervisor'],
+                $c['hand_over_status'],
+                $c['hand_over_date'],
+                $c['phase'],
+                $c['total_delay']
+            ]);
+        }
+
+        fclose($output);
+        exit;
+    }
+
+    /**
+     * Download Filtered Client List as PDF
+     */
+    public function export_pdf()
+    {
+        $user_id   = $this->session->userdata('user_id');
+        $this->load->helper('permission_helper');
+
+        if (!can_export_client_data($user_id)) {
+            set_alert('error', 'Access Denied: Only Admin and Finance Manager can export data.');
+            redirect('admin/client/manage_client');
+            return;
+        }
+
+        $export_data = $this->get_filtered_clients_data();
+        $clients = $export_data['clients'];
+        $filter_desc = $export_data['filter_desc'];
+
+        $prev_error_level = error_reporting(0);
+        $prev_display_errors = ini_get('display_errors');
+        ini_set('display_errors', '0');
+
+        $html = '<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<title>Client List Report</title>
+<style>
+    @page { margin: 15px 20px; }
+    body { font-family: "DejaVu Sans", sans-serif; font-size: 8px; color: #1e293b; margin: 0; padding: 0; }
+    .header { margin-bottom: 10px; border-bottom: 2px solid #2563eb; padding-bottom: 6px; }
+    .header-table { width: 100%; border-collapse: collapse; }
+    .title { font-size: 15px; font-weight: bold; color: #1e3a8a; }
+    .subtitle { font-size: 8px; color: #64748b; margin-top: 2px; }
+    .filter-summary { background: #f8fafc; border-left: 3px solid #2563eb; padding: 5px 8px; font-size: 8px; margin-bottom: 10px; color: #334155; }
+    table.data-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    table.data-table th { background: #1e293b; color: #ffffff; font-weight: bold; font-size: 8px; text-transform: uppercase; padding: 5px 4px; text-align: left; border: 1px solid #0f172a; }
+    table.data-table td { padding: 4px; border: 1px solid #cbd5e1; font-size: 8px; vertical-align: middle; }
+    table.data-table tr:nth-child(even) { background-color: #f8fafc; }
+    .badge { display: inline-block; padding: 2px 4px; border-radius: 3px; font-size: 7.5px; font-weight: bold; text-align: center; }
+    .badge-active { background-color: #dcfce7; color: #15803d; }
+    .badge-hold { background-color: #fef3c7; color: #b45309; }
+    .badge-closed { background-color: #ede9fe; color: #6d28d9; }
+    .badge-other { background-color: #e2e8f0; color: #475569; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .footer { position: fixed; bottom: 0; width: 100%; text-align: center; font-size: 7.5px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 3px; }
+</style>
+</head>
+<body>
+<div class="header">
+    <table class="header-table">
+        <tr>
+            <td>
+                <div class="title">HC INTERIOR - CLIENT LIST REPORT</div>
+                <div class="subtitle">Generated on: ' . date('d-m-Y H:i:s') . '</div>
+            </td>
+            <td style="text-align: right;">
+                <div style="font-size: 11px; font-weight: bold; color: #2563eb;">TOTAL RECORDS: ' . count($clients) . '</div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="filter-summary">
+    <strong>Active Filter:</strong> ' . htmlspecialchars($filter_desc) . ' &nbsp;|&nbsp; <strong>Total:</strong> ' . count($clients) . ' Clients
+</div>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th style="width: 18px;" class="text-center">#</th>
+            <th style="width: 58px;">Client ID</th>
+            <th>Client Name</th>
+            <th style="width: 70px;">Phone</th>
+            <th style="width: 60px;">Region</th>
+            <th style="width: 65px;">Onboard Date</th>
+            <th style="width: 52px;" class="text-center">Status</th>
+            <th style="width: 65px;" class="text-right">Freeze BOQ</th>
+            <th style="width: 65px;" class="text-right">Received</th>
+            <th style="width: 80px;">Sales Manager</th>
+            <th style="width: 50px;" class="text-center">Phase</th>
+            <th style="width: 45px;" class="text-center">Delay</th>
+        </tr>
+    </thead>
+    <tbody>';
+
+        $i = 1;
+        foreach ($clients as $c) {
+            $status_class = 'badge-other';
+            if ($c['operation_status'] == 'Active') $status_class = 'badge-active';
+            elseif ($c['operation_status'] == 'Hold') $status_class = 'badge-hold';
+            elseif ($c['operation_status'] == 'Closed' || $c['operation_status'] == 'Completed') $status_class = 'badge-closed';
+
+            $delay_str = ($c['total_delay'] > 0) ? $c['total_delay'] . 'd' : '-';
+
+            $html .= '<tr>
+                <td class="text-center">' . $i++ . '</td>
+                <td><strong>' . htmlspecialchars($c['client_sr_id']) . '</strong></td>
+                <td>' . htmlspecialchars($c['name']) . '</td>
+                <td>' . htmlspecialchars($c['mobile']) . '</td>
+                <td>' . htmlspecialchars($c['region']) . '</td>
+                <td>' . htmlspecialchars($c['date_added']) . '</td>
+                <td class="text-center"><span class="badge ' . $status_class . '">' . htmlspecialchars($c['operation_status']) . '</span></td>
+                <td class="text-right">' . htmlspecialchars($c['freeze_boq_amount']) . '</td>
+                <td class="text-right">' . htmlspecialchars($c['amount_received']) . '</td>
+                <td>' . htmlspecialchars($c['sales_manager']) . '</td>
+                <td class="text-center">' . htmlspecialchars($c['phase']) . '</td>
+                <td class="text-center">' . htmlspecialchars($delay_str) . '</td>
+            </tr>';
+        }
+
+        if (empty($clients)) {
+            $html .= '<tr><td colspan="12" class="text-center" style="padding:20px; color:#64748b;">No matching clients found for current filter criteria.</td></tr>';
+        }
+
+        $html .= '</tbody>
+</table>
+
+<div class="footer">
+    HC Interior CRM &bull; Client List Report
+</div>
+</body>
+</html>';
+
+        try {
+            require_once APPPATH . 'helpers/dompdf/autoload.inc.php';
+            $options = new Dompdf\Options();
+            $options->set('defaultFont', 'dejavusans');
+            $options->setIsRemoteEnabled(true);
+            $options->setIsHtml5ParserEnabled(true);
+
+            $dompdf = new Dompdf\Dompdf($options);
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('a4', 'landscape');
+            $dompdf->render();
+
+            $filename = 'Client_List_' . date('Y-m-d_His') . '.pdf';
+            $dompdf->stream($filename, ['Attachment' => 1]);
+        } catch (\Throwable $e) {
+            error_reporting($prev_error_level);
+            ini_set('display_errors', $prev_display_errors);
+            show_error('PDF Generation Failed: ' . $e->getMessage());
+        }
+
+        error_reporting($prev_error_level);
+        ini_set('display_errors', $prev_display_errors);
+        exit;
     }
 
 
@@ -3123,6 +4203,22 @@ class Client extends Admin_Controller
         }
 
         // =========================
+        // Masking Photo
+        // =========================
+        if (!empty($_FILES['masking_photo']['name'])) {
+
+            $ext = pathinfo($_FILES['masking_photo']['name'], PATHINFO_EXTENSION);
+            $new_name = time() . '_masking.' . $ext;
+
+            move_uploaded_file($_FILES['masking_photo']['tmp_name'], $target_path . $new_name);
+
+            $data['masking_photo'] = 'uploads/' . $new_name;
+        } else {
+            // 🔥 OLD VALUE PRESERVE
+            $data['masking_photo'] = $existing->masking_photo ?? null;
+        }
+
+        // =========================
         // INSERT OR UPDATE
         // =========================
         if (!empty($existing)) {
@@ -5049,14 +6145,44 @@ class Client extends Admin_Controller
         $user_id = $this->input->post('user_id', true);
         $client_id = $this->input->post('client_id', true);
         $active_tab = $this->input->post('active_tab', true);
+        $member_profile = trim($this->input->post('member_profile', true));
+
+        if (!empty($active_tab) && strpos($active_tab, '#') === 0) {
+            $active_tab = substr($active_tab, 1);
+        }
+
+        if (empty($active_tab) || $active_tab == 'Project') {
+            if (!empty($member_profile)) {
+                $role_row = $this->db->where('role_name', $member_profile)->get('roles')->row();
+                $active_tab = !empty($role_row) ? 'role_' . $role_row->id : 'role_1';
+            } else {
+                $active_tab = 'role_1';
+            }
+        }
 
         if (!empty($user_id)) {
+            // Check for duplicate assignment (same client, same user, same role)
+            $this->db->where([
+                'client_id' => $client_id,
+                'user_id' => $user_id,
+                'member_profile' => $member_profile
+            ]);
+            if (!empty($id)) {
+                $this->db->where('id !=', $id);
+            }
+            $exists = $this->db->get('tbl_client_assign_team')->row();
+
+            if (!empty($exists)) {
+                set_message('warning', 'This team member is already assigned to ' . $member_profile);
+                redirect('admin/client/details/' . $client_id . '/assigned_team#' . $active_tab);
+                return;
+            }
 
             $n_data['client_id'] = $client_id;
             $n_data['user_id'] = $user_id;
             $n_data['designation'] = $this->input->post('designation', true);
             $n_data['user_name'] = $this->input->post('user_name', true);
-            $n_data['member_profile'] = $this->input->post('member_profile', true);
+            $n_data['member_profile'] = $member_profile;
             $n_data['added_by'] = $this->session->userdata('user_id');
             $n_data['created_date'] = date('Y-m-d H:i:s');
             $n_data['updated_date'] = date('Y-m-d H:i:s');
@@ -5080,27 +6206,130 @@ class Client extends Admin_Controller
                     ->get('tbl_account_details')
                     ->row();
 
-                $status = $this->input->post('hand_over_request_status');
+                $user_account = $this->db
+                    ->where('user_id', $user_id)
+                    ->get('tbl_users')
+                    ->row();
+
                 $clientName = $client->name ?? 'N/A';
+                $client_sr_id = !empty($client->client_sr_id) ? trim($client->client_sr_id) : ('HC' . $client_id);
                 $userName = $_SESSION['user_name'] ?? 'User';
 
-
-                $subject = $clientName .
-                    '  as been assigned to you as a new client';
-
-                $message = $clientName .
-                    '  as been assigned to you as a new client';
-
+                $notification_message = $clientName . ' has been assigned to you as a new client';
 
                 add_notification(array(
                     'to_user_id' => $user_id,
                     'from_user_id' => $this->session->userdata('user_id'),
-                    'description' =>  $message,
+                    'description' =>  $notification_message,
                     'link' => 'admin/client/details/' . $client_id,
-                    'value' => $message,
+                    'value' => $notification_message,
                 ));
 
                 show_notification([$user_id]);
+
+                // Send automated project assigned email to newly assigned team member
+                $assigned_person_name = !empty($user_detail->fullname) ? trim($user_detail->fullname) : (!empty($user_account->username) ? trim($user_account->username) : 'Team Member');
+                $assigned_person_email = !empty($user_account->email) ? trim($user_account->email) : '';
+
+                if (!empty($assigned_person_email)) {
+                    // 1. Assigned Designer Name
+                    if (in_array($member_profile, ['Designer', 'Interior Designer']) || stripos($member_profile, 'Designer') !== false) {
+                        $designer_name = $assigned_person_name;
+                    } else {
+                        $des_row = $this->db
+                            ->select('a.fullname')
+                            ->from('tbl_client_assign_team t')
+                            ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                            ->where('t.client_id', $client_id)
+                            ->group_start()
+                                ->where('t.member_profile', 'Designer')
+                                ->or_where('t.member_profile', 'Interior Designer')
+                                ->or_like('t.member_profile', 'Designer')
+                            ->group_end()
+                            ->get()
+                            ->row();
+
+                        if (empty($des_row)) {
+                            $des_row = $this->db
+                                ->select('a.fullname')
+                                ->from('tbl_client_assign_team t')
+                                ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                                ->where('t.client_id', $client_id)
+                                ->where('t.member_profile', 'Design Manager')
+                                ->get()
+                                ->row();
+                        }
+                        $designer_name = !empty($des_row->fullname) ? trim($des_row->fullname) : 'Not Assigned Yet';
+                    }
+
+                    // 2. Project Manager Name
+                    if (in_array($member_profile, ['Project Manager', 'SPM'])) {
+                        $pm_name = $assigned_person_name;
+                    } else {
+                        $pm_row = $this->db
+                            ->select('a.fullname')
+                            ->from('tbl_client_assign_team t')
+                            ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                            ->where('t.client_id', $client_id)
+                            ->where('t.member_profile', 'Project Manager')
+                            ->get()
+                            ->row();
+
+                        if (empty($pm_row)) {
+                            $pm_row = $this->db
+                                ->select('a.fullname')
+                                ->from('tbl_client_assign_team t')
+                                ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                                ->where('t.client_id', $client_id)
+                                ->where('t.member_profile', 'SPM')
+                                ->get()
+                                ->row();
+                        }
+                        $pm_name = !empty($pm_row->fullname) ? trim($pm_row->fullname) : 'Not Assigned Yet';
+                    }
+
+                    // 3. Sales Person Name
+                    $sales_person = !empty($client->sales_person_name) ? trim($client->sales_person_name) : 'Not Assigned';
+
+                    // 4. Handover scheduled for (dispatch date from timeline_manual_dates)
+                    $handover_date = 'Not Scheduled Yet';
+                    $manual_timeline = $this->db->where('client_id', $client_id)->get('timeline_manual_dates')->row();
+                    if (!empty($manual_timeline->dispatch_date)) {
+                        $raw_dispatch = trim($manual_timeline->dispatch_date);
+                        if (strtotime($raw_dispatch) !== false && strtotime($raw_dispatch) > 0) {
+                            $handover_date = date('d-m-Y', strtotime($raw_dispatch));
+                        } else {
+                            $handover_date = $raw_dispatch;
+                        }
+                    }
+
+                    $mail_subject = "New Project Assigned | " . $clientName . " – " . $client_sr_id;
+
+                    $mail_body = "Dear " . html_escape($assigned_person_name) . ",<br><br>"
+                        . "This is to inform you that the following project has been assigned to you on CRM.<br><br>"
+                        . "<strong>Project Details:</strong><br><br>"
+                        . "<strong>Client Name:</strong> " . html_escape($clientName) . "<br><br>"
+                        . "<strong>Project ID:</strong> " . html_escape($client_sr_id) . "<br><br>"
+                        . "<strong>Assigned Designer:</strong> " . html_escape($designer_name) . "<br><br>"
+                        . "<strong>Project Manager:</strong> " . html_escape($pm_name) . "<br>"
+                        . "<strong>Sales Person :</strong> " . html_escape($sales_person) . "<br>"
+                        . "<strong>Handover scheduled for :</strong> " . html_escape($handover_date) . "<br><br>"
+                        . "You are requested to review the project details on CRM and coordinate with the assigned team<br><br>"
+                        . "Regards,";
+
+                    $this->load->model('settings_model');
+                    $params = [
+                        'recipient'       => $assigned_person_email,
+                        'subject'         => $mail_subject,
+                        'message'         => $mail_body,
+                        'resourceed_file' => ''
+                    ];
+                    try {
+                        $this->settings_model->send_email($params);
+                    } catch (Exception $e) {
+                        // Suppress mail error to ensure response completes
+                    }
+                }
             }
 
             $role = $n_data['member_profile'];
@@ -5141,22 +6370,42 @@ class Client extends Admin_Controller
 
             ];
 
-            // अगर role match करता है
+            // Assign default permissions for assigned profile
+            $permissions = [];
             if (isset($role_permissions[$role])) {
-
                 $permissions = $role_permissions[$role];
+            } else {
+                $role_obj = $this->db->where('role_name', $role)->get('roles')->row();
+                if (!empty($role_obj)) {
+                    $db_perms = $this->db->where('role_id', $role_obj->id)->get('permissions')->result();
+                    if (!empty($db_perms)) {
+                        $permissions = array_column($db_perms, 'permission_key');
+                    }
+                }
+            }
 
+            if (!empty($permissions)) {
                 foreach ($permissions as $perm) {
-
-                    $this->db->insert('operation_permissions', [
+                    $has_perm = $this->db->where([
                         'client_id' => $client_id,
                         'user_id' => $user_id,
                         'profile' => $role,
-                        'permission_key' => $perm,
-                        'created_at' => date('Y-m-d H:i:s')
-                    ]);
+                        'permission_key' => $perm
+                    ])->get('operation_permissions')->row();
+
+                    if (!$has_perm) {
+                        $this->db->insert('operation_permissions', [
+                            'client_id' => $client_id,
+                            'user_id' => $user_id,
+                            'profile' => $role,
+                            'permission_key' => $perm,
+                            'created_at' => date('Y-m-d H:i:s')
+                        ]);
+                    }
                 }
             }
+
+            set_message('success', 'Team member assigned successfully to ' . $member_profile);
         }
 
         redirect('admin/client/details/' . $client_id . '/assigned_team#' . $active_tab);
@@ -5295,6 +6544,14 @@ class Client extends Admin_Controller
             redirect('admin/client/details/' . $client_id . '/assigned_team');
         }
 
+        $active_tab = '';
+        if (!empty($team_info->member_profile)) {
+            $role_row = $this->db->where('role_name', trim($team_info->member_profile))->get('roles')->row();
+            if (!empty($role_row)) {
+                $active_tab = '#role_' . $role_row->id;
+            }
+        }
+
         // Log Activity
         $activities = array(
             'user' => $this->session->userdata('user_id'),
@@ -5312,7 +6569,8 @@ class Client extends Admin_Controller
         // ✅ Delete Permissions First
         $this->db->where([
             'client_id' => $client_id,
-            'user_id'   => $team_info->user_id
+            'user_id'   => $team_info->user_id,
+            'profile'   => $team_info->member_profile
         ])->delete('operation_permissions');
 
         // ✅ Delete Team Member
@@ -5322,7 +6580,7 @@ class Client extends Admin_Controller
 
         set_message("success", "Team member removed successfully");
 
-        redirect('admin/client/details/' . $client_id . '/assigned_team');
+        redirect('admin/client/details/' . $client_id . '/assigned_team' . $active_tab);
     }
 
 
@@ -5459,6 +6717,40 @@ class Client extends Admin_Controller
         $n_data['design_type']  = $design_type;
         $n_data['design_style'] = $this->input->post('design_style', true);
         $n_data['upload_url']   = $this->input->post('upload_url', true);
+
+        $is_loose_furniture = $this->input->post('is_loose_furniture', true);
+        if ($is_loose_furniture !== null) {
+            $n_data['is_loose_furniture'] = ($is_loose_furniture === 'Yes') ? 'Yes' : 'No';
+        }
+
+        // 🔥 Condition: Jab tak Pre validation file upload na ho or approve na ho tb tk Post validation file upload nahi hogi
+        if ($n_data['design_style'] == 'Post Validation Design') {
+            $latest_pre_val = $this->db
+                ->where('client_id', $client_id)
+                ->where('design_style', 'Pre Validation Design')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get('tbl_client_two_d_design')
+                ->row();
+
+            $is_edit_existing_post = false;
+            if (!empty($id)) {
+                $existing_design = $this->db->where('id', $id)->get('tbl_client_two_d_design')->row();
+                if (!empty($existing_design) && $existing_design->design_style == 'Post Validation Design') {
+                    $is_edit_existing_post = true;
+                }
+            }
+
+            if (!$is_edit_existing_post) {
+                if (empty($latest_pre_val)) {
+                    set_message('error', 'Pre validation file has not been uploaded yet. Please upload and approve the Pre validation file first.');
+                    redirect($_SERVER['HTTP_REFERER']);
+                } elseif ($latest_pre_val->status != 'Approved') {
+                    set_message('error', 'Pre validation file is not approved yet (Current Status: ' . $latest_pre_val->status . '). Post validation drawing can only be uploaded after Pre validation is approved.');
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+            }
+        }
 
         if (empty($id)) {
             $n_data['created_date'] = date('Y-m-d H:i:s');
@@ -5627,6 +6919,13 @@ class Client extends Admin_Controller
     ------------------------------------
     */
 
+        if (empty($upload_file) && !empty($id)) {
+            $existing_design = $this->db->where('id', $id)->get('tbl_client_two_d_design')->row();
+            if (!empty($existing_design->upload_file)) {
+                $upload_file = json_decode($existing_design->upload_file, true);
+            }
+        }
+
         if (empty($upload_file)) {
 
             set_message(
@@ -5638,6 +6937,145 @@ class Client extends Admin_Controller
         }
 
         $n_data['upload_file'] = json_encode($upload_file);
+
+        /*
+    ------------------------------------
+    LOOSE FURNITURE FILES (OPTIONAL)
+    ------------------------------------
+    */
+
+        $loose_furniture_file = [];
+
+        if ($is_loose_furniture !== 'No' && !empty($_FILES['loose_furniture_files']['name'][0])) {
+
+            $l_files = $_FILES['loose_furniture_files'];
+
+            for ($i = 0; $i < count($l_files['name']); $i++) {
+
+                if ($l_files['error'][$i] != 0) {
+                    continue;
+                }
+
+                // Size Validation
+                if ($l_files['size'][$i] > $max_size) {
+
+                    set_message(
+                        'error',
+                        $l_files['name'][$i] .
+                            ' exceeds 40 MB size limit.'
+                    );
+
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+
+                $original_name = $l_files['name'][$i];
+
+                $ext = strtolower(
+                    pathinfo(
+                        $original_name,
+                        PATHINFO_EXTENSION
+                    )
+                );
+
+                $allowed_ext = [
+                    'jpg',
+                    'jpeg',
+                    'png',
+                    'pdf',
+                    'dwg',
+                    'ppt',
+                    'pptx'
+                ];
+
+                if (!in_array($ext, $allowed_ext)) {
+
+                    set_message(
+                        'error',
+                        $original_name .
+                            ' is not a valid file type.'
+                    );
+
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+
+                $new_name = time()
+                    . '_'
+                    . uniqid()
+                    . '.'
+                    . $ext;
+
+                $uploaded = move_uploaded_file(
+                    $l_files['tmp_name'][$i],
+                    $target_path . $new_name
+                );
+
+                if (!$uploaded) {
+
+                    set_message(
+                        'error',
+                        'Unable to upload : '
+                            . $original_name
+                    );
+
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+
+                $loose_furniture_file[] = [
+                    'fileName' => $new_name,
+                    'path'     => 'uploads/' . $new_name,
+                    'fullPath' => $target_path . $new_name,
+                    'size'     => round(
+                        $l_files['size'][$i] / 1024,
+                        2
+                    ),
+                    'is_image' => in_array(
+                        $ext,
+                        ['jpg', 'jpeg', 'png']
+                    ) ? 1 : 0
+                ];
+            }
+        }
+
+        /*
+    ------------------------------------
+    EXISTING LOOSE FURNITURE FILES (EDIT MODE)
+    ------------------------------------
+    */
+
+        $loose_fileName = $this->input->post('loose_fileName');
+        $loose_path     = $this->input->post('loose_path');
+        $loose_fullPath = $this->input->post('loose_fullPath');
+        $loose_size     = $this->input->post('loose_size');
+        $loose_is_image = $this->input->post('loose_is_image');
+
+        if (!empty($loose_fileName)) {
+
+            foreach ($loose_fileName as $key => $name) {
+
+                $loose_furniture_file[] = [
+                    'fileName' => $name,
+                    'path'     => $loose_path[$key],
+                    'fullPath' => $loose_fullPath[$key],
+                    'size'     => $loose_size[$key],
+                    'is_image' => $loose_is_image[$key]
+                ];
+            }
+        }
+
+        if ($is_loose_furniture === 'No') {
+            $n_data['loose_furniture_file'] = null;
+        } else {
+            if (empty($loose_furniture_file) && !empty($id)) {
+                $existing_design = $this->db->where('id', $id)->get('tbl_client_two_d_design')->row();
+                if (!empty($existing_design->loose_furniture_file)) {
+                    $loose_furniture_file = json_decode($existing_design->loose_furniture_file, true);
+                }
+            }
+
+            if (!empty($loose_furniture_file)) {
+                $n_data['loose_furniture_file'] = json_encode($loose_furniture_file);
+            }
+        }
 
         /*
     ------------------------------------
@@ -5771,6 +7209,125 @@ class Client extends Admin_Controller
                 ['kt_request_design']
             );
 
+            // Send email to assigned Designer on QC observations / rejection in Pre or Post Validation Drawing
+            $design = $this->db->where('id', $design_id)->get('tbl_client_two_d_design')->row();
+            $is_validation_drawing = ($url == 'validation' || (!empty($design->design_style) && in_array($design->design_style, ['Pre Validation Design', 'Post Validation Design'])));
+
+            if ($status == 'Reject' && $is_validation_drawing) {
+                // 1. Fetch assigned designers for this client/project
+                $assigned_designers = $this->db
+                    ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                    ->from('tbl_client_assign_team t')
+                    ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                    ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                    ->where('t.client_id', $client_id)
+                    ->group_start()
+                        ->where('t.member_profile', 'Designer')
+                        ->or_where('t.member_profile', 'Interior Designer')
+                        ->or_like('t.member_profile', 'Designer')
+                    ->group_end()
+                    ->get()
+                    ->result();
+
+                // 2. Fallback: check if member has designation matching 'Designer' (excluding Manager)
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_designations d', 'd.designations_id = a.designations_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->like('d.designations', 'Designer')
+                        ->not_like('d.designations', 'Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 3. Fallback: Design Manager assigned to project
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->where('t.member_profile', 'Design Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 4. Fallback: uploaded_by user if no team assignment exists
+                if (empty($assigned_designers) && !empty($uploaded_by)) {
+                    $uploader = $this->db
+                        ->select('u.user_id, a.fullname, u.email')
+                        ->from('tbl_users u')
+                        ->join('tbl_account_details a', 'a.user_id = u.user_id', 'left')
+                        ->where('u.user_id', $uploaded_by)
+                        ->get()
+                        ->row();
+                    if (!empty($uploader)) {
+                        $assigned_designers = [$uploader];
+                    }
+                }
+
+                $client = $this->db
+                    ->where('client_id', $client_id)
+                    ->get('tbl_client')
+                    ->row();
+
+                $client_name = !empty($client->name) ? trim($client->name) : 'Client';
+                $project_id  = !empty($client->client_sr_id) ? trim($client->client_sr_id) : ('HC' . $client_id);
+                $mail_subject = "QC Observations Raised | " . $client_name . " – " . $project_id;
+
+                $this->load->model('settings_model');
+
+                $sent_emails = [];
+                if (!empty($assigned_designers)) {
+                    foreach ($assigned_designers as $designer_row) {
+                        $designer_email = trim($designer_row->email ?? '');
+                        if (empty($designer_email) || in_array($designer_email, $sent_emails)) {
+                            continue;
+                        }
+                        $sent_emails[] = $designer_email;
+                        $designer_name = !empty($designer_row->fullname) ? trim($designer_row->fullname) : 'Designer';
+
+                        $mail_body = "Dear " . html_escape($designer_name) . ",<br><br>"
+                            . "This is to inform you that the QC Team has reviewed the production file for " . html_escape($client_name) . " – " . html_escape($project_id) . " and has raised QC observations.<br><br>";
+
+                        if (!empty($remarks)) {
+                            $mail_body .= "<strong>QC Observations / Remarks:</strong> " . nl2br(html_escape($remarks)) . "<br><br>";
+                        }
+
+                        $mail_body .= "You are requested to review the QC points and acknowledge the same on CRM to proceed with the necessary corrections.<br><br>"
+                            . "Action Required: Review and acknowledge QC observations on CRM.<br><br>"
+                            . "Regards,";
+
+                        $params = [
+                            'recipient'       => $designer_email,
+                            'subject'         => $mail_subject,
+                            'message'         => $mail_body,
+                            'resourceed_file' => (!empty($data['remark_file']) && file_exists(FCPATH . $data['remark_file'])) ? FCPATH . $data['remark_file'] : ''
+                        ];
+                        try {
+                            $this->settings_model->send_email($params);
+                        } catch (Exception $e) {
+                            // Suppress mail error to ensure response completes
+                        }
+
+                        if (!empty($designer_row->user_id)) {
+                            add_notification([
+                                'to_user_id'   => $designer_row->user_id,
+                                'from_user_id' => $this->session->userdata('user_id'),
+                                'description'  => 'QC Team has raised observations for ' . $client_name . ' (' . $project_id . ').',
+                                'link'         => 'admin/client/details/' . $client_id . '/validation',
+                                'value'        => $mail_subject,
+                            ]);
+                        }
+                    }
+                }
+            }
+
             set_message('success', 'Design Request submitted successfully');
         } else {
             set_message('error', 'Something went wrong, please try again');
@@ -5781,6 +7338,177 @@ class Client extends Admin_Controller
         } else {
             redirect('admin/client/details/' . $client_id . '/2ddesign');
         }
+    }
+
+    public function new_civil_drawing_after_kt($id = NULL)
+    {
+        $client_id   = $this->input->post('client_id', true);
+        $design_type = $this->input->post('design_type', true) ?: 'Civil Design';
+
+        if (empty($client_id)) {
+            set_message('error', 'Invalid Client.');
+            redirect($_SERVER['HTTP_REFERER']);
+        }
+
+        $n_data = [];
+        $n_data['client_id']   = $client_id;
+        $n_data['file_name']   = $this->input->post('file_name', true);
+        $n_data['status']      = ($design_type == 'Civil Design') ? 'Approved' : 'Pending';
+        $n_data['uploaded_by'] = $this->session->userdata('user_id');
+        $n_data['design_type'] = $design_type;
+        $n_data['upload_url']  = $this->input->post('upload_url', true);
+
+        if (empty($id)) {
+            $n_data['created_date'] = date('Y-m-d H:i:s');
+        }
+        $n_data['updated_date'] = date('Y-m-d H:i:s');
+
+        $upload_file = [];
+        $target_path = FCPATH . 'uploads/';
+
+        if (!is_dir($target_path)) {
+            mkdir($target_path, 0777, true);
+        }
+
+        if (!is_writable($target_path)) {
+            set_message('error', 'Upload folder is not writable.');
+            redirect($_SERVER['HTTP_REFERER']);
+        }
+
+        $max_size = 40 * 1024 * 1024; // 40 MB
+
+        if (!empty($_FILES['design_files']['name'][0])) {
+            $files = $_FILES['design_files'];
+            for ($i = 0; $i < count($files['name']); $i++) {
+                if ($files['error'][$i] != 0) {
+                    set_message('error', 'Error uploading file : ' . $files['name'][$i]);
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+                if ($files['size'][$i] > $max_size) {
+                    set_message('error', $files['name'][$i] . ' exceeds 40 MB size limit.');
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+                $original_name = $files['name'][$i];
+                $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+                $allowed_ext = ['jpg', 'jpeg', 'png', 'pdf', 'dwg', 'ppt', 'pptx'];
+                if (!in_array($ext, $allowed_ext)) {
+                    set_message('error', $original_name . ' is not a valid file type.');
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+                $new_name = time() . '_' . uniqid() . '.' . $ext;
+                $uploaded = move_uploaded_file($files['tmp_name'][$i], $target_path . $new_name);
+                if (!$uploaded) {
+                    set_message('error', 'Unable to upload : ' . $original_name);
+                    redirect($_SERVER['HTTP_REFERER']);
+                }
+                $upload_file[] = [
+                    'fileName' => $new_name,
+                    'path'     => 'uploads/' . $new_name,
+                    'fullPath' => $target_path . $new_name,
+                    'size'     => round($files['size'][$i] / 1024, 2),
+                    'is_image' => in_array($ext, ['jpg', 'jpeg', 'png']) ? 1 : 0
+                ];
+            }
+        }
+
+        // Existing files (edit mode)
+        $fileName = $this->input->post('fileName');
+        $path     = $this->input->post('path');
+        $fullPath = $this->input->post('fullPath');
+        $size     = $this->input->post('size');
+        $is_image = $this->input->post('is_image');
+
+        if (!empty($fileName)) {
+            foreach ($fileName as $key => $name) {
+                $upload_file[] = [
+                    'fileName' => $name,
+                    'path'     => $path[$key],
+                    'fullPath' => $fullPath[$key],
+                    'size'     => $size[$key],
+                    'is_image' => $is_image[$key]
+                ];
+            }
+        }
+
+        if (empty($upload_file) && !empty($id)) {
+            $existing_design = $this->db->where('id', $id)->get('tbl_client_civil_drawing_after_kt')->row();
+            if (!empty($existing_design->upload_file)) {
+                $upload_file = json_decode($existing_design->upload_file, true);
+            }
+        }
+
+        if (empty($upload_file)) {
+            set_message('error', 'Please upload at least one file.');
+            redirect($_SERVER['HTTP_REFERER']);
+        }
+
+        $n_data['upload_file'] = json_encode($upload_file);
+
+        $this->client_model->_table_name = 'tbl_client_civil_drawing_after_kt';
+        $this->client_model->_primary_key = 'id';
+        $result = $this->client_model->save($n_data, $id);
+
+        if (!$result) {
+            set_message('error', 'Unable to save data.');
+            redirect($_SERVER['HTTP_REFERER']);
+        }
+
+        set_message('success', 'Civil Drawing after KT saved successfully.');
+        redirect('admin/client/details/' . $client_id . '/2ddesign');
+    }
+
+    public function civil_drawing_after_kt_status()
+    {
+        if (!$this->input->post('design_id')) {
+            set_message('error', 'Invalid Design');
+            redirect('admin/client/manage_client');
+        }
+        $design_id   = $this->input->post('design_id', true);
+        $client_id   = $this->input->post('client_id', true);
+        $remarks     = $this->input->post('remark');
+        $status      = $this->input->post('status', true);
+
+        $data = array(
+            'status'              => $status,
+            'status_approve_by'   => $this->session->userdata('user_id'),
+            'status_approve_date' => date('Y-m-d H:i:s')
+        );
+
+        if ($status == 'Reject') {
+            $data['remark'] = $remarks;
+            if (!empty($_FILES['remark_file']['name'])) {
+                $target_path = getcwd() . "/uploads/";
+                $file = $_FILES['remark_file'];
+                $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                $allowed_ext = ['jpg', 'jpeg', 'png', 'pdf', 'dwg', 'ppt', 'pptx'];
+                if (in_array($ext, $allowed_ext)) {
+                    $new_name = time() . '_' . uniqid() . '.' . $ext;
+                    if (move_uploaded_file($file['tmp_name'], $target_path . $new_name)) {
+                        $data['remark_file'] = 'uploads/' . $new_name;
+                    }
+                }
+            }
+        } else {
+            $data['remark'] = null;
+            $data['remark_file'] = null;
+        }
+
+        foreach ($data as $key => $value) {
+            if ($value === '' || $value === null) {
+                unset($data[$key]);
+            }
+        }
+
+        $this->db->where('id', $design_id);
+        $update = $this->db->update('tbl_client_civil_drawing_after_kt', $data);
+
+        if ($update) {
+            set_message('success', 'Status updated successfully');
+        } else {
+            set_message('error', 'Something went wrong, please try again');
+        }
+
+        redirect('admin/client/details/' . $client_id . '/2ddesign');
     }
 
 
@@ -6079,6 +7807,22 @@ class Client extends Admin_Controller
             return;
         }
 
+        // Mandatory check: photos must be uploaded before receiving items
+        if ($status == 'Recieved' || $status == 'Received') {
+            $item_info = $this->db->where('id', $request_id)->get('tbl_client_on_site_purchase_request')->row();
+            if (!empty($item_info->purchase_id)) {
+                $purchase_chk = $this->db->where('id', $item_info->purchase_id)->get('tbl_client_on_site_purchase')->row();
+                $chk_photos = (!empty($purchase_chk) && !empty($purchase_chk->upload_file)) ? json_decode($purchase_chk->upload_file, true) : [];
+                if (empty($chk_photos) || !is_array($chk_photos) || count($chk_photos) === 0) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'Uploading photos is mandatory! Please upload site photos first.'
+                    ]);
+                    return;
+                }
+            }
+        }
+
         $user_id = $this->session->userdata('user_id');
         $approver_name = get_any_field('tbl_account_details', array('user_id' => $user_id), 'fullname');
         $approve_date_fmt = date('d M Y, h:i A');
@@ -6152,6 +7896,18 @@ class Client extends Admin_Controller
 
         if (empty($purchase_id) || empty($delivery_status)) {
             echo json_encode(['success' => false, 'message' => 'Invalid Parameters']);
+            return;
+        }
+
+        // Mandatory check: photos must be uploaded before saving delivery status
+        $purchase_chk = $this->db->where('id', $purchase_id)->get('tbl_client_on_site_purchase')->row();
+        $chk_photos = (!empty($purchase_chk) && !empty($purchase_chk->upload_file)) ? json_decode($purchase_chk->upload_file, true) : [];
+        if (empty($chk_photos) || !is_array($chk_photos) || count($chk_photos) === 0) {
+            echo json_encode([
+                'success' => false,
+                'status'  => false,
+                'message' => 'Uploading photos is mandatory! Please upload site photos before saving delivery status.'
+            ]);
             return;
         }
 
@@ -6241,6 +7997,22 @@ class Client extends Admin_Controller
         }
 
         $new_status = ($is_ordered == 1 || $is_ordered == '1' || $is_ordered == 'Ordered') ? 'Ordered' : 'Pending';
+
+        // Mandatory check: photos must be uploaded before marking material as ordered/sent
+        if ($new_status == 'Ordered') {
+            $item_info = $this->db->where('id', $item_id)->get('tbl_client_on_site_purchase_request')->row();
+            if (!empty($item_info->purchase_id)) {
+                $purchase_chk = $this->db->where('id', $item_info->purchase_id)->get('tbl_client_on_site_purchase')->row();
+                $chk_photos = (!empty($purchase_chk) && !empty($purchase_chk->upload_file)) ? json_decode($purchase_chk->upload_file, true) : [];
+                if (empty($chk_photos) || !is_array($chk_photos) || count($chk_photos) === 0) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'Uploading photos is mandatory! Please upload site photos before sending items.'
+                    ]);
+                    return;
+                }
+            }
+        }
 
         $this->db->where('id', $item_id)->update('tbl_client_on_site_purchase_request', array(
             'status' => $new_status
@@ -8046,7 +9818,132 @@ class Client extends Admin_Controller
                 }
             }
 
+            // Send email notification to assigned Designer on KT Accepted (Done) or KT Rejected
+            $is_kt_request = ($request_type == 'KT1' || (isset($request->request_type) && in_array($request->request_type, ['KT', 'KT1'])));
+            if ($is_kt_request && ($request_done == 'Done' || $request_done == 'Reject' || $status == 'Reject')) {
+                // 1. Fetch assigned designers for this client/project
+                $assigned_designers = $this->db
+                    ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                    ->from('tbl_client_assign_team t')
+                    ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                    ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                    ->where('t.client_id', $client_id)
+                    ->group_start()
+                        ->where('t.member_profile', 'Designer')
+                        ->or_where('t.member_profile', 'Interior Designer')
+                        ->or_like('t.member_profile', 'Designer')
+                    ->group_end()
+                    ->get()
+                    ->result();
 
+                // 2. Fallback: check if member has designation matching 'Designer' (excluding Manager)
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_designations d', 'd.designations_id = a.designations_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->like('d.designations', 'Designer')
+                        ->not_like('d.designations', 'Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 3. Fallback: Design Manager assigned to project
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->where('t.member_profile', 'Design Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 4. Fallback: requested_by user from KT request
+                if (empty($assigned_designers) && !empty($request->requested_by)) {
+                    $requester = $this->db
+                        ->select('u.user_id, a.fullname, u.email')
+                        ->from('tbl_users u')
+                        ->join('tbl_account_details a', 'a.user_id = u.user_id', 'left')
+                        ->where('u.user_id', $request->requested_by)
+                        ->get()
+                        ->row();
+                    if (!empty($requester)) {
+                        $assigned_designers = [$requester];
+                    }
+                }
+
+                $client = $this->db
+                    ->where('client_id', $client_id)
+                    ->get('tbl_client')
+                    ->row();
+
+                $client_name = !empty($client->name) ? trim($client->name) : 'Client';
+                $project_id  = !empty($client->client_sr_id) ? trim($client->client_sr_id) : ('HC' . $client_id);
+
+                $this->load->model('settings_model');
+
+                $sent_emails = [];
+                if (!empty($assigned_designers)) {
+                    foreach ($assigned_designers as $designer_row) {
+                        $designer_email = trim($designer_row->email ?? '');
+                        if (empty($designer_email) || in_array($designer_email, $sent_emails)) {
+                            continue;
+                        }
+                        $sent_emails[] = $designer_email;
+                        $designer_name = !empty($designer_row->fullname) ? trim($designer_row->fullname) : 'Designer';
+
+                        if ($request_done == 'Done') {
+                            // KT Accepted
+                            $mail_subject = "KT Accepted | " . $client_name . " – " . $project_id;
+                            $mail_body = "Dear " . html_escape($designer_name) . ",<br><br>"
+                                . "This is to inform you that the Knowledge Transfer (KT) for " . html_escape($client_name) . " – " . html_escape($project_id) . " has been successfully accepted on CRM.<br><br>"
+                                . "KT Status: Accepted<br><br>"
+                                . "Kindly proceed with the next stage of the project as per the defined workflow.<br><br>"
+                                . "Regards,";
+                            $notif_desc = "Knowledge Transfer (KT) for " . $client_name . " (" . $project_id . ") has been accepted.";
+                        } else {
+                            // KT Rejected
+                            $rejection_reason = !empty($remarks) ? trim($remarks) : (!empty($request->remark) ? trim($request->remark) : 'N/A');
+                            $mail_subject = "KT Rejected | " . $client_name . " – " . $project_id;
+                            $mail_body = "Dear " . html_escape($designer_name) . ",<br><br>"
+                                . "This is to inform you that the Knowledge Transfer (KT) for " . html_escape($client_name) . " – " . html_escape($project_id) . " has been rejected on CRM.<br><br>"
+                                . "KT Status: Rejected<br>"
+                                . "Reason for Rejection: " . nl2br(html_escape($rejection_reason)) . "<br><br>"
+                                . "You are requested to review the rejection remarks, make the necessary corrections, and resubmit the KT on CRM for approval.<br><br>"
+                                . "Regards,";
+                            $notif_desc = "Knowledge Transfer (KT) for " . $client_name . " (" . $project_id . ") has been rejected. Reason: " . $rejection_reason;
+                        }
+
+                        $params = [
+                            'recipient'       => $designer_email,
+                            'subject'         => $mail_subject,
+                            'message'         => $mail_body,
+                            'resourceed_file' => ''
+                        ];
+                        try {
+                            $this->settings_model->send_email($params);
+                        } catch (Exception $e) {
+                            // Suppress mail error to ensure response completes
+                        }
+
+                        if (!empty($designer_row->user_id)) {
+                            add_notification([
+                                'to_user_id'   => $designer_row->user_id,
+                                'from_user_id' => $this->session->userdata('user_id'),
+                                'description'  => $notif_desc,
+                                'link'         => 'admin/client/details/' . $client_id . '/kt',
+                                'value'        => $mail_subject,
+                            ]);
+                        }
+                    }
+                }
+            }
 
             set_message('success', 'Client Request Approved successfully');
         } else {
@@ -8168,6 +10065,112 @@ class Client extends Admin_Controller
                 'link' => 'admin/client/manage_client',
                 'value' => $message,
             ));
+
+            // Send email to assigned Designer(s) when Post Validation file is marked final
+            if (!empty($design) && ($design->design_style == 'Post Validation Design' || empty($design->design_style))) {
+                // 1. Fetch assigned designers for this client/project
+                $assigned_designers = $this->db
+                    ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                    ->from('tbl_client_assign_team t')
+                    ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                    ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                    ->where('t.client_id', $client_id)
+                    ->group_start()
+                        ->where('t.member_profile', 'Designer')
+                        ->or_where('t.member_profile', 'Interior Designer')
+                        ->or_like('t.member_profile', 'Designer')
+                    ->group_end()
+                    ->get()
+                    ->result();
+
+                // 2. Fallback: check if member has designation matching 'Designer' (excluding Manager)
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_designations d', 'd.designations_id = a.designations_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->like('d.designations', 'Designer')
+                        ->not_like('d.designations', 'Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 3. Fallback: Design Manager assigned to project
+                if (empty($assigned_designers)) {
+                    $assigned_designers = $this->db
+                        ->select('t.user_id, a.fullname, u.email, t.member_profile')
+                        ->from('tbl_client_assign_team t')
+                        ->join('tbl_account_details a', 'a.user_id = t.user_id', 'left')
+                        ->join('tbl_users u', 'u.user_id = t.user_id', 'left')
+                        ->where('t.client_id', $client_id)
+                        ->where('t.member_profile', 'Design Manager')
+                        ->get()
+                        ->result();
+                }
+
+                // 4. Fallback: uploaded_by user if no team assignment exists
+                if (empty($assigned_designers) && !empty($design->uploaded_by)) {
+                    $uploader = $this->db
+                        ->select('u.user_id, a.fullname, u.email')
+                        ->from('tbl_users u')
+                        ->join('tbl_account_details a', 'a.user_id = u.user_id', 'left')
+                        ->where('u.user_id', $design->uploaded_by)
+                        ->get()
+                        ->row();
+                    if (!empty($uploader)) {
+                        $assigned_designers = [$uploader];
+                    }
+                }
+
+                $client_name = !empty($client->name) ? trim($client->name) : 'Client';
+                $project_id  = !empty($client->client_sr_id) ? trim($client->client_sr_id) : ('HC' . $client_id);
+                $mail_subject = "Production File Submitted | Acknowledgement Required – " . $client_name;
+
+                $this->load->model('settings_model');
+
+                $sent_emails = [];
+                if (!empty($assigned_designers)) {
+                    foreach ($assigned_designers as $designer_row) {
+                        $designer_email = trim($designer_row->email ?? '');
+                        if (empty($designer_email) || in_array($designer_email, $sent_emails)) {
+                            continue;
+                        }
+                        $sent_emails[] = $designer_email;
+                        $designer_name = !empty($designer_row->fullname) ? trim($designer_row->fullname) : 'Designer';
+
+                        $designer_message = "Dear " . html_escape($designer_name) . ",<br><br>"
+                            . "This is to inform you that the production file for " . html_escape($client_name) . " – " . html_escape($project_id) . " has been pushed to production on CRM.<br><br>"
+                            . "You are requested to review the production submission details and acknowledge the same on CRM.<br><br>"
+                            . "Action Required: Production File Acknowledgement<br><br>"
+                            . "Regards,";
+
+                        $params = [
+                            'recipient'       => $designer_email,
+                            'subject'         => $mail_subject,
+                            'message'         => $designer_message,
+                            'resourceed_file' => ''
+                        ];
+                        try {
+                            $this->settings_model->send_email($params);
+                        } catch (Exception $e) {
+                            // Suppress mail error to ensure response completes
+                        }
+
+                        if (!empty($designer_row->user_id)) {
+                            add_notification([
+                                'to_user_id'   => $designer_row->user_id,
+                                'from_user_id' => $this->session->userdata('user_id'),
+                                'description'  => 'Production file for ' . $client_name . ' (' . $project_id . ') has been pushed to production.',
+                                'link'         => 'admin/client/details/' . $client_id . '/validation',
+                                'value'        => 'Production File Submitted | Acknowledgement Required',
+                            ]);
+                        }
+                    }
+                }
+            }
         }
 
         echo "success";
@@ -11195,4 +13198,207 @@ class Client extends Admin_Controller
             redirect('admin/dashboard');
         }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CLIENT INVOICES AJAX ENDPOINTS (SEPARATE DB: tbl_client_invoices)
+    |--------------------------------------------------------------------------
+    */
+
+    public function get_client_invoices_ajax()
+    {
+        $user_id = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        $this->load->helper('permission_helper');
+        $can_view = ($user_type == 1) || check_permission('client_invoice_view', $user_id);
+        $can_upload = ($user_type == 1) || check_permission('client_invoice_upload', $user_id);
+
+        if (!$can_view && !$can_upload) {
+            echo json_encode(['success' => false, 'message' => 'Permission Denied! You do not have permission to view invoices.']);
+            exit;
+        }
+
+        $client_id = (int)$this->input->post('client_id');
+        if (empty($client_id)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid Client ID']);
+            exit;
+        }
+
+        $client = $this->db->where('client_id', $client_id)->get('tbl_client')->row();
+        if (empty($client)) {
+            echo json_encode(['success' => false, 'message' => 'Client not found']);
+            exit;
+        }
+
+        $invoices = $this->db->where('client_id', $client_id)->order_by('id', 'DESC')->get('tbl_client_invoices')->result();
+        $invoice_list = [];
+        $total_invoiced = 0;
+
+        foreach ($invoices as $inv) {
+            $amt = floatval($inv->amount);
+            $total_invoiced += $amt;
+
+            $uploader_name = '-';
+            if (!empty($inv->user_id)) {
+                $u_acc = $this->db->select('fullname')->where('user_id', $inv->user_id)->get('tbl_account_details')->row();
+                if (!empty($u_acc) && !empty($u_acc->fullname)) {
+                    $uploader_name = $u_acc->fullname;
+                }
+            }
+
+            $invoice_list[] = [
+                'id' => (int)$inv->id,
+                'amount' => $amt,
+                'amount_formatted' => number_format($amt, 2),
+                'invoice_file' => $inv->invoice_file,
+                'file_url' => base_url($inv->invoice_file),
+                'original_name' => !empty($inv->original_name) ? $inv->original_name : basename($inv->invoice_file),
+                'file_ext' => strtolower(pathinfo($inv->invoice_file, PATHINFO_EXTENSION)),
+                'uploader' => $uploader_name,
+                'created_at' => !empty($inv->created_at) ? date('d M Y, h:i A', strtotime($inv->created_at)) : '-'
+            ];
+        }
+
+        echo json_encode([
+            'success' => true,
+            'permissions' => [
+                'can_view' => $can_view,
+                'can_upload' => $can_upload
+            ],
+            'client' => [
+                'client_id' => $client_id,
+                'name' => !empty($client->name) ? $client->name : '-',
+                'client_sr_id' => !empty($client->client_sr_id) ? $client->client_sr_id : '-',
+                'total_invoiced' => $total_invoiced,
+                'total_invoiced_formatted' => number_format($total_invoiced, 2)
+            ],
+            'invoices' => $invoice_list
+        ]);
+        exit;
+    }
+
+    public function save_client_invoices_ajax()
+    {
+        $user_id = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        $this->load->helper('permission_helper');
+        $can_upload = ($user_type == 1) || check_permission('client_invoice_upload', $user_id);
+
+        if (!$can_upload) {
+            echo json_encode(['success' => false, 'message' => 'Permission Denied! You do not have permission to upload invoices.']);
+            exit;
+        }
+
+        $client_id = (int)$this->input->post('client_id');
+        if (empty($client_id)) {
+            echo json_encode(['success' => false, 'message' => 'Client ID is missing']);
+            exit;
+        }
+
+        $amounts = $this->input->post('amounts');
+        if (empty($amounts) || !is_array($amounts)) {
+            echo json_encode(['success' => false, 'message' => 'Please add at least one row with an amount and invoice file.']);
+            exit;
+        }
+
+        $upload_dir = FCPATH . 'uploads/client_invoices/';
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+
+        $saved_count = 0;
+        $files = $_FILES['invoice_files'] ?? null;
+
+        foreach ($amounts as $index => $raw_amount) {
+            $amt = floatval(str_replace(',', '', (string)$raw_amount));
+            if ($amt <= 0) {
+                continue;
+            }
+
+            if (!empty($files['name'][$index]) && $files['error'][$index] === UPLOAD_ERR_OK) {
+                $orig_name = $files['name'][$index];
+                $tmp_name = $files['tmp_name'][$index];
+                $file_size = $files['size'][$index];
+
+                $ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+                $allowed = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'doc', 'docx', 'xls', 'xlsx'];
+                if (!in_array($ext, $allowed)) {
+                    continue;
+                }
+
+                $clean_orig = preg_replace('/[^a-zA-Z0-9_\.-]/', '_', pathinfo($orig_name, PATHINFO_FILENAME));
+                $new_filename = 'inv_' . $client_id . '_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+                $target_path = $upload_dir . $new_filename;
+
+                if (move_uploaded_file($tmp_name, $target_path)) {
+                    $insert_data = [
+                        'client_id' => $client_id,
+                        'amount' => $amt,
+                        'invoice_file' => 'uploads/client_invoices/' . $new_filename,
+                        'original_name' => $orig_name,
+                        'file_size' => $file_size,
+                        'user_id' => $user_id,
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'updated_at' => date('Y-m-d H:i:s')
+                    ];
+                    $this->db->insert('tbl_client_invoices', $insert_data);
+                    $saved_count++;
+                }
+            }
+        }
+
+        if ($saved_count > 0) {
+            echo json_encode([
+                'success' => true,
+                'message' => $saved_count . ' invoice' . ($saved_count > 1 ? 's' : '') . ' uploaded successfully!'
+            ]);
+        } else {
+            echo json_encode([
+                'success' => false,
+                'message' => 'No valid rows found to upload. Please enter an amount and select an invoice file for each row.'
+            ]);
+        }
+        exit;
+    }
+
+    public function delete_client_invoice_ajax()
+    {
+        $user_id = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        $this->load->helper('permission_helper');
+        $can_upload = ($user_type == 1) || check_permission('client_invoice_upload', $user_id);
+
+        if (!$can_upload) {
+            echo json_encode(['success' => false, 'message' => 'Permission Denied! You do not have permission to delete invoices.']);
+            exit;
+        }
+
+        $invoice_id = (int)$this->input->post('invoice_id');
+        if (empty($invoice_id)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid invoice ID']);
+            exit;
+        }
+
+        $inv = $this->db->where('id', $invoice_id)->get('tbl_client_invoices')->row();
+        if (empty($inv)) {
+            echo json_encode(['success' => false, 'message' => 'Invoice not found']);
+            exit;
+        }
+
+        if (!empty($inv->invoice_file)) {
+            $file_path = FCPATH . $inv->invoice_file;
+            if (file_exists($file_path)) {
+                @unlink($file_path);
+            }
+        }
+
+        $this->db->where('id', $invoice_id)->delete('tbl_client_invoices');
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Invoice deleted successfully'
+        ]);
+        exit;
+    }
 }
+

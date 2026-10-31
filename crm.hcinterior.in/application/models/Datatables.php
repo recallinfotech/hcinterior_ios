@@ -716,6 +716,7 @@ class Datatables extends MY_Model
         $this->db->select('tbl_hourly_rate.*', FALSE);
         $this->db->select('tbl_designations.*', FALSE);
         $this->db->select('tbl_departments.deptname', FALSE);
+        $this->db->select('tbl_account_details.user_id as user_id', FALSE);
         $this->db->from('tbl_employee_payroll');
         $this->db->join('tbl_account_details', 'tbl_employee_payroll.user_id = tbl_account_details.user_id', 'left');
         $this->db->join('tbl_salary_template', 'tbl_employee_payroll.salary_template_id = tbl_salary_template.salary_template_id', 'left');
@@ -998,6 +999,13 @@ public function apply_custom_filter($custom_where = [])
                 $this->db->where(
                     $condition['field'],
                     $condition['value']
+                );
+            } elseif ($condition['type'] == 'where_raw' || $condition['type'] == 'where_string') {
+
+                $this->db->where(
+                    $condition['condition'],
+                    null,
+                    false
                 );
             }
         }

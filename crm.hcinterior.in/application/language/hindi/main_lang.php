@@ -647,7 +647,9 @@ $lang['employee_id_exist'] = 'सभी गतिविधि करने क�
 $lang['password_does_not_match'] = 'प्रोफ़ाइल विवरण';
 $lang['name_already_exist'] = 'प्रोफ़ाइल विवरण';
 $lang['companies'] = 'प्रोफ़ाइल विवरण';
-
+$lang['face_id_management'] = 'Face ID Management';
+$lang['face_id_requests'] = 'Face ID Management';
 
 /* End of file main_lang.php */
 /* Location: ./application/language/hindi/main_lang.php */
+

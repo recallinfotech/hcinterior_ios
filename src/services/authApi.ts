@@ -14,6 +14,8 @@ export interface UserData {
   reporting_to: string;
   regional_manager: string;
   team_leader: string;
+  client_access?: number;
+  can_view_clients?: boolean;
 }
 
 export interface LoginResponse {
@@ -161,7 +163,13 @@ export async function loginUser(
   throw new Error('Unable to connect to CRM authentication server. Please check your network or login credentials.');
 }
 
-export async function logoutUser(providedToken?: string, userId?: string): Promise<LogoutResponse> {
+export async function logoutUser(
+  providedToken?: string, 
+  userId?: string,
+  latitude?: number,
+  longitude?: number,
+  location?: string
+): Promise<LogoutResponse> {
   let token = providedToken || '';
 
   // If providedToken looks like a numeric user_id, fallback to looking up stored auth_token
@@ -192,19 +200,28 @@ export async function logoutUser(providedToken?: string, userId?: string): Promi
     baseHeaders['X-Api-Token'] = token;
   }
 
-  // Pass token in payload without user_id
+  // Pass token, latitude, longitude, location in payload
   const payloadObj: Record<string, any> = {};
   if (token) {
     payloadObj.token = token;
   }
+  if (latitude !== undefined) payloadObj.latitude = latitude;
+  if (longitude !== undefined) payloadObj.longitude = longitude;
+  if (location) payloadObj.location = location;
 
   const jsonBody = JSON.stringify(payloadObj);
 
   const urlParams = new URLSearchParams();
   if (token) urlParams.append('token', token);
+  if (latitude !== undefined) urlParams.append('latitude', String(latitude));
+  if (longitude !== undefined) urlParams.append('longitude', String(longitude));
+  if (location) urlParams.append('location', location);
 
   const formData = new FormData();
   if (token) formData.append('token', token);
+  if (latitude !== undefined) formData.append('latitude', String(latitude));
+  if (longitude !== undefined) formData.append('longitude', String(longitude));
+  if (location) formData.append('location', location);
 
   const endpointPaths = [
     '/login/mobile_logout',

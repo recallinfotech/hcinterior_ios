@@ -73,7 +73,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
     <div class="panel-heading">
         <div class="panel-title">
             <strong>
-                <?= lang('On Site Purchase Request (New)') ?>
+                On Site Purchase Request
             </strong>
             <?php if ($user_type == 1 || check_permission('create_on_site_purchase_request')) { ?>
                 <button id="toggle_purchase_form" class="btn btn-xs btn-primary pull-right b0">
@@ -540,7 +540,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                             <th style="width: 150px;">Request Status</th>
                             <th style="width: 150px;">Dispatch Status</th>
                             <th style="width: 130px;">Delivery Status</th>
-                            <th style="width: 300px;"><?= lang('action') ?></th>
+                            <th style="width: 300px;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -706,7 +706,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                                                  data-items='<?= json_encode($items, JSON_HEX_APOS | JSON_HEX_QUOT) ?>'
                                                  data-photos='<?= html_escape($req->upload_file ?: '[]') ?>'
                                                  title="<?= $photos_btn_title ?>">
-                                                 <i class="fa fa-camera text-primary"></i> Photos (<span class="photo_count_badge"><?= $photo_count ?></span>)
+                                                  <i class="fa fa-camera text-primary"></i> Photos (<span class="photo_count_badge"><?= $photo_count ?></span>)
                                              </button>
 
                                              <!-- Dispatch Process Button -->
@@ -746,7 +746,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                         } else {
                             ?>
                             <tr>
-                                <td colspan="6" class="text-center text-muted">No purchase requests found for this client.</td>
+                                <td colspan="8" class="text-center text-muted">No purchase requests found for this client.</td>
                             </tr>
                         <?php } ?>
                     </tbody>
@@ -978,24 +978,44 @@ $brand_options_html .= '<option value="Other">Other</option>';
                 </div>
 
                 <!-- Photos & Gallery Section -->
-                <div class="panel panel-default" id="purchase_photos_section">
-                    <div class="panel-heading">
-                        <h4 class="panel-title" style="font-size: 14px; font-weight: 600; color: #1e293b; margin: 0;">
-                            <i class="fa fa-camera text-primary" style="margin-right:6px; color:#2563eb;"></i> Purchase Request Site Photos & Attachments (<span id="modal_photo_count_text">0</span>)
-                            <small class="pull-right text-muted" id="photo_section_subtitle" style="font-size: 12px; font-weight: normal;">Upload photos for this purchase request</small>
+                <div class="panel panel-default" id="purchase_photos_section" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; transition: all 0.3s ease;">
+                    <div class="panel-heading" style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 12px 16px;">
+                        <h4 class="panel-title" style="font-size: 14px; font-weight: 600; color: #1e293b; margin: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <span>
+                                <i class="fa fa-camera text-primary" style="margin-right:6px; color:#2563eb;"></i> Purchase Request Site Photos & Attachments (<span id="modal_photo_count_text">0</span>)
+                                <span class="badge" id="modal_photo_mandatory_badge" style="background-color: #ef4444; color: #fff; font-size: 10px; margin-left: 8px; padding: 3px 8px; font-weight: 600; letter-spacing: 0.5px; vertical-align: middle;">
+                                    <i class="fa fa-asterisk"></i> MANDATORY
+                                </span>
+                            </span>
+                            <small id="photo_section_subtitle" style="font-size: 12px; font-weight: normal;">
+                                <span class="text-danger font-bold"><i class="fa fa-warning"></i> Photo upload required</span>
+                            </small>
                         </h4>
                     </div>
                     <div class="panel-body" style="padding: 16px;">
+                        <!-- Mandatory Warning Alert Banner -->
+                        <div id="modal_photos_mandatory_alert" class="alert alert-danger" style="margin-bottom: 14px; border-left: 4px solid #ef4444; background-color: #fef2f2; color: #991b1b; padding: 10px 14px; border-radius: 6px; font-size: 13px; display: none;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                                <div>
+                                    <i class="fa fa-exclamation-circle" style="font-size: 16px; margin-right: 6px; color: #ef4444;"></i>
+                                    <strong>Site Photos Mandatory:</strong> Uploading site photos is mandatory for this purchase request. Please upload site photos first.
+                                </div>
+                                <button type="button" class="btn btn-xs btn-danger" onclick="$('#modal_photo_upload_input').click();" style="font-weight: 600; border-radius: 4px;">
+                                    <i class="fa fa-cloud-upload"></i> Upload Photos Now
+                                </button>
+                            </div>
+                        </div>
+
                         <?php if ($user_type == 1 || check_permission('onsite_purchase_request_edit')) { ?>
-                            <div class="well well-sm upload-well">
-                                <div class="row" style="display: flex; align-items: center;">
+                            <div class="well well-sm upload-well" id="photo_upload_well_box" style="border: 2px dashed #cbd5e1; background-color: #f8fafc; border-radius: 8px; padding: 14px; transition: all 0.3s ease;">
+                                <div class="row" style="display: flex; align-items: center; flex-wrap: wrap;">
                                     <div class="col-sm-8">
-                                        <label class="btn btn-sm btn-primary b0" style="cursor: pointer; margin-bottom: 0; background-color: #2563eb; border-color: #1d4ed8; border-radius: 6px; font-weight: 600; padding: 6px 14px;">
-                                            <i class="fa fa-cloud-upload"></i> Click / Upload Photos
+                                        <label class="btn btn-sm btn-primary b0" style="cursor: pointer; margin-bottom: 0; background-color: #2563eb; border-color: #1d4ed8; border-radius: 6px; font-weight: 600; padding: 7px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                            <i class="fa fa-cloud-upload"></i> Click / Upload Photos <span class="text-warning">*</span>
                                             <input type="file" id="modal_photo_upload_input" multiple accept="image/*" capture="environment" style="display: none;">
                                         </label>
                                         <span class="text-muted text-xs" style="margin-left: 10px; font-size: 12px;">
-                                            <i class="fa fa-info-circle text-info"></i> Multiple images (JPG, PNG, WEBP) supported.
+                                            <i class="fa fa-info-circle text-info"></i> Multiple images (JPG, PNG, WEBP) supported. <strong class="text-danger">* Mandatory Field</strong>
                                         </span>
                                     </div>
                                     <div class="col-sm-4 text-right">
@@ -1025,6 +1045,9 @@ $brand_options_html .= '<option value="Other">Other</option>';
                     <button type="button" class="btn btn-footer-save" id="save_delivery_status_btn">
                         <i class="fa fa-save"></i> Save Status
                     </button>
+                    <span id="modal_footer_photo_warn" class="text-danger" style="display: none; font-size: 11px; font-weight: 600;">
+                        <i class="fa fa-warning"></i> Photo upload mandatory
+                    </span>
                 </div>
             </div>
             </div>
@@ -1168,6 +1191,21 @@ $brand_options_html .= '<option value="Other">Other</option>';
         }
     }
 
+    function highlightPhotoUploadRequired() {
+        var section = $('#purchase_photos_section');
+        if (section.length) {
+            var modal = $('#purchase_items_modal');
+            modal.animate({
+                scrollTop: section.position().top + modal.scrollTop() - 20
+            }, 300);
+
+            section.css('box-shadow', '0 0 0 3px rgba(239, 68, 68, 0.6)');
+            setTimeout(function() {
+                section.css('box-shadow', 'none');
+            }, 1800);
+        }
+    }
+
     function renderModalPhotos(photos) {
         var html = '';
         var count = 0;
@@ -1185,7 +1223,30 @@ $brand_options_html .= '<option value="Other">Other</option>';
             photos = [];
         }
 
+        window.currentActivePhotosCount = count;
         $('#modal_photo_count_text').text(count);
+
+        if (count === 0) {
+            $('#modal_photos_mandatory_alert').slideDown(200);
+            $('#modal_photo_mandatory_badge').show().css('background-color', '#ef4444').html('<i class="fa fa-asterisk"></i> MANDATORY (0/1)');
+            $('#photo_section_subtitle').html('<span class="text-danger font-bold"><i class="fa fa-warning"></i> Photo upload required</span>');
+            $('#photo_upload_well_box').css({
+                'border': '2px dashed #ef4444',
+                'background-color': '#fef2f2'
+            });
+            $('#purchase_photos_section').css('border-color', '#fca5a5');
+            $('#modal_footer_photo_warn').show();
+        } else {
+            $('#modal_photos_mandatory_alert').slideUp(200);
+            $('#modal_photo_mandatory_badge').css('background-color', '#10b981').html('<i class="fa fa-check"></i> ' + count + ' Uploaded');
+            $('#photo_section_subtitle').html('<span class="text-success font-bold"><i class="fa fa-check-circle"></i> ' + count + ' Photo(s) Attached</span>');
+            $('#photo_upload_well_box').css({
+                'border': '1px solid #86efac',
+                'background-color': '#f0fdf4'
+            });
+            $('#purchase_photos_section').css('border-color', '#e2e8f0');
+            $('#modal_footer_photo_warn').hide();
+        }
 
         if (photos.length > 0) {
             $.each(photos, function(index, p) {
@@ -1218,7 +1279,7 @@ $brand_options_html .= '<option value="Other">Other</option>';
                 html += `</div></div>`;
             });
         } else {
-            html = '<div class="col-xs-12 text-center text-muted" style="padding: 20px;">No photos uploaded for this purchase request yet.</div>';
+            html = '<div class="col-xs-12 text-center" style="padding: 30px 15px; color: #dc2626; background: #fef2f2; border-radius: 6px; margin: 10px 0;"><i class="fa fa-camera fa-2x" style="opacity: 0.6; display: block; margin-bottom: 8px;"></i><strong>No photos uploaded!</strong><br><span style="font-size: 12px; color: #64748b;">This field is mandatory, please upload photos using the "Click / Upload Photos" button.</span></div>';
         }
 
         $('#modal_photos_gallery_grid').html(html);
@@ -1578,6 +1639,14 @@ $brand_options_html .= '<option value="Other">Other</option>';
         var purchaseId = select.data('purchase_id') || currentActivePurchaseId;
         var deliveryStatusVal = select.val();
 
+        // MANDATORY CHECK: Photos must be uploaded!
+        if (!window.currentActivePhotosCount || window.currentActivePhotosCount === 0) {
+            alert('Uploading photos is mandatory! Please upload site photos before saving delivery status.');
+            highlightPhotoUploadRequired();
+            $('#modal_photo_upload_input').click();
+            return false;
+        }
+
         btn.prop('disabled', true);
         select.prop('disabled', true);
 
@@ -1724,6 +1793,14 @@ $brand_options_html .= '<option value="Other">Other</option>';
         var itemId = btn.data('id');
         var isOrdered = btn.data('ordered');
 
+        // MANDATORY CHECK: Photos must be uploaded!
+        if (!window.currentActivePhotosCount || window.currentActivePhotosCount === 0) {
+            alert('Uploading photos is mandatory! Please upload site photos before sending items.');
+            highlightPhotoUploadRequired();
+            $('#modal_photo_upload_input').click();
+            return false;
+        }
+
         btn.prop('disabled', true);
 
         $.ajax({
@@ -1797,6 +1874,14 @@ $brand_options_html .= '<option value="Other">Other</option>';
             $('#rejection_remark_modal .modal-title').html('<i class="fa fa-times-circle"></i> Reject Item');
             $('#rejection_remark_modal').modal('show');
             return;
+        }
+
+        // MANDATORY CHECK: Photos must be uploaded before receiving items!
+        if (!window.currentActivePhotosCount || window.currentActivePhotosCount === 0) {
+            alert('Uploading photos is mandatory! Please upload site photos first.');
+            highlightPhotoUploadRequired();
+            $('#modal_photo_upload_input').click();
+            return false;
         }
 
         btn.prop('disabled', true);

@@ -745,14 +745,8 @@ class Dashboard extends Admin_Controller
                 $this->admin_model->save($data, $id);
             } else {
                 $data['clocking_status'] = 1;
+                $data['clockout_time'] = null;
                 $id = $this->admin_model->save($data);
-                if (!empty($check_date)) {
-                    if ($check_date->clocking_status == 1) {
-                        $data['clockout_time'] = null;
-                        $data['clocking_status'] = 0;
-                        $this->admin_model->save($data, $id);
-                    }
-                }
             }
         } else {
             set_message('error', 'please contact with admin to clock in');
@@ -790,7 +784,45 @@ class Dashboard extends Admin_Controller
         }
     }
 
-    public
+    public function clear_attendance_photos()
+    {
+        $dir = FCPATH . 'uploads/attendance_photos/';
+        $deleted_count = 0;
+        $freed_bytes = 0;
+
+        if (is_dir($dir)) {
+            $files = glob($dir . '*');
+            if (!empty($files)) {
+                foreach ($files as $file) {
+                    if (is_file($file)) {
+                        $freed_bytes += filesize($file);
+                        if (@unlink($file)) {
+                            $deleted_count++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($this->db->table_exists('tbl_attendance_face_logs')) {
+            $this->db->update('tbl_attendance_face_logs', [
+                'photo_thumbnail' => null,
+                'photo_path'      => null
+            ]);
+        }
+
+        $freed_mb = round($freed_bytes / (1024 * 1024), 2);
+        $msg = "Attendance photos cleared successfully! Total " . $deleted_count . " photos removed (" . $freed_mb . " MB storage freed).";
+
+        if ($this->input->is_ajax_request()) {
+            echo json_encode(['status' => 'success', 'message' => $msg, 'deleted_count' => $deleted_count, 'freed_mb' => $freed_mb]);
+            exit();
+        } else {
+            set_message('success', $msg);
+            redirect('admin/mark_attendance');
+        }
+    }
+
     function mark_attendance()
     {
         $this->load->model('common_model');
@@ -808,10 +840,17 @@ class Dashboard extends Admin_Controller
         $year = date('Y', strtotime($date));
         $day = date('d', strtotime($date));
 
-        $data['users'] = get_staff_details();
-//        echo "<pre>";
-//        print_r($data['users']);
-//        exit();
+        $staff_query = $this->db->select('u.*, ad.*, u.user_id as user_id, dept.deptname, desig.designations')
+            ->from('tbl_users u')
+            ->join('tbl_account_details ad', 'u.user_id = ad.user_id', 'left')
+            ->join('tbl_designations desig', 'ad.designations_id = desig.designations_id', 'left')
+            ->join('tbl_departments dept', 'desig.departments_id = dept.departments_id', 'left')
+            ->where('u.role_id !=', 2)
+            ->where('u.activated', 1)
+            ->order_by('ad.fullname', 'ASC')
+            ->get()->result();
+
+        $data['users'] = !empty($staff_query) ? $staff_query : get_staff_details();
 
         $holidays = $this->common_model->get_holidays(); //tbl working Days Holiday
 
@@ -860,9 +899,41 @@ class Dashboard extends Admin_Controller
             } else {
                 $data['attendace_info'][$sl] = $this->attendance_model->attendance_report_by_empid($v_employee->user_id, $sdate);
             }
-            $flag = '';
-//            }
         }
+
+        // Fetch all punch in and punch out logs for the selected date
+        $punch_in_map = array();
+        $punch_out_map = array();
+        $outside_logout_map = array();
+
+        $has_logs_table = $this->db->query("SHOW TABLES LIKE 'tbl_attendance_face_logs'")->num_rows() > 0;
+        if ($has_logs_table) {
+            $all_logs_query = $this->db->select('log_id, user_id, punch_type, punch_time, distance_from_office, is_inside_geofence, address, lat, lng, photo_thumbnail, photo_path')
+                ->from('tbl_attendance_face_logs')
+                ->where("DATE(punch_time) = '$date'")
+                ->order_by('log_id', 'DESC')
+                ->get()->result();
+
+            if (!empty($all_logs_query)) {
+                foreach ($all_logs_query as $log_item) {
+                    if ($log_item->punch_type === 'in' && !isset($punch_in_map[$log_item->user_id])) {
+                        $punch_in_map[$log_item->user_id] = $log_item;
+                    }
+                    if ($log_item->punch_type === 'out') {
+                        if (!isset($punch_out_map[$log_item->user_id])) {
+                            $punch_out_map[$log_item->user_id] = $log_item;
+                        }
+                        if ((int)$log_item->is_inside_geofence === 0 && !isset($outside_logout_map[$log_item->user_id])) {
+                            $outside_logout_map[$log_item->user_id] = $log_item;
+                        }
+                    }
+                }
+            }
+        }
+        $data['punch_in_map'] = $punch_in_map;
+        $data['punch_out_map'] = $punch_out_map;
+        $data['outside_logout_map'] = $outside_logout_map;
+
         $data['subview'] = $this->load->view('admin/settings/mark_attendance', $data, TRUE);
         $this->load->view('admin/_layout_main', $data); //page load
     }

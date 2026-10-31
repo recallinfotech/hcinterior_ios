@@ -184,7 +184,7 @@ export const PushNotificationManager: React.FC<PushNotificationManagerProps> = (
             <div>
               <strong className="font-bold text-amber-800 dark:text-amber-300">Chrome Browser Notification Permission is Blocked:</strong>
               <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80 mt-0.5">
-                Google Chrome me URL bar ke paas 🔒 <strong>Lock / Tune Icon</strong> par click karein ➔ <strong>Site Settings</strong> ➔ <strong>Notifications</strong> ko <strong>"Allow"</strong> set karein, aur page refresh karein.
+                In Google Chrome, click the 🔒 <strong>Lock / Tune Icon</strong> next to the address bar ➔ <strong>Site Settings</strong> ➔ set <strong>Notifications</strong> to <strong>"Allow"</strong>, and refresh the page.
               </p>
             </div>
           </div>

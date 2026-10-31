@@ -152,7 +152,9 @@ $lang['clock_out'] = 'वक्त खतम';
 $lang['time_change_request'] = 'समय परिवर्तन अनुरोध';
 $lang['activity_time_manually'] = 'मैन्युअल समय जोड़ा';
 $lang['time_manually_added'] = 'मैन्युअल रूप से समय';
-
+$lang['face_id_management'] = 'Face ID Management';
+$lang['face_id_requests'] = 'Face ID Management';
 
 /* End of file utilities_lang.php */
 /* Location: ./application/language/hindi/utilities_lang.php */
+

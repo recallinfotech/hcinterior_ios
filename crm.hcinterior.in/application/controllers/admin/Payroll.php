@@ -11,36 +11,179 @@ class Payroll extends Admin_Controller
 
     public function salary_template($id = null)
     {
-        $data['title'] = lang('salary_template_details');
-        $data['active'] = 1;
-
-        $data['subview'] = $this->load->view('admin/payroll/salary_template', $data, TRUE);
-        $this->load->view('admin/_layout_main', $data);
+        redirect('admin/payroll/employee_salary_list');
     }
 
     public function create_salarytemplate($id = null)
     {
-        $data['title'] = lang('salary_template_details');
+        $data['title'] = 'Set Employee Salary';
 
-        if (!empty($id)) {
+        $user_id = $this->input->get('user_id', TRUE);
+        if (empty($user_id) && !empty($id)) {
+            $check_emp = $this->db->where('user_id', $id)->get('tbl_account_details')->row();
+            if (!empty($check_emp)) {
+                $user_id = $id;
+            } else {
+                $payroll_emp = $this->db->where('salary_template_id', $id)->get('tbl_employee_payroll')->row();
+                if (!empty($payroll_emp)) {
+                    $user_id = $payroll_emp->user_id;
+                } else {
+                    $this->payroll_model->_table_name = "tbl_salary_template";
+                    $this->payroll_model->_order_by = "salary_template_id";
+                    $data['salary_template_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), TRUE);
 
-            $this->payroll_model->_table_name = "tbl_salary_template"; // table name
-            $this->payroll_model->_order_by = "salary_template_id"; // $id
-            $data['salary_template_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), TRUE);
+                    $this->payroll_model->_table_name = "tbl_salary_allowance";
+                    $this->payroll_model->_order_by = "salary_allowance_id";
+                    $data['salary_allowance_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), FALSE);
 
-            // get salary allowance info by  salary template id
-            $this->payroll_model->_table_name = "tbl_salary_allowance"; // table name
-            $this->payroll_model->_order_by = "salary_allowance_id"; // $id
-            $data['salary_allowance_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), FALSE);
-
-            // get salary deduction info by salary template id
-            $this->payroll_model->_table_name = "tbl_salary_deduction"; // table name
-            $this->payroll_model->_order_by = "salary_deduction_id"; // $id
-            $data['salary_deduction_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), FALSE);
+                    $this->payroll_model->_table_name = "tbl_salary_deduction";
+                    $this->payroll_model->_order_by = "salary_deduction_id";
+                    $data['salary_deduction_info'] = $this->payroll_model->get_by(array('salary_template_id' => $id), FALSE);
+                }
+            }
         }
+
+        if (!empty($user_id)) {
+            $data['selected_user_id'] = $user_id;
+            $data['selected_employee'] = $this->db->select('tbl_account_details.*, tbl_designations.designations, tbl_departments.deptname')
+                ->from('tbl_account_details')
+                ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+                ->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left')
+                ->where('tbl_account_details.user_id', $user_id)
+                ->get()->row();
+
+            $payroll_row = $this->db->where('user_id', $user_id)->get('tbl_employee_payroll')->row();
+            if (!empty($payroll_row) && !empty($payroll_row->salary_template_id)) {
+                $tmpl_id = $payroll_row->salary_template_id;
+                $data['salary_template_info'] = $this->db->where('salary_template_id', $tmpl_id)->get('tbl_salary_template')->row();
+                $data['salary_allowance_info'] = $this->db->where('salary_template_id', $tmpl_id)->get('tbl_salary_allowance')->result();
+                $data['salary_deduction_info'] = $this->db->where('salary_template_id', $tmpl_id)->get('tbl_salary_deduction')->result();
+            }
+        }
+
+        // Fetch all active employees grouped by department for selector dropdown
+        $all_employees = $this->db->select('tbl_account_details.user_id, tbl_account_details.fullname, tbl_account_details.employment_id, tbl_designations.designations, tbl_departments.deptname, tbl_employee_payroll.salary_template_id, tbl_salary_template.basic_salary')
+            ->from('tbl_account_details')
+            ->join('tbl_users', 'tbl_users.user_id = tbl_account_details.user_id', 'inner')
+            ->where('tbl_users.activated', 1)
+            ->where('tbl_users.role_id !=', 2)
+            ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+            ->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left')
+            ->join('tbl_employee_payroll', 'tbl_employee_payroll.user_id = tbl_account_details.user_id', 'left')
+            ->join('tbl_salary_template', 'tbl_salary_template.salary_template_id = tbl_employee_payroll.salary_template_id', 'left')
+            ->order_by('tbl_departments.deptname', 'ASC')
+            ->order_by('tbl_account_details.fullname', 'ASC')
+            ->get()->result();
+
+        $grouped_employees = array();
+        foreach ($all_employees as $emp) {
+            $dept = !empty($emp->deptname) ? $emp->deptname : 'General / Other';
+            $grouped_employees[$dept][] = $emp;
+        }
+        $data['all_employees'] = $grouped_employees;
+
         $data['active'] = 2;
         $data['subview'] = $this->load->view('admin/payroll/create_salarytemplate', $data, TRUE);
         $this->load->view('admin/_layout_main', $data);
+    }
+
+    public function get_employee_salary_ajax($user_id)
+    {
+        $user_id = intval($user_id);
+        if (empty($user_id)) {
+            echo json_encode(array('success' => false, 'message' => 'Invalid Employee ID'));
+            exit;
+        }
+
+        $emp = $this->db->select('tbl_account_details.*, tbl_designations.designations, tbl_departments.deptname')
+            ->from('tbl_account_details')
+            ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+            ->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left')
+            ->where('tbl_account_details.user_id', $user_id)
+            ->get()->row();
+
+        if (empty($emp)) {
+            echo json_encode(array('success' => false, 'message' => 'Employee not found'));
+            exit;
+        }
+
+        $payroll = $this->db->where('user_id', $user_id)->get('tbl_employee_payroll')->row();
+        $has_salary = false;
+        $basic_salary = '0.00';
+        $allowances = array();
+        $deductions = array();
+        $salary_template_id = 0;
+
+        if (!empty($payroll) && !empty($payroll->salary_template_id)) {
+            $tmpl = $this->db->where('salary_template_id', $payroll->salary_template_id)->get('tbl_salary_template')->row();
+            if (!empty($tmpl)) {
+                $has_salary = true;
+                $salary_template_id = $tmpl->salary_template_id;
+                $basic_salary = number_format(floatval($tmpl->basic_salary), 2, '.', '');
+
+                $db_allowances = $this->db->where('salary_template_id', $salary_template_id)->get('tbl_salary_allowance')->result();
+                if (!empty($db_allowances)) {
+                    foreach ($db_allowances as $al) {
+                        $allowances[] = array(
+                            'id' => $al->salary_allowance_id,
+                            'label' => $al->allowance_label,
+                            'value' => number_format(floatval($al->allowance_value), 2, '.', '')
+                        );
+                    }
+                }
+
+                $db_deductions = $this->db->where('salary_template_id', $salary_template_id)->get('tbl_salary_deduction')->result();
+                if (!empty($db_deductions)) {
+                    foreach ($db_deductions as $de) {
+                        $deductions[] = array(
+                            'id' => $de->salary_deduction_id,
+                            'label' => $de->deduction_label,
+                            'value' => number_format(floatval($de->deduction_value), 2, '.', '')
+                        );
+                    }
+                }
+            }
+        }
+
+        // If no allowances found in DB, return standard starter allowances
+        if (empty($allowances)) {
+            $allowances = array(
+                array('id' => '', 'label' => 'Variable', 'value' => '0.00'),
+                array('id' => '', 'label' => 'H.R.A.', 'value' => '0.00'),
+                array('id' => '', 'label' => 'Conveyance Allowances', 'value' => '1000.00'),
+                array('id' => '', 'label' => 'Medical Allowances', 'value' => '1250.00'),
+                array('id' => '', 'label' => 'SPA', 'value' => '0.00')
+            );
+        }
+
+        if (empty($deductions)) {
+            $deductions = array(
+                array('id' => '', 'label' => 'EPF Employee', 'value' => '0.00')
+            );
+        }
+
+        // Calculate CTC
+        $tot_allowance = 0;
+        foreach ($allowances as $a) {
+            $tot_allowance += floatval($a['value']);
+        }
+        $ctc = floatval($basic_salary) + $tot_allowance;
+
+        echo json_encode(array(
+            'success' => true,
+            'user_id' => $emp->user_id,
+            'fullname' => $emp->fullname,
+            'employment_id' => $emp->employment_id ?: '',
+            'designations' => $emp->designations ?: 'Staff',
+            'deptname' => $emp->deptname ?: 'General',
+            'has_salary' => $has_salary,
+            'salary_template_id' => $salary_template_id,
+            'basic_salary' => $basic_salary,
+            'ctc' => ($ctc > 0) ? number_format($ctc, 2, '.', '') : '',
+            'allowances' => $allowances,
+            'deductions' => $deductions
+        ));
+        exit;
     }
 
     public function salary_templateList()
@@ -48,8 +191,8 @@ class Payroll extends Admin_Controller
         if ($this->input->is_ajax_request()) {
             $this->load->model('datatables');
             $this->datatables->table = 'tbl_salary_template';
-            $this->datatables->column_order = array('salary_grade', 'basic_salary', 'overtime_salary');
-            $this->datatables->column_search = array('salary_grade', 'basic_salary', 'overtime_salary');
+            $this->datatables->column_order = array('salary_grade', 'basic_salary', 'basic_salary');
+            $this->datatables->column_search = array('salary_grade', 'basic_salary');
             $this->datatables->order = array('salary_template_id' => 'desc');
 
             $fetch_data = make_datatables();
@@ -65,17 +208,32 @@ class Payroll extends Admin_Controller
                 $sub_array[] = $_key + 1;
 
                 $title = null;
-                $title .= '<a data-toggle="modal" data-target="#myModal_lg" class="text-info" href="' . base_url() . 'admin/payroll/salary_template_details/' . $v_salary_info->salary_template_id . '">' . $v_salary_info->salary_grade . '</a>';
+                $title .= '<a data-toggle="modal" data-target="#myModal_lg" class="text-info" style="font-weight:600;" href="' . base_url() . 'admin/payroll/salary_template_details/' . $v_salary_info->salary_template_id . '">' . html_escape($v_salary_info->salary_grade) . '</a>';
                 $sub_array[] = $title;
 
                 $sub_array[] = display_money($v_salary_info->basic_salary, default_currency());
 
-                if (!empty($v_salary_info->overtime_salary)) {
-                    $overtime_salary = $v_salary_info->overtime_salary;
-                } else {
-                    $overtime_salary = 0;
+                // Calculate gross and net salary
+                $allowances = $this->db->where('salary_template_id', $v_salary_info->salary_template_id)->get('tbl_salary_allowance')->result();
+                $tot_allowance = 0;
+                if (!empty($allowances)) {
+                    foreach ($allowances as $v_all) {
+                        $tot_allowance += floatval($v_all->allowance_value);
+                    }
                 }
-                $sub_array[] = display_money($overtime_salary, default_currency());
+                $gross = floatval($v_salary_info->basic_salary) + $tot_allowance;
+
+                $deductions = $this->db->where('salary_template_id', $v_salary_info->salary_template_id)->get('tbl_salary_deduction')->result();
+                $tot_deduction = 0;
+                if (!empty($deductions)) {
+                    foreach ($deductions as $v_ded) {
+                        $tot_deduction += floatval($v_ded->deduction_value);
+                    }
+                }
+                $net = $gross - $tot_deduction;
+
+                $sub_array[] = display_money($gross, default_currency());
+                $sub_array[] = '<span class="text-success text-bold">' . display_money($net, default_currency()) . '</span>';
 
                 $action .= btn_view_modal('admin/payroll/salary_template_details/' . $v_salary_info->salary_template_id) . ' ';
                 if (!empty($edited)) {
@@ -98,19 +256,186 @@ class Payroll extends Admin_Controller
     {
         $created = can_action('94', 'created');
         $edited = can_action('94', 'edited');
-        if (!empty($created) || !empty($edited) && !empty($id)) {
-            // inout data to salate template
+        $is_admin = ($this->session->userdata('user_type') == 1);
+
+        if (!empty($created) || !empty($edited) || $is_admin) {
+            $user_id = $this->input->post('user_id', TRUE);
+            if (empty($user_id) && !empty($id)) {
+                $payroll_row = $this->db->where('salary_template_id', $id)->get('tbl_employee_payroll')->row();
+                if (!empty($payroll_row)) {
+                    $user_id = $payroll_row->user_id;
+                }
+            }
+
+            $basic_salary = $this->input->post('basic_salary', TRUE);
+            $overtime_salary = $this->input->post('overtime_salary', TRUE) ?: 0;
+            $salary_grade = $this->input->post('salary_grade', TRUE);
+
+            // 1. EMPLOYEE DIRECT SALARY SETUP
+            if (!empty($user_id)) {
+                $emp = $this->db->select('tbl_account_details.*, tbl_designations.designations')
+                    ->from('tbl_account_details')
+                    ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+                    ->where('tbl_account_details.user_id', $user_id)
+                    ->get()->row();
+
+                if (empty($salary_grade) && !empty($emp)) {
+                    $salary_grade = $emp->fullname . (!empty($emp->employment_id) ? ' (' . $emp->employment_id . ')' : '');
+                } elseif (empty($salary_grade)) {
+                    $salary_grade = 'Employee #' . $user_id;
+                }
+
+                $payroll = $this->db->where('user_id', $user_id)->get('tbl_employee_payroll')->row();
+                $salary_template_id = null;
+                if (!empty($payroll) && !empty($payroll->salary_template_id)) {
+                    $check_tmpl = $this->db->where('salary_template_id', $payroll->salary_template_id)->get('tbl_salary_template')->row();
+                    if (!empty($check_tmpl)) {
+                        $salary_template_id = $payroll->salary_template_id;
+                    }
+                }
+
+                $template_data = array(
+                    'salary_grade'    => $salary_grade,
+                    'basic_salary'    => $basic_salary,
+                    'overtime_salary' => $overtime_salary
+                );
+
+                if (!empty($salary_template_id)) {
+                    $this->db->where('salary_template_id', $salary_template_id)->update('tbl_salary_template', $template_data);
+                } else {
+                    $max_t_row = $this->db->select_max('salary_template_id')->get('tbl_salary_template')->row();
+                    $salary_template_id = ($max_t_row && isset($max_t_row->salary_template_id)) ? (intval($max_t_row->salary_template_id) + 1) : 1;
+                    $template_data['salary_template_id'] = $salary_template_id;
+                    $this->db->insert('tbl_salary_template', $template_data);
+                }
+
+                // Upsert tbl_employee_payroll
+                if (!empty($payroll)) {
+                    $this->db->where('user_id', $user_id)->update('tbl_employee_payroll', array(
+                        'salary_template_id' => $salary_template_id
+                    ));
+                } else {
+                    $max_p_row = $this->db->select_max('payroll_id')->get('tbl_employee_payroll')->row();
+                    $new_payroll_id = ($max_p_row && isset($max_p_row->payroll_id)) ? (intval($max_p_row->payroll_id) + 1) : 1;
+                    $this->db->insert('tbl_employee_payroll', array(
+                        'payroll_id'         => $new_payroll_id,
+                        'user_id'            => $user_id,
+                        'salary_template_id' => $salary_template_id,
+                        'hourly_rate_id'     => NULL
+                    ));
+                }
+
+                // Refresh Allowances
+                $this->db->where('salary_template_id', $salary_template_id)->delete('tbl_salary_allowance');
+                $max_a_row = $this->db->select_max('salary_allowance_id')->get('tbl_salary_allowance')->row();
+                $next_aid = ($max_a_row && isset($max_a_row->salary_allowance_id)) ? (intval($max_a_row->salary_allowance_id) + 1) : 1;
+
+                $allowance_labels = $this->input->post('allowance_label', TRUE);
+                $allowance_values = $this->input->post('allowance_value', TRUE);
+                if (!empty($allowance_labels) && is_array($allowance_labels)) {
+                    foreach ($allowance_labels as $k => $label) {
+                        $label = trim($label);
+                        $val = isset($allowance_values[$k]) ? floatval($allowance_values[$k]) : 0;
+                        if ($label !== '') {
+                            $this->db->insert('tbl_salary_allowance', array(
+                                'salary_allowance_id' => $next_aid++,
+                                'salary_template_id'  => $salary_template_id,
+                                'allowance_label'     => $label,
+                                'allowance_value'     => $val
+                            ));
+                        }
+                    }
+                }
+
+                // Also check legacy default allowances if any
+                $house_rent_allowance = $this->input->post('house_rent_allowance', TRUE);
+                $medical_allowance = $this->input->post('medical_allowance', TRUE);
+                if (!empty($house_rent_allowance)) {
+                    $this->db->insert('tbl_salary_allowance', array(
+                        'salary_allowance_id' => $next_aid++,
+                        'salary_template_id'  => $salary_template_id,
+                        'allowance_label'     => lang('house_rent_allowance'),
+                        'allowance_value'     => floatval($house_rent_allowance)
+                    ));
+                }
+                if (!empty($medical_allowance)) {
+                    $this->db->insert('tbl_salary_allowance', array(
+                        'salary_allowance_id' => $next_aid++,
+                        'salary_template_id'  => $salary_template_id,
+                        'allowance_label'     => lang('medical_allowance'),
+                        'allowance_value'     => floatval($medical_allowance)
+                    ));
+                }
+
+                // Refresh Deductions
+                $this->db->where('salary_template_id', $salary_template_id)->delete('tbl_salary_deduction');
+                $max_d_row = $this->db->select_max('salary_deduction_id')->get('tbl_salary_deduction')->row();
+                $next_did = ($max_d_row && isset($max_d_row->salary_deduction_id)) ? (intval($max_d_row->salary_deduction_id) + 1) : 1;
+
+                $deduction_labels = $this->input->post('deduction_label', TRUE);
+                $deduction_values = $this->input->post('deduction_value', TRUE);
+                if (!empty($deduction_labels) && is_array($deduction_labels)) {
+                    foreach ($deduction_labels as $k => $label) {
+                        $label = trim($label);
+                        $val = isset($deduction_values[$k]) ? floatval($deduction_values[$k]) : 0;
+                        if ($label !== '') {
+                            $this->db->insert('tbl_salary_deduction', array(
+                                'salary_deduction_id' => $next_did++,
+                                'salary_template_id'  => $salary_template_id,
+                                'deduction_label'     => $label,
+                                'deduction_value'     => $val
+                            ));
+                        }
+                    }
+                }
+
+                // Also check legacy default deductions if any
+                $provident_fund = $this->input->post('provident_fund', TRUE);
+                $tax_deduction = $this->input->post('tax_deduction', TRUE);
+                if (!empty($provident_fund)) {
+                    $this->db->insert('tbl_salary_deduction', array(
+                        'salary_deduction_id' => $next_did++,
+                        'salary_template_id'  => $salary_template_id,
+                        'deduction_label'     => lang('provident_fund'),
+                        'deduction_value'     => floatval($provident_fund)
+                    ));
+                }
+                if (!empty($tax_deduction)) {
+                    $this->db->insert('tbl_salary_deduction', array(
+                        'salary_deduction_id' => $next_did++,
+                        'salary_template_id'  => $salary_template_id,
+                        'deduction_label'     => lang('tax_deduction'),
+                        'deduction_value'     => floatval($tax_deduction)
+                    ));
+                }
+
+                // Log Activity
+                $activities = array(
+                    'user'            => $this->session->userdata('user_id'),
+                    'module'          => 'payroll',
+                    'module_field_id' => $salary_template_id,
+                    'activity'        => 'activity_salary_details_update',
+                    'icon'            => 'fa-money',
+                    'link'            => 'admin/payroll/create_salarytemplate?user_id=' . $user_id,
+                    'value1'          => !empty($emp) ? $emp->fullname : $salary_grade,
+                );
+                $this->db->insert('tbl_activities', $activities);
+
+                $emp_name = !empty($emp) ? $emp->fullname : 'Employee';
+                set_message('success', 'Salary structure saved successfully for ' . $emp_name . '!');
+                redirect('admin/payroll/employee_salary_list');
+                return;
+            }
+
+            // 2. FALLBACK FOR GENERIC TEMPLATE SAVING
             $template_data = $this->payroll_model->array_from_post(array('salary_grade', 'basic_salary', 'overtime_salary'));
-            // ************* Save into tbl_salary_template *************
-            $this->payroll_model->_table_name = "tbl_salary_template"; // table name
-            $this->payroll_model->_primary_key = "salary_template_id"; // $id
+            $this->payroll_model->_table_name = "tbl_salary_template";
+            $this->payroll_model->_primary_key = "salary_template_id";
             $salary_template_id = $this->payroll_model->save($template_data, $id);
 
-            // inout data salary_allowance information
-            // Input data defualt salary_allowance
+            // Default allowances
             $house_rent_allowance = $this->input->post('house_rent_allowance', TRUE);
             $medical_allowance = $this->input->post('medical_allowance', TRUE);
-            // check defualt salary_allowance empty or not
             if (!empty($house_rent_allowance)) {
                 $asalary_allowance_data['allowance_label'][] = lang('house_rent_allowance');
                 $asalary_allowance_data['allowance_value'][] = $house_rent_allowance;
@@ -119,34 +444,30 @@ class Payroll extends Admin_Controller
                 $asalary_allowance_data['allowance_label'][] = lang('medical_allowance');
                 $asalary_allowance_data['allowance_value'][] = $medical_allowance;
             }
-            // check salary_allowance data empty or not
-            // if not empty then save into table
             if (!empty($asalary_allowance_data['allowance_label'])) {
                 foreach ($asalary_allowance_data['allowance_label'] as $hkey => $h_salary_allowance_label) {
                     $alsalary_allowance_data['salary_template_id'] = $salary_template_id;
                     $alsalary_allowance_data['allowance_label'] = $h_salary_allowance_label;
                     $alsalary_allowance_data['allowance_value'] = $asalary_allowance_data['allowance_value'][$hkey];
-
-                    // *********** save defualt value into tbl_salary_allowance    *******************
-                    $this->payroll_model->_table_name = "tbl_salary_allowance"; // table name
-                    $this->payroll_model->_primary_key = "salary_allowance_id"; // $id
+                    $this->payroll_model->_table_name = "tbl_salary_allowance";
+                    $this->payroll_model->_primary_key = "salary_allowance_id";
                     $this->payroll_model->save($alsalary_allowance_data);
                 }
             }
-            // save add more value into tbl_salary_allowance
+
+            // More allowances
             $salary_allowance_label = $this->input->post('allowance_label', TRUE);
             $salary_allowance_value = $this->input->post('allowance_value', TRUE);
-            // input id for update
             $salary_allowance_id = $this->input->post('salary_allowance_id', TRUE);
             $salary_allowance = get_any_field('tbl_salary_allowance', array('salary_template_id' => $salary_template_id), 'salary_allowance_id', true);
             if (!empty($salary_allowance)) {
                 $salary_allowance = array_column($salary_allowance, 'salary_allowance_id');
                 if (!empty($salary_allowance)) {
-                    $delete_salary_allowance_id = array_diff($salary_allowance, $salary_allowance_id);
+                    $delete_salary_allowance_id = array_diff($salary_allowance, (array)$salary_allowance_id);
                     if (!empty($delete_salary_allowance_id)) {
                         foreach ($delete_salary_allowance_id as $deleted_id) {
-                            $this->payroll_model->_table_name = "tbl_salary_allowance"; // table name
-                            $this->payroll_model->_primary_key = "salary_allowance_id"; // $id
+                            $this->payroll_model->_table_name = "tbl_salary_allowance";
+                            $this->payroll_model->_primary_key = "salary_allowance_id";
                             $this->payroll_model->delete($deleted_id);
                         }
                     }
@@ -158,9 +479,8 @@ class Payroll extends Admin_Controller
                         $salary_allowance_data['salary_template_id'] = $salary_template_id;
                         $salary_allowance_data['allowance_label'] = $v_salary_allowance_label;
                         $salary_allowance_data['allowance_value'] = $salary_allowance_value[$key];
-                        // *********** save add more value into tbl_salary_allowance    *******************
-                        $this->payroll_model->_table_name = "tbl_salary_allowance"; // table name
-                        $this->payroll_model->_primary_key = "salary_allowance_id"; // $id
+                        $this->payroll_model->_table_name = "tbl_salary_allowance";
+                        $this->payroll_model->_primary_key = "salary_allowance_id";
                         if (!empty($salary_allowance_id[$key])) {
                             $allowance_id = $salary_allowance_id[$key];
                             $this->payroll_model->save($salary_allowance_data, $allowance_id);
@@ -170,11 +490,10 @@ class Payroll extends Admin_Controller
                     }
                 }
             }
-            // inout data Deduction information
-            // Input data defualt salary_allowance
+
+            // Deductions
             $provident_fund = $this->input->post('provident_fund', TRUE);
             $tax_deduction = $this->input->post('tax_deduction', TRUE);
-            // check defualt Deduction empty or not
             if (!empty($provident_fund)) {
                 $ddeduction_data['deduction_label'][] = lang('provident_fund');
                 $ddeduction_data['deduction_value'][] = $provident_fund;
@@ -188,32 +507,24 @@ class Payroll extends Admin_Controller
                     $adeduction_data['salary_template_id'] = $salary_template_id;
                     $adeduction_data['deduction_label'] = $d_deduction_label;
                     $adeduction_data['deduction_value'] = $ddeduction_data['deduction_value'][$dkey];
-
-                    // *********** save defualt value into tbl_salary_allowance    *******************
-                    $this->payroll_model->_table_name = "tbl_salary_deduction"; // table name
-                    $this->payroll_model->_primary_key = "salary_deduction_id"; // $id
+                    $this->payroll_model->_table_name = "tbl_salary_deduction";
+                    $this->payroll_model->_primary_key = "salary_deduction_id";
                     $this->payroll_model->save($adeduction_data);
                 }
             }
-            // check Deduction data empty or not
-            // if not empty then save into table
 
-            // input salary deduction id for update
             $salary_deduction_id = $this->input->post('salary_deduction_id', TRUE);
-            // save add more value into tbl_deduction
             $deduction_label = $this->input->post('deduction_label', TRUE);
             $deduction_value = $this->input->post('deduction_value', TRUE);
-
             $salary_deduction = get_any_field('tbl_salary_deduction', array('salary_template_id' => $salary_template_id), 'salary_deduction_id', true);
             if (!empty($salary_deduction)) {
                 $salary_deduction = array_column($salary_deduction, 'salary_deduction_id');
                 if (!empty($salary_deduction)) {
-
-                    $delete_salary_deduction_id = array_diff($salary_deduction, $salary_deduction_id);
+                    $delete_salary_deduction_id = array_diff($salary_deduction, (array)$salary_deduction_id);
                     if (!empty($delete_salary_deduction_id)) {
                         foreach ($delete_salary_deduction_id as $deleted_id) {
-                            $this->payroll_model->_table_name = "tbl_salary_deduction"; // table name
-                            $this->payroll_model->_primary_key = "salary_deduction_id"; // $id
+                            $this->payroll_model->_table_name = "tbl_salary_deduction";
+                            $this->payroll_model->_primary_key = "salary_deduction_id";
                             $this->payroll_model->delete($deleted_id);
                         }
                     }
@@ -223,14 +534,11 @@ class Payroll extends Admin_Controller
             if (!empty($deduction_label)) {
                 foreach ($deduction_label as $key => $v_deduction_label) {
                     if (!empty($deduction_value[$key])) {
-
                         $deduction_data['salary_template_id'] = $salary_template_id;
                         $deduction_data['deduction_label'] = $v_deduction_label;
                         $deduction_data['deduction_value'] = $deduction_value[$key];
-                        // *********** save add more value into tbl_deductio    *******************
-                        $this->payroll_model->_table_name = "tbl_salary_deduction"; // table name
-                        $this->payroll_model->_primary_key = "salary_deduction_id"; // $id
-
+                        $this->payroll_model->_table_name = "tbl_salary_deduction";
+                        $this->payroll_model->_primary_key = "salary_deduction_id";
                         if (!empty($salary_deduction_id[$key])) {
                             $deduction_id = $salary_deduction_id[$key];
                             $this->payroll_model->save($deduction_data, $deduction_id);
@@ -240,33 +548,23 @@ class Payroll extends Admin_Controller
                     }
                 }
             }
-            if (!empty($id)) {
-                $activity = 'activity_salary_template_update';
-                $msg = lang('salary_template_update');
-            } else {
-                $activity = 'activity_salary_template_added';
-                $msg = lang('salary_template_added');
-            }
-            // save into activities
+
             $activities = array(
-                'user' => $this->session->userdata('user_id'),
-                'module' => 'payroll',
-                'module_field_id' => $id,
-                'activity' => $activity,
-                'icon' => 'fa-money',
-                'link' => 'admin/payroll/view_salary_template/' . $salary_template_id,
-                'value1' => $template_data['salary_grade'],
+                'user'            => $this->session->userdata('user_id'),
+                'module'          => 'payroll',
+                'module_field_id' => $salary_template_id,
+                'activity'        => !empty($id) ? 'activity_salary_template_update' : 'activity_salary_template_added',
+                'icon'            => 'fa-money',
+                'link'            => 'admin/payroll/view_salary_template/' . $salary_template_id,
+                'value1'          => $template_data['salary_grade'],
             );
-            // Update into tbl_project
-            $this->payroll_model->_table_name = "tbl_activities"; //table name
+            $this->payroll_model->_table_name = "tbl_activities";
             $this->payroll_model->_primary_key = "activities_id";
             $this->payroll_model->save($activities);
 
-            $type = 'success';
-            $message = $msg;
-            set_message($type, $message);
+            set_message('success', !empty($id) ? lang('salary_template_update') : lang('salary_template_added'));
         }
-        redirect('admin/payroll/salary_template');
+        redirect('admin/payroll/employee_salary_list');
     }
 
     public function view_salary_template($id)
@@ -543,38 +841,7 @@ class Payroll extends Admin_Controller
 
     public function manage_salary_details($departments_id = NULL)
     {
-        $data['title'] = lang('manage_salary_details');
-        // retrive all data from department table
-        $data['all_department_info'] = $this->db->get('tbl_departments')->result();
-
-        $flag = $this->input->post('flag', TRUE);
-        if (!empty($flag) || !empty($departments_id)) { // check employee id is empty or not
-            $data['flag'] = 1;
-            if (!empty($departments_id)) {
-                $data['departments_id'] = $departments_id;
-            } else {
-                $data['departments_id'] = $this->input->post('departments_id', TRUE);
-            }
-            // get all designation info by Department id
-            $designation_info = $this->db->where('departments_id', $data['departments_id'])->get('tbl_designations')->result();
-
-            if (!empty($designation_info)) {
-                foreach ($designation_info as $v_designatio) {
-                    $data['employee_info'][] = $this->payroll_model->get_emp_info_by_id($v_designatio->designations_id);
-                    $employee_info = $this->payroll_model->get_emp_info_by_id($v_designatio->designations_id);
-                    foreach ($employee_info as $value) {
-                        // get all salary Template info
-                        $data['salary_grade_info'][] = $this->db->where('user_id', $value->user_id)->get('tbl_employee_payroll')->result();
-                    }
-                }
-            }
-            // get all Hourly payment info
-            $data['hourly_grade'] = $this->db->get('tbl_hourly_rate')->result();
-            // get all salary Template info
-            $data['salary_grade'] = $this->db->get('tbl_salary_template')->result();
-        }
-        $data['subview'] = $this->load->view('admin/payroll/manage_salary_details', $data, TRUE);
-        $this->load->view('admin/_layout_main', $data);
+        redirect('admin/payroll/employee_salary_list');
     }
 
     public function save_salary_details()
@@ -582,32 +849,13 @@ class Payroll extends Admin_Controller
         // inout data to salate template
         $user_id = $this->input->post('user_id', TRUE);
 
-        $hourly_status = $this->input->post('hourly_status', TRUE);
-        $hourly_rate_id = $this->input->post('hourly_rate_id', TRUE);
-
         $monthly_status = $this->input->post('monthly_status', TRUE);
         $salary_template_id = $this->input->post('salary_template_id', TRUE);
         $payroll_id = $this->input->post('payroll_id', TRUE);
         foreach ($user_id as $key => $v_emp_id) {
             $data['user_id'] = $v_emp_id;
-            $data['salary_template_id'] = NULL;
             $data['hourly_rate_id'] = NULL;
-            if (!empty($hourly_status)) {
-                foreach ($hourly_status as $v_hourly) {
-                    if ($v_emp_id == $v_hourly) {
-                        $data['hourly_rate_id'] = $hourly_rate_id[$key];
-                        $data['salary_template_id'] = NULL;
-                    }
-                }
-            }
-            if (!empty($monthly_status)) {
-                foreach ($monthly_status as $v_monthly) {
-                    if ($v_emp_id == $v_monthly) {
-                        $data['salary_template_id'] = $salary_template_id[$key];
-                        $data['hourly_rate_id'] = NULL;
-                    }
-                }
-            }
+            $data['salary_template_id'] = !empty($salary_template_id[$key]) ? $salary_template_id[$key] : NULL;
             // save into tbl employee payroll
             $this->payroll_model->_table_name = "tbl_employee_payroll"; // table name
             $this->payroll_model->_primary_key = "payroll_id"; // $id
@@ -690,14 +938,22 @@ class Payroll extends Admin_Controller
     {
         if ($this->input->is_ajax_request()) {
             $this->load->model('datatables');
-            $this->datatables->table = 'tbl_employee_payroll';
-            $this->datatables->join_table = array('tbl_account_details', 'tbl_salary_template', 'tbl_hourly_rate', 'tbl_designations', 'tbl_departments');
-            $this->datatables->join_where = array('tbl_employee_payroll.user_id = tbl_account_details.user_id', 'tbl_employee_payroll.salary_template_id = tbl_salary_template.salary_template_id', 'tbl_employee_payroll.hourly_rate_id = tbl_hourly_rate.hourly_rate_id', 'tbl_designations.designations_id  = tbl_account_details.designations_id', 'tbl_departments.departments_id  = tbl_designations.departments_id');
-            $this->datatables->column_order = array('tbl_account_details.employment_id', 'tbl_account_details.fullname', 'tbl_salary_template.salary_grade', 'tbl_salary_template.basic_salary', 'tbl_hourly_rate.hourly_grade', 'tbl_hourly_rate.hourly_rate', 'tbl_salary_template.overtime_salary');
-            $this->datatables->column_search = array('tbl_account_details.employment_id', 'tbl_account_details.fullname', 'tbl_salary_template.salary_grade', 'tbl_salary_template.basic_salary', 'tbl_hourly_rate.hourly_grade', 'tbl_hourly_rate.hourly_rate', 'tbl_salary_template.overtime_salary');
-            $this->datatables->order = array('payroll_id' => 'desc');
+            $this->datatables->table = 'tbl_users';
+            $this->datatables->select = 'tbl_users.user_id, tbl_account_details.fullname, tbl_account_details.employment_id, tbl_departments.deptname, tbl_designations.designations, tbl_salary_template.salary_grade, tbl_salary_template.basic_salary, tbl_employee_payroll.salary_template_id, tbl_employee_payroll.payroll_id';
+            $this->datatables->join_table = array('tbl_account_details', 'tbl_employee_payroll', 'tbl_salary_template', 'tbl_designations', 'tbl_departments');
+            $this->datatables->join_where = array(
+                'tbl_account_details.user_id = tbl_users.user_id',
+                'tbl_employee_payroll.user_id = tbl_users.user_id',
+                'tbl_salary_template.salary_template_id = tbl_employee_payroll.salary_template_id',
+                'tbl_designations.designations_id = tbl_account_details.designations_id',
+                'tbl_departments.departments_id = tbl_designations.departments_id'
+            );
+            $this->datatables->column_order = array('tbl_account_details.employment_id', 'tbl_account_details.fullname', 'tbl_departments.deptname', 'tbl_salary_template.salary_grade', 'tbl_salary_template.basic_salary');
+            $this->datatables->column_search = array('tbl_account_details.employment_id', 'tbl_account_details.fullname', 'tbl_departments.deptname', 'tbl_designations.designations', 'tbl_salary_template.salary_grade');
+            $this->datatables->order = array('tbl_account_details.fullname' => 'asc');
 
-            $fetch_data = make_datatables();
+            $where = array('tbl_users.activated' => 1, 'tbl_users.role_id !=' => 2);
+            $fetch_data = make_datatables($where);
             $edited = can_action('91', 'edited');
             $deleted = can_action('91', 'deleted');
             $data = array();
@@ -705,51 +961,50 @@ class Payroll extends Admin_Controller
 
                 $action = null;
                 $sub_array = array();
-                $sub_array[] = $v_emp_salary->employment_id;
+                $sub_array[] = '<span class="text-primary text-bold">' . html_escape($v_emp_salary->employment_id) . '</span>';
 
                 $title = null;
-                if (!empty($v_emp_salary->salary_grade)) {
-                    $title = '<a data-toggle="modal" data-target="#myModal_lg" class="text-info" href="' . base_url() . 'admin/payroll/view_salary_details/' . $v_emp_salary->salary_template_id . '/' . $v_emp_salary->user_id . '">' . $v_emp_salary->fullname . '</a>';
+                if (!empty($v_emp_salary->salary_template_id)) {
+                    $title = '<a data-toggle="modal" data-target="#myModal_lg" class="text-info" style="font-weight:600;" href="' . base_url() . 'admin/payroll/view_salary_details/' . $v_emp_salary->salary_template_id . '/' . $v_emp_salary->user_id . '">' . html_escape($v_emp_salary->fullname) . '</a>';
                 } else {
-                    $title = $v_emp_salary->fullname;
+                    $title = '<span style="font-weight:600;">' . html_escape($v_emp_salary->fullname) . '</span>';
                 }
                 $sub_array[] = $title;
 
+                $dept_desig = (!empty($v_emp_salary->deptname) ? html_escape($v_emp_salary->deptname) : '') . (!empty($v_emp_salary->designations) ? ' &mdash; <small class="text-muted">' . html_escape($v_emp_salary->designations) . '</small>' : '');
+                $sub_array[] = $dept_desig;
+
                 if (!empty($v_emp_salary->salary_grade)) {
-                    $grade = $v_emp_salary->salary_grade . ' <small>(' . lang("monthly") . ')</small>';
+                    $grade = '<span class="label label-primary">' . html_escape($v_emp_salary->salary_grade) . '</span>';
                 } else {
-                    $grade = $v_emp_salary->hourly_grade . ' <small>(' . lang("hourly") . ')</small>';
+                    $grade = '<span class="label label-warning">Not Set</span>';
                 }
                 $sub_array[] = $grade;
 
                 if (!empty($v_emp_salary->basic_salary)) {
                     $basic_salary = display_money($v_emp_salary->basic_salary, default_currency());
                 } else {
-                    $basic_salary = display_money($v_emp_salary->hourly_rate, default_currency()) . ' <small>(' . lang("per_hour") . ')</small>';
+                    $basic_salary = '<span class="text-muted">-</span>';
                 }
                 $sub_array[] = $basic_salary;
 
-                if (!empty($v_emp_salary->overtime_salary)) {
-                    $overtime_salary = display_money($v_emp_salary->overtime_salary, default_currency());
-                } else {
-                    $overtime_salary = 0;
-                }
-                $sub_array[] = $overtime_salary;
-
-                if (!empty($v_emp_salary->salary_grade)) {
+                if (!empty($v_emp_salary->salary_template_id)) {
                     $action .= btn_view_modal('admin/payroll/view_salary_details/' . $v_emp_salary->salary_template_id . '/' . $v_emp_salary->user_id) . ' ';
-                }
-                if ($this->session->userdata('user_type') == '1') {
-                    $action .= ajax_anchor(base_url('admin/payroll/delete_salary/' . $v_emp_salary->payroll_id), "<i
-    class='btn btn-xs btn-danger fa fa-trash-o'></i>", array("class" => "", "title" => lang('delete'), "data-fade-out-on-success" => "#table_" . $_key)) . ' ';
-                }
-                if (!empty($edited)) {
-                    $action .= btn_edit('admin/payroll/manage_salary_details/' . $v_emp_salary->departments_id) . ' ';
+                    if (!empty($edited) || $this->session->userdata('user_type') == '1') {
+                        $action .= '<a href="' . base_url('admin/payroll/create_salarytemplate?user_id=' . $v_emp_salary->user_id) . '" class="btn btn-xs btn-primary" title="' . lang('edit') . ' Salary"><i class="fa fa-pencil-square-o"></i> Edit Salary</a> ';
+                    }
+                    if ($this->session->userdata('user_type') == '1' && !empty($v_emp_salary->payroll_id)) {
+                        $action .= ajax_anchor(base_url('admin/payroll/delete_salary/' . $v_emp_salary->payroll_id), "<i class='btn btn-xs btn-danger fa fa-trash-o'></i>", array("class" => "", "title" => lang('delete'), "data-fade-out-on-success" => "#table_" . $_key)) . ' ';
+                    }
+                } else {
+                    if (!empty($edited) || $this->session->userdata('user_type') == '1') {
+                        $action .= '<a href="' . base_url('admin/payroll/create_salarytemplate?user_id=' . $v_emp_salary->user_id) . '" class="btn btn-xs btn-success" title="Set Salary"><i class="fa fa-plus"></i> Set Salary</a> ';
+                    }
                 }
                 $sub_array[] = $action;
                 $data[] = $sub_array;
             }
-            render_table($data);
+            render_table($data, $where);
         } else {
             redirect('admin/dashboard');
         }
@@ -1230,12 +1485,68 @@ class Payroll extends Admin_Controller
         $data['title'] = "Make Payment";
         // retrive all data from department table
         $data['all_department_info'] = $this->db->get('tbl_departments')->result();
-        if ($user_id != 0 && !empty($payment_month)) {
-            // check payment history by employee id
-            $check_existing_payment = $this->db->where('user_id', $user_id)->get('tbl_salary_payment')->result();
+        if (!empty($user_id) && $user_id != 0) {
+            redirect('admin/payroll/make_payment/0/' . $departments_id . '/' . $payment_month);
+            return;
+        }
 
-            $data['user_id'] = $user_id;
-            $data['staff_details'] = get_staff_details($user_id);
+        $flag = $this->input->post('flag', TRUE);
+        $post_departments_id = $this->input->post('departments_id', TRUE);
+        if (!empty($flag) || !empty($departments_id) || !empty($post_departments_id)) { // check employee id is empty or not
+            $data['flag'] = 1;
+            if (!empty($departments_id)) {
+                $data['departments_id'] = $departments_id;
+            } else {
+                $data['departments_id'] = $post_departments_id;
+            }
+            if (!empty($payment_month)) {
+                $data['payment_month'] = $payment_month;
+            } else {
+                $data['payment_month'] = $this->input->post('payment_month', TRUE);
+            }
+            // get designation info by Department id (or all employees if 'all' selected)
+            if ($data['departments_id'] == 'all') {
+                $employee_info = $this->payroll_model->get_emp_salary_list();
+                if (!empty($employee_info)) {
+                    $data['employee_info'][] = $employee_info;
+                    foreach ($employee_info as $value) {
+                        if (isset($value->salary_template_id) && $value->salary_template_id !== '' && $value->salary_template_id !== null) {
+                            $data['allowance_info'][$value->user_id] = $this->get_allowance_info_by_id($value->salary_template_id);
+                            $data['deduction_info'][$value->user_id] = $this->get_deduction_info_by_id($value->salary_template_id);
+                            $data['overtime_info'][$value->user_id] = $this->get_overtime_info_by_id($value->user_id, $data['payment_month']);
+                        }
+                        $data['advance_salary'][$value->user_id] = $this->get_advance_salary_info_by_id($value->user_id, $data['payment_month']);
+                        $data['award_info'][$value->user_id] = $this->get_award_info_by_id($value->user_id, $data['payment_month']);
+                        $data['total_present'][$value->user_id] = $this->get_total_attendance_info_by_id($value->user_id, $data['payment_month']);
+                        if (!empty($value->hourly_rate_id)) {
+                            $data['total_hours'][$value->user_id] = $this->get_total_hours_in_month($value->user_id, $data['payment_month']);
+                        }
+                    }
+                }
+            } else {
+                $designation_info = $this->db->where('departments_id', $data['departments_id'])->get('tbl_designations')->result();
+                if (!empty($designation_info)) {
+                    foreach ($designation_info as $v_designatio) {
+                        $employee_info = $this->payroll_model->get_emp_salary_list('', $v_designatio->designations_id);
+                        if (!empty($employee_info)) {
+                            $data['employee_info'][] = $employee_info;
+                            foreach ($employee_info as $value) {
+                                if (isset($value->salary_template_id) && $value->salary_template_id !== '' && $value->salary_template_id !== null) {
+                                    $data['allowance_info'][$value->user_id] = $this->get_allowance_info_by_id($value->salary_template_id);
+                                    $data['deduction_info'][$value->user_id] = $this->get_deduction_info_by_id($value->salary_template_id);
+                                    $data['overtime_info'][$value->user_id] = $this->get_overtime_info_by_id($value->user_id, $data['payment_month']);
+                                }
+                                $data['advance_salary'][$value->user_id] = $this->get_advance_salary_info_by_id($value->user_id, $data['payment_month']);
+                                $data['award_info'][$value->user_id] = $this->get_award_info_by_id($value->user_id, $data['payment_month']);
+                                $data['total_present'][$value->user_id] = $this->get_total_attendance_info_by_id($value->user_id, $data['payment_month']);
+                                if (!empty($value->hourly_rate_id)) {
+                                    $data['total_hours'][$value->user_id] = $this->get_total_hours_in_month($value->user_id, $data['payment_month']);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             $total_holiday = 0;
             $holidays = $this->common_model->get_holidays(); //tbl working Days Holiday
@@ -1243,7 +1554,7 @@ class Payroll extends Admin_Controller
             if (!empty($holidays)) {
                 $total_holiday += count(array($holidays));
             }
-            $public_holiday = $this->common_model->get_public_holidays($payment_month);
+            $public_holiday = $this->common_model->get_public_holidays($data['payment_month']);
             //tbl a_calendar Days Holiday
             if (!empty($public_holiday)) {
                 foreach ($public_holiday as $p_holiday) {
@@ -1255,165 +1566,210 @@ class Payroll extends Admin_Controller
                 $total_holiday += count(array($p_hday));
             }
             $data['total_holiday'] = $total_holiday;
-            $data['total_days'] = cal_days_in_month(CAL_GREGORIAN, date('m', strtotime($payment_month)), date('Y', strtotime($payment_month)));
+            $data['total_days'] = cal_days_in_month(CAL_GREGORIAN, date('m', strtotime($data['payment_month'])), date('Y', strtotime($data['payment_month'])));
             $data['total_working_days'] = $data['total_days'] - $total_holiday;
-            $data['total_present'] = $this->get_total_attendance_info_by_id($user_id, $payment_month);
-            $data['total_absent'] = $data['total_working_days'] - $data['total_present'];
-            $total_slary_amount = 0;
-            if (!empty($check_existing_payment)) {
-                foreach ($check_existing_payment as $key => $v_paymented_id) {
-                    $salary_payment_id = $v_paymented_id->salary_payment_id;
-                    $data['emp_salary_info'] = $this->payroll_model->get_salary_payment_info($salary_payment_id);
-                    $data['salary_payment_info'][] = $this->payroll_model->get_salary_payment_info($salary_payment_id, true);
+        }
 
-                    $this->payroll_model->_table_name = "tbl_salary_payment_details"; // table name
-                    $this->payroll_model->_order_by = "salary_payment_id"; // $id
-                    $salary_payment_history = $this->db->where('salary_payment_id', $salary_payment_id)->get('tbl_salary_payment_details')->result();
-                    if (!empty($salary_payment_history)) {
-                        foreach ($salary_payment_history as $v_payment_history) {
-                            if (is_numeric($v_payment_history->salary_payment_details_value)) {
-                                if ($v_payment_history->salary_payment_details_label == 'overtime_salary') {
-                                    $rate = $v_payment_history->salary_payment_details_value;
-                                } elseif ($v_payment_history->salary_payment_details_label == 'hourly_rates') {
-                                    $rate = $v_payment_history->salary_payment_details_value;
-                                }
-                                $total_slary_amount += $v_payment_history->salary_payment_details_value;
-                            }
-                        }
-                    }
-                    $salary_allowance_info = $this->db->where('salary_payment_id', $salary_payment_id)->get('tbl_salary_payment_allowance')->result();
-                    $total_allowance = 0;
-                    if (!empty($salary_allowance_info)) {
-                        foreach ($salary_allowance_info as $v_salary_allowance_info) {
-                            $total_allowance += $v_salary_allowance_info->salary_payment_allowance_value;
-                        }
-                    }
-                    if (!empty($rate)) {
-                        $rate = $rate;
-                    } else {
-                        $rate = 0;
-                    }
+        $data['subview'] = $this->load->view('admin/payroll/make_payment', $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
 
-                    $data['total_paid_amount'][] = $total_slary_amount + $total_allowance - $rate;
-                    $salary_deduction_info = $this->db->where('salary_payment_id', $salary_payment_id)->get('tbl_salary_payment_deduction')->result();
-                    $total_deduction = 0;
-                    if (!empty($salary_deduction_info)) {
-                        foreach ($salary_deduction_info as $v_salary_deduction_info) {
-                            $total_deduction += $v_salary_deduction_info->salary_payment_deduction_value;
-                        }
-                    }
-                    $data['total_deduction'][] = $total_deduction;
-                }
-            }
-            $data['payment_month'] = $payment_month;
-            $data['payment_flag'] = 1;
-            $data['departments_id'] = $departments_id;
-            // get employee info by employee id
-            $data['employee_info'] = $this->payroll_model->get_emp_salary_list($user_id);
-            // get all allowance info by salary template id
-            if (!empty($data['employee_info']->salary_template_id)) {
-                $data['allowance_info'] = $this->get_allowance_info_by_id($data['employee_info']->salary_template_id);
-                // get all deduction info by salary template id
-                $data['deduction_info'] = $this->get_deduction_info_by_id($data['employee_info']->salary_template_id);
-                // get all overtime info by month and employee id
-                $data['overtime_info'] = $this->get_overtime_info_by_id($user_id, $data['payment_month']);
-            }
-            // get all advance salary info by month and employee id
-            $data['advance_salary'] = $this->get_advance_salary_info_by_id($user_id, $data['payment_month']);
-            // get award info by employee id and payment month
-            // get award info by employee id and payment date
-            $this->payroll_model->_table_name = 'tbl_employee_award';
-            $this->payroll_model->_order_by = 'user_id';
-            $data['award_info'] = $this->payroll_model->get_by(array('user_id' => $user_id, 'award_date' => $data['payment_month']), FALSE);
-            // check hourly payment info
-            // if exist count total hours in a month
-            // get hourly payment info by id
-            if (!empty($data['employee_info']->hourly_rate_id)) {
-                $data['total_hours'] = $this->get_total_hours_in_month($user_id, $data['payment_month']);
-            }
-            if (!empty($data['total_hours'])) {
-                if ($data['total_hours'] == 0 && $data['total_minutes'] == 0) {
-                    $type = 'error';
-                    $message = '<strong>' . $data['employee_info']->fullname . ' ' . '</strong>' . lang('working_hour_empty');
-                    set_message($type, $message);
-                    redirect('admin/payroll/make_payment/' . '0' . '/' . $data['employee_info']->departments_id . '/' . $data['payment_month']);
-                }
-            }
-        } else {
-            $flag = $this->input->post('flag', TRUE);
-            if (!empty($flag) || !empty($departments_id)) { // check employee id is empty or not
-                $data['flag'] = 1;
-                if (!empty($departments_id)) {
-                    $data['departments_id'] = $departments_id;
-                } else {
-                    $data['departments_id'] = $this->input->post('departments_id', TRUE);
-                }
-                if (!empty($payment_month)) {
-                    $data['payment_month'] = $payment_month;
-                } else {
-                    $data['payment_month'] = $this->input->post('payment_month', TRUE);
-                }
-                // get all designation info by Department id
-                $designation_info = $this->db->where('departments_id', $data['departments_id'])->get('tbl_designations')->result();
-                if (!empty($designation_info)) {
-                    foreach ($designation_info as $v_designatio) {
-                        $data['employee_info'][] = $this->payroll_model->get_emp_salary_list('', $v_designatio->designations_id);
-                        $employee_info = $this->payroll_model->get_emp_salary_list('', $v_designatio->designations_id);
-                        foreach ($employee_info as $value) {
-                            // get all allowance info by salary template id
-                            if (!empty($value->salary_template_id)) {
-                                $data['allowance_info'][$value->user_id] = $this->get_allowance_info_by_id($value->salary_template_id);
-                                // get all deduction info by salary template id
-                                $data['deduction_info'][$value->user_id] = $this->get_deduction_info_by_id($value->salary_template_id);
-                                // get all overtime info by month and employee id
-                                $data['overtime_info'][$value->user_id] = $this->get_overtime_info_by_id($value->user_id, $data['payment_month']);
-                            }
-                            // get all advance salary info by month and employee id
-                            $data['advance_salary'][$value->user_id] = $this->get_advance_salary_info_by_id($value->user_id, $data['payment_month']);
-                            // get award info by employee id and payment month
-                            $data['award_info'][$value->user_id] = $this->get_award_info_by_id($value->user_id, $data['payment_month']);
+    public function update_bulk_payment_status()
+    {
+        $is_ajax = $this->input->is_ajax_request();
+        $user_ids = $this->input->post('user_ids', TRUE);
+        $status = strtolower(trim($this->input->post('status', TRUE)));
+        $payment_month = $this->input->post('payment_month', TRUE);
+        $departments_id = $this->input->post('departments_id', TRUE);
 
-                            // get total attendance info by employee id and payment month
-                            $data['total_present'][$value->user_id] = $this->get_total_attendance_info_by_id($value->user_id, $data['payment_month']);
-                            // check hourly payment info
-                            // if exist count total hours in a month
-                            // get hourly payment info by id
-                            if (!empty($value->hourly_rate_id)) {
-                                $data['total_hours'][$value->user_id] = $this->get_total_hours_in_month($value->user_id, $data['payment_month']);
-                            }
-                        }
-
-                    }
-                }
-
-                $total_holiday = 0;
-                $holidays = $this->common_model->get_holidays(); //tbl working Days Holiday
-                // total keys of $holidays array using array_keys
-                if (!empty($holidays)) {
-                    $total_holiday += count(array($holidays));
-                }
-                $public_holiday = $this->common_model->get_public_holidays($data['payment_month']);
-                //tbl a_calendar Days Holiday
-                if (!empty($public_holiday)) {
-                    foreach ($public_holiday as $p_holiday) {
-                        $p_hday = $this->payroll_model->GetDays($p_holiday->start_date, $p_holiday->end_date);
-                    }
-                }
-
-                if (!empty($p_hday)) {
-                    $total_holiday += count(array($p_hday));
-                }
-                $data['total_holiday'] = $total_holiday;
-                $data['total_days'] = cal_days_in_month(CAL_GREGORIAN, date('m', strtotime($data['payment_month'])), date('Y', strtotime($data['payment_month'])));
-                $data['total_working_days'] = $data['total_days'] - $total_holiday;
+        if (empty($user_ids) || !is_array($user_ids) || empty($status) || empty($payment_month)) {
+            if ($is_ajax) {
+                echo json_encode(array('success' => false, 'message' => 'Please select at least one employee.'));
+                exit();
+            } else {
+                set_message('error', 'Please select at least one employee.');
+                redirect('admin/payroll/make_payment/0/' . $departments_id . '/' . $payment_month);
+                return;
             }
         }
 
-//        echo '<pre>';
-//        print_r($data);
-//        exit();
-        $data['subview'] = $this->load->view('admin/payroll/make_payment', $data, TRUE);
-        $this->load->view('admin/_layout_main', $data);
+        if (!in_array($status, array('paid', 'hold', 'unpaid'))) {
+            if ($is_ajax) {
+                echo json_encode(array('success' => false, 'message' => 'Invalid payment status selected.'));
+                exit();
+            } else {
+                set_message('error', 'Invalid payment status selected.');
+                redirect('admin/payroll/make_payment/0/' . $departments_id . '/' . $payment_month);
+                return;
+            }
+        }
+
+        $updated_count = 0;
+        foreach ($user_ids as $u_id) {
+            $u_id = intval($u_id);
+            if ($u_id <= 0) continue;
+
+            if ($status == 'unpaid') {
+                $existing = $this->db->where('user_id', $u_id)->where('payment_month', $payment_month)->get('tbl_salary_payment')->row();
+                if (!empty($existing)) {
+                    $pid = $existing->salary_payment_id;
+                    $this->db->where('salary_payment_id', $pid)->delete('tbl_salary_payment_details');
+                    $this->db->where('salary_payment_id', $pid)->delete('tbl_salary_payment_allowance');
+                    $this->db->where('salary_payment_id', $pid)->delete('tbl_salary_payment_deduction');
+                    $this->db->where('salary_payment_id', $pid)->delete('tbl_salary_payslip');
+                    $this->db->where('salary_payment_id', $pid)->delete('tbl_salary_payment');
+                }
+                $adv_info = $this->payroll_model->check_by(array('user_id' => $u_id, 'deduct_month' => $payment_month), 'tbl_advance_salary');
+                if (!empty($adv_info)) {
+                    $this->db->where('advance_salary_id', $adv_info->advance_salary_id)->update('tbl_advance_salary', array('status' => 1));
+                }
+                $updated_count++;
+            } else {
+                // 'paid' or 'hold'
+                $existing = $this->db->where('user_id', $u_id)->where('payment_month', $payment_month)->get('tbl_salary_payment')->row();
+                if (!empty($existing)) {
+                    $this->db->where('salary_payment_id', $existing->salary_payment_id)->update('tbl_salary_payment', array(
+                        'payment_status' => $status,
+                        'paid_date'      => date('Y-m-d H:i:s')
+                    ));
+                    $updated_count++;
+                } else {
+                    $emp_info = $this->payroll_model->get_emp_salary_list($u_id);
+                    if (empty($emp_info) || (empty($emp_info->salary_grade) && empty($emp_info->hourly_grade) && empty($emp_info->basic_salary))) {
+                        continue;
+                    }
+
+                    $max_p = $this->db->select_max('salary_payment_id')->get('tbl_salary_payment')->row();
+                    $new_pid = ($max_p && isset($max_p->salary_payment_id)) ? intval($max_p->salary_payment_id) + 1 : 1;
+
+                    $this->db->insert('tbl_salary_payment', array(
+                        'salary_payment_id' => $new_pid,
+                        'user_id'           => $u_id,
+                        'payment_month'     => $payment_month,
+                        'fine_deduction'    => '0',
+                        'payment_type'      => 'Bank',
+                        'payment_status'    => $status,
+                        'comments'          => ucfirst($status) . ' Salary',
+                        'paid_date'         => date('Y-m-d H:i:s'),
+                        'deduct_from'       => 0
+                    ));
+
+                    if (!empty($emp_info->salary_grade)) {
+                        $max_d = $this->db->select_max('salary_payment_details_id')->get('tbl_salary_payment_details')->row();
+                        $did = ($max_d && isset($max_d->salary_payment_details_id)) ? intval($max_d->salary_payment_details_id) + 1 : 1;
+                        $this->db->insert('tbl_salary_payment_details', array(
+                            'salary_payment_details_id'    => $did,
+                            'salary_payment_id'            => $new_pid,
+                            'salary_payment_details_label' => lang('salary_grade'),
+                            'salary_payment_details_value' => $emp_info->salary_grade
+                        ));
+                    }
+
+                    if (!empty($emp_info->basic_salary)) {
+                        $max_d = $this->db->select_max('salary_payment_details_id')->get('tbl_salary_payment_details')->row();
+                        $did = ($max_d && isset($max_d->salary_payment_details_id)) ? intval($max_d->salary_payment_details_id) + 1 : 1;
+                        $this->db->insert('tbl_salary_payment_details', array(
+                            'salary_payment_details_id'    => $did,
+                            'salary_payment_id'            => $new_pid,
+                            'salary_payment_details_label' => lang('basic_salary'),
+                            'salary_payment_details_value' => $emp_info->basic_salary
+                        ));
+                    }
+
+                    if (!empty($emp_info->hourly_rate_id)) {
+                        if (!empty($emp_info->hourly_grade)) {
+                            $max_d = $this->db->select_max('salary_payment_details_id')->get('tbl_salary_payment_details')->row();
+                            $did = ($max_d && isset($max_d->salary_payment_details_id)) ? intval($max_d->salary_payment_details_id) + 1 : 1;
+                            $this->db->insert('tbl_salary_payment_details', array(
+                                'salary_payment_details_id'    => $did,
+                                'salary_payment_id'            => $new_pid,
+                                'salary_payment_details_label' => lang('hourly_grade'),
+                                'salary_payment_details_value' => $emp_info->hourly_grade
+                            ));
+                        }
+                        if (!empty($emp_info->hourly_rate)) {
+                            $max_d = $this->db->select_max('salary_payment_details_id')->get('tbl_salary_payment_details')->row();
+                            $did = ($max_d && isset($max_d->salary_payment_details_id)) ? intval($max_d->salary_payment_details_id) + 1 : 1;
+                            $this->db->insert('tbl_salary_payment_details', array(
+                                'salary_payment_details_id'    => $did,
+                                'salary_payment_id'            => $new_pid,
+                                'salary_payment_details_label' => 'Hourly Rate',
+                                'salary_payment_details_value' => $emp_info->hourly_rate
+                            ));
+                        }
+                    }
+
+                    if (isset($emp_info->salary_template_id) && $emp_info->salary_template_id !== '' && $emp_info->salary_template_id !== null) {
+                        $allowances = $this->db->where('salary_template_id', $emp_info->salary_template_id)->get('tbl_salary_allowance')->result();
+                        if (!empty($allowances)) {
+                            foreach ($allowances as $al) {
+                                $max_a = $this->db->select_max('salary_payment_allowance_id')->get('tbl_salary_payment_allowance')->row();
+                                $aid = ($max_a && isset($max_a->salary_payment_allowance_id)) ? intval($max_a->salary_payment_allowance_id) + 1 : 1;
+                                $this->db->insert('tbl_salary_payment_allowance', array(
+                                    'salary_payment_allowance_id'    => $aid,
+                                    'salary_payment_id'              => $new_pid,
+                                    'salary_payment_allowance_label' => $al->allowance_label,
+                                    'salary_payment_allowance_value' => $al->allowance_value
+                                ));
+                            }
+                        }
+
+                        $deductions = $this->db->where('salary_template_id', $emp_info->salary_template_id)->get('tbl_salary_deduction')->result();
+                        if (!empty($deductions)) {
+                            foreach ($deductions as $de) {
+                                $max_ded = $this->db->select_max('salary_payment_deduction')->get('tbl_salary_payment_deduction')->row();
+                                $ded_id = ($max_ded && isset($max_ded->salary_payment_deduction)) ? intval($max_ded->salary_payment_deduction) + 1 : 1;
+                                $this->db->insert('tbl_salary_payment_deduction', array(
+                                    'salary_payment_deduction'       => $ded_id,
+                                    'salary_payment_id'              => $new_pid,
+                                    'salary_payment_deduction_label' => $de->deduction_label,
+                                    'salary_payment_deduction_value' => $de->deduction_value
+                                ));
+                            }
+                        }
+                    }
+
+                    $max_ps = $this->db->select_max('payslip_id')->get('tbl_salary_payslip')->row();
+                    $psid = ($max_ps && isset($max_ps->payslip_id)) ? intval($max_ps->payslip_id) + 1 : 1;
+                    $this->db->insert('tbl_salary_payslip', array(
+                        'payslip_id'        => $psid,
+                        'salary_payment_id' => $new_pid,
+                        'payslip_number'    => date('Ym') . $new_pid
+                    ));
+
+                    // Update advance salary if marked paid
+                    if ($status == 'paid') {
+                        $adv_info = $this->payroll_model->check_by(array('user_id' => $u_id, 'deduct_month' => $payment_month), 'tbl_advance_salary');
+                        if (!empty($adv_info)) {
+                            $this->db->where('advance_salary_id', $adv_info->advance_salary_id)->update('tbl_advance_salary', array('status' => 3));
+                        }
+                    }
+
+                    // Activity log
+                    $activities = array(
+                        'user'            => $this->session->userdata('user_id'),
+                        'module'          => 'payroll',
+                        'module_field_id' => $new_pid,
+                        'activity'        => 'activity_make_payment',
+                        'icon'            => 'fa-list-ul',
+                        'value1'          => !empty($emp_info->fullname) ? $emp_info->fullname : '',
+                        'value2'          => date('F Y', strtotime($payment_month)),
+                    );
+                    $this->db->insert('tbl_activities', $activities);
+
+                    $updated_count++;
+                }
+            }
+        }
+
+        $msg = $updated_count . " employee(s) marked as " . ucfirst($status) . " successfully!";
+        if ($is_ajax) {
+            echo json_encode(array('success' => true, 'message' => $msg, 'updated_count' => $updated_count));
+            exit();
+        } else {
+            set_message('success', $msg);
+            redirect('admin/payroll/make_payment/0/' . $departments_id . '/' . $payment_month);
+        }
     }
 
     public function get_allowance_info_by_id($salary_template_id)
@@ -2067,20 +2423,7 @@ class Payroll extends Admin_Controller
 
     public function provident_fund()
     {
-        $data['title'] = "Provident Found Details";
-        // active check with current month
-        $data['current_month'] = date('m');
-
-        if ($this->input->post('year', TRUE)) { // if input year
-            $data['year'] = $this->input->post('year', TRUE);
-        } else { // else current year
-            $data['year'] = date('Y'); // get current year
-        }
-        // get all expense list by year and month
-        $data['provident_fund_info'] = $this->get_provident_fund_info($data['year']);
-
-        $data['subview'] = $this->load->view('admin/payroll/provident_fund_info', $data, TRUE);
-        $this->load->view('admin/_layout_main', $data);
+        redirect('admin/payroll/payroll_summary');
     }
 
     public function get_provident_fund_info($year, $month = NULL)
@@ -2420,4 +2763,279 @@ class Payroll extends Admin_Controller
             redirect($_SERVER['HTTP_REFERER']);
         }
     }
-}
+
+    /**
+     * Download or stream single High Creation Salary Slip PDF
+     */
+    public function high_creation_payslip_pdf($user_id_or_code, $payment_month = null)
+    {
+        if (empty($payment_month)) {
+            $payment_month = $this->input->get('month', TRUE) ?: date('Y-m');
+        }
+
+        $slip_data = $this->payroll_model->get_high_creation_salary_data($user_id_or_code, $payment_month);
+        $viewfile = $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data, TRUE);
+
+        $this->load->helper('dompdf');
+        $clean_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $slip_data['emp_name']);
+        $filename = "Salary_Slip_{$clean_name}_{$slip_data['emp_code']}_{$slip_data['month_name']}_{$slip_data['year']}";
+        pdf_create($viewfile, $filename, TRUE, 'landscape');
+    }
+
+    /**
+     * Interactive preview for High Creation Salary Slip
+     */
+    public function high_creation_payslip_view($user_id_or_code, $payment_month = null)
+    {
+        if (empty($payment_month)) {
+            $payment_month = $this->input->get('month', TRUE) ?: date('Y-m');
+        }
+
+        $slip_data = $this->payroll_model->get_high_creation_salary_data($user_id_or_code, $payment_month);
+        $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data);
+    }
+
+    /**
+     * Bulk Download of High Creation Salary Slips for all employees (Single Multi-Page PDF)
+     */
+    public function bulk_high_creation_pdf()
+    {
+        $payment_month = $this->input->get_post('payment_month', TRUE) ?: date('Y-m');
+        $departments_id = $this->input->get_post('departments_id', TRUE);
+
+        $this->db->select('tbl_account_details.user_id, tbl_account_details.fullname, tbl_account_details.emp_code')
+            ->from('tbl_account_details')
+            ->join('tbl_users', 'tbl_users.user_id = tbl_account_details.user_id', 'inner')
+            ->where('tbl_users.role_id !=', 2)
+            ->where('tbl_users.activated', 1);
+
+        if (!empty($departments_id)) {
+            $this->db->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+                ->where('tbl_designations.departments_id', $departments_id);
+        }
+
+        $employees = $this->db->order_by('tbl_account_details.fullname', 'ASC')->get()->result();
+
+        if (empty($employees)) {
+            set_message('error', 'No active employees found for the selected filter.');
+            redirect('admin/payroll/generate_payslip');
+            return;
+        }
+
+        $all_html = '';
+        $total = count($employees);
+        foreach ($employees as $idx => $emp) {
+            $slip_data = $this->payroll_model->get_high_creation_salary_data($emp->user_id, $payment_month);
+            $page_break = ($idx < $total - 1) ? 'page-break-after: always;' : '';
+            
+            $single_html = $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data, TRUE);
+            if ($page_break) {
+                $single_html = str_replace('<div class="outer-wrapper">', '<div class="outer-wrapper" style="' . $page_break . '">', $single_html);
+            }
+            $all_html .= $single_html;
+        }
+
+        $this->load->helper('dompdf');
+        $filename = "High_Creation_Salary_Slips_" . date('F_Y', strtotime($payment_month . '-01'));
+        pdf_create($all_html, $filename, TRUE, 'landscape');
+    }
+
+    /**
+     * Excel / CSV Salary Sheet Import & Generator Module
+     */
+    public function import_salary_sheet()
+    {
+        $data['title'] = "Excel / CSV Salary Sheet Generator";
+        $data['payment_month'] = $this->input->get_post('payment_month', TRUE) ?: date('Y-m');
+        $data['parsed_slips'] = array();
+        $data['upload_success'] = false;
+
+        // Check if salary_count_days submitted with upload
+        $salary_count_days_input = $this->input->post('salary_count_days', TRUE);
+        if (!empty($salary_count_days_input) && is_numeric($salary_count_days_input) && floatval($salary_count_days_input) > 0) {
+            $val = trim($salary_count_days_input);
+            $check = $this->db->where('config_key', 'salary_count_days')->get('tbl_config')->row();
+            if (!empty($check)) {
+                $this->db->where('config_key', 'salary_count_days')->update('tbl_config', array('value' => $val));
+            } else {
+                $this->db->insert('tbl_config', array('config_key' => 'salary_count_days', 'value' => $val));
+            }
+            $data['salary_count_days'] = $val;
+        } else {
+            $data['salary_count_days'] = config_item('salary_count_days') ?: 26;
+        }
+
+        if ($this->input->post('process_csv', TRUE)) {
+            $csv_content = '';
+            if (!empty($_FILES['salary_csv']['tmp_name']) && is_uploaded_file($_FILES['salary_csv']['tmp_name'])) {
+                $csv_content = file_get_contents($_FILES['salary_csv']['tmp_name']);
+            } elseif ($this->input->post('csv_text', TRUE)) {
+                $csv_content = $this->input->post('csv_text', TRUE);
+            } elseif ($this->input->post('cached_csv', FALSE)) {
+                $csv_content = $this->input->post('cached_csv', FALSE);
+            }
+
+            if (!empty($csv_content)) {
+                $data['raw_csv_content'] = $csv_content;
+                $parsed = $this->payroll_model->parse_salary_csv_data($csv_content, $data['payment_month']);
+                $data['parsed_slips'] = $parsed;
+                $data['upload_success'] = true;
+
+                // Bulk PDF export directly from uploaded sheet
+                if ($this->input->post('export_bulk_pdf', TRUE)) {
+                    $all_html = '';
+                    $total = count($parsed);
+                    foreach ($parsed as $idx => $slip_data) {
+                        $page_break = ($idx < $total - 1) ? 'page-break-after: always;' : '';
+                        $single_html = $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data, TRUE);
+                        if ($page_break) {
+                            $single_html = str_replace('<div class="outer-wrapper">', '<div class="outer-wrapper" style="' . $page_break . '">', $single_html);
+                        }
+                        $all_html .= $single_html;
+                    }
+                    $this->load->helper('dompdf');
+                    $filename = "High_Creation_Salary_Slips_CSV_" . date('F_Y', strtotime($data['payment_month'] . '-01'));
+                    pdf_create($all_html, $filename, TRUE, 'landscape');
+                    return;
+                }
+            } else {
+                set_message('error', 'Please upload a valid CSV file or paste CSV content.');
+            }
+        }
+
+        $data['all_department_info'] = $this->db->get('tbl_departments')->result();
+        $data['subview'] = $this->load->view('admin/payroll/import_salary_sheet', $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
+
+    /**
+     * Download Sample CSV Template pre-filled with company employees
+     */
+    public function download_sample_salary_csv()
+    {
+        $payment_month = $this->input->get('month', TRUE) ?: date('Y-m');
+
+        $employees = $this->db->select('tbl_account_details.*, tbl_departments.deptname, tbl_designations.designations')
+            ->from('tbl_account_details')
+            ->join('tbl_users', 'tbl_users.user_id = tbl_account_details.user_id', 'inner')
+            ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+            ->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left')
+            ->where('tbl_users.role_id !=', 2)
+            ->where('tbl_users.activated', 1)
+            ->order_by('tbl_account_details.fullname', 'ASC')
+            ->get()->result();
+
+        $headers = array(
+            'Beneficiary Code (B.C)',
+            'S.No.',
+            'Employee ID',
+            'Employee Name',
+            'Employee Father Name',
+            'D.O.B',
+            'D.O.J',
+            'Department',
+            'Designation',
+            'CTC',
+            'Basic Salary @50% of CTC',
+            'D.A@5% of CTC',
+            'Basic+DA',
+            'H.R.A@40% Basic of CTC',
+            'T.A',
+            'Others Allowance',
+            'Gross Salary (for ESIC)',
+            'EPF@8.33%',
+            'EPF@3.67%',
+            'ESIC@3.25%',
+            'EPF@12%',
+            'ESIC@0.75%',
+            'Salary in Hand',
+            'Salary per day',
+            'Absent (A)',
+            'Half Days( H)',
+            'Casual Leave (CL)',
+            'Annual Earn Leave (EL)',
+            'Weak Off (WO)',
+            'Working Days',
+            'Net Working Days',
+            'Approvable Days',
+            'Arrear if any',
+            'Advance Salary',
+            'TDS On Salary',
+            'Net Salary Payable',
+            'Remark'
+        );
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename=High_Creation_Salary_Template_' . $payment_month . '.csv');
+
+        $out = fopen('php://output', 'w');
+        fputcsv($out, $headers);
+
+        $sno = 1;
+        foreach ($employees as $emp) {
+            $slip = $this->payroll_model->get_high_creation_salary_data($emp->user_id, $payment_month);
+
+            $row = array(
+                '', // Beneficiary Code
+                $sno++,
+                $slip['emp_code'],
+                $slip['emp_name'],
+                !empty($emp->father_name) ? $emp->father_name : '',
+                !empty($emp->date_of_birth) ? $emp->date_of_birth : '',
+                !empty($emp->joining_date) ? date('d-M-y', strtotime($emp->joining_date)) : '',
+                $slip['dept_name'],
+                $slip['designation_name'],
+                $slip['salary_ctc'],
+                $slip['basic_salary'],
+                round($slip['salary_ctc'] * 0.05, 2),
+                round($slip['basic_salary'] + ($slip['salary_ctc'] * 0.05), 2),
+                $slip['hra_amount'],
+                $slip['conveyance_amount'],
+                $slip['spa_amount'],
+                $slip['salary_ctc'],
+                0, 0, 0, 0, 0,
+                $slip['net_payable'],
+                $slip['salary_per_day'],
+                $slip['absent_days'],
+                0,
+                $slip['cl_avail_days'],
+                $slip['el_avail_days'],
+                $slip['week_off_days'],
+                $slip['total_working_days'],
+                $slip['paid_days'],
+                $slip['paid_days'],
+                0,
+                $slip['advance_amount'],
+                $slip['tds_amount'],
+                $slip['net_payable'],
+                ''
+            );
+            fputcsv($out, $row);
+        }
+        fclose($out);
+        exit();
+    }
+
+    /**
+     * Save Payroll Configuration Settings (e.g. salary_count_days)
+     */
+    public function save_salary_settings()
+    {
+        $salary_count_days = $this->input->post('salary_count_days', TRUE);
+        if (!empty($salary_count_days) && is_numeric($salary_count_days) && floatval($salary_count_days) > 0) {
+            $val = trim($salary_count_days);
+            $check = $this->db->where('config_key', 'salary_count_days')->get('tbl_config')->row();
+            if (!empty($check)) {
+                $this->db->where('config_key', 'salary_count_days')->update('tbl_config', array('value' => $val));
+            } else {
+                $this->db->insert('tbl_config', array('config_key' => 'salary_count_days', 'value' => $val));
+            }
+            set_message('success', 'Salary calculation count days successfully saved: ' . $val . ' days.');
+        } else {
+            set_message('error', 'Please enter a valid numeric day count for salary calculation.');
+        }
+
+        $ref = $this->input->server('HTTP_REFERER');
+        redirect(!empty($ref) ? $ref : 'admin/payroll/import_salary_sheet');
+    }
+}

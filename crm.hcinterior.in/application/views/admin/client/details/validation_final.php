@@ -160,7 +160,8 @@ if (!empty($two_d_design)) {
             <thead>
                 <tr>
                     <th><?= lang('File Name' ) ?></th>
-                    <th><?= lang('File') ?></th>
+                    <th>Modular Design File</th>
+                    <th>Loose Furniture File</th>
                     <th><?= lang('Design Type') ?></th>
                     <th  class="col-sm-3"><?= lang('URL') ?></th>
                     <th><?= lang('Status') ?></th>
@@ -202,6 +203,30 @@ if (!empty($two_d_design)) {
                                 data-type="pdf">'.$file->fileName.'</a>';
                                 }
                             }
+                        }
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        $loose_files = !empty($design->loose_furniture_file) ? json_decode($design->loose_furniture_file) : [];
+                        if (!empty($loose_files)) {
+                            foreach ($loose_files as $file) {
+                                if ($file->is_image) {
+                                echo '<img src="'.base_url($file->path).'" 
+                                width="60" 
+                                class="mr-sm preview-design" 
+                                data-path="'.base_url($file->path).'"
+                                data-type="'.($file->is_image ? 'image' : 'file').'"
+                                style="cursor:pointer">';
+                                } else {
+                                    echo '<a href="javascript:void(0)" 
+                                class="preview-design"
+                                data-path="'.base_url($file->path).'"
+                                data-type="pdf">'.$file->fileName.'</a> ';
+                                }
+                            }
+                        } else {
+                            echo '<span class="text-muted">-</span>';
                         }
                         ?>
                     </td>

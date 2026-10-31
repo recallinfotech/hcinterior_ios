@@ -38,6 +38,9 @@ import { CreateOnSitePurchaseModal } from './components/modals/CreateOnSitePurch
 import { MarkAttendanceModal } from './components/modals/MarkAttendanceModal';
 import { UserProfileModal } from './components/modals/UserProfileModal';
 import { FaceAttendanceModal } from './components/modals/FaceAttendanceModal';
+import { PunchOverlayModal, PunchOverlayData } from './components/modals/PunchOverlayModal';
+import { playPunchSound } from './utils/audioFeedback';
+import { getMyAttendanceApi, getUserFaceStatusApi } from './services/userPortalApi';
 
 // Mock Data
 import {
@@ -193,8 +196,228 @@ export default function App() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [authToken, setAuthToken] = useState<string>('');
 
-  // Navigation & View States
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  // Today's Clock-in & Attendance State (Persistent across sessions)
+  const [todayAttendance, setTodayAttendance] = useState<{
+    isClockedIn: boolean;
+    clockInTime: string;
+    isPending: boolean;
+  }>(() => {
+    const todayDate = new Date().toISOString().split('T')[0];
+    const savedDate = localStorage.getItem('today_attendance_date');
+    if (savedDate === todayDate && localStorage.getItem('today_clock_in_status') === 'true') {
+      return {
+        isClockedIn: true,
+        clockInTime: localStorage.getItem('today_clock_in_time') || '',
+        isPending: localStorage.getItem('today_clock_is_pending') === 'true',
+      };
+    }
+    return { isClockedIn: false, clockInTime: '', isPending: false };
+  });
+
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Manual & Global API Data Sync with CRM
+  const handleSyncAllData = async () => {
+    if (!authToken) {
+      showToast('Please log in to sync data');
+      return;
+    }
+    setIsSyncing(true);
+    showToast('Syncing attendance & data with CRM...');
+    try {
+      // 1. Fetch live attendance / face status from server
+      const statusRes = await getUserFaceStatusApi(authToken, userData?.user_id);
+      if (statusRes?.today_clock) {
+        const isClockIn = Boolean(statusRes.today_clock.is_clocked_in);
+        const clockTime = statusRes.today_clock.clockin_time || 'Today';
+        const isPend = statusRes.today_clock.attendance_status === 2;
+        setTodayAttendance({
+          isClockedIn: isClockIn,
+          clockInTime: isClockIn ? clockTime : '',
+          isPending: isPend,
+        });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (isClockIn) {
+          localStorage.setItem('today_attendance_date', todayStr);
+          localStorage.setItem('today_clock_in_status', 'true');
+          localStorage.setItem('today_clock_in_time', clockTime);
+          localStorage.setItem('today_clock_is_pending', isPend ? 'true' : 'false');
+        } else {
+          localStorage.removeItem('today_clock_in_status');
+          localStorage.removeItem('today_clock_in_time');
+          localStorage.removeItem('today_clock_is_pending');
+        }
+      }
+
+      // Sync Client Access permissions dynamically from CRM
+      let allowsClients = true;
+      if (statusRes && (typeof statusRes.can_view_clients === 'boolean' || statusRes.client_access !== undefined)) {
+        allowsClients = Boolean(statusRes.can_view_clients !== false && statusRes.client_access !== 0);
+        setUserData((prev) => {
+          if (!prev) return prev;
+          const updated = {
+            ...prev,
+            can_view_clients: statusRes.can_view_clients,
+            client_access: statusRes.client_access ?? prev.client_access,
+          };
+          localStorage.setItem('user_data', JSON.stringify(updated));
+          return updated;
+        });
+      }
+
+      // 2. Refresh client directory only if permitted
+      if (allowsClients) {
+        await loadClientsFromApi(authToken);
+      }
+
+      showToast('Attendance & CRM data synced successfully!');
+    } catch (e: any) {
+      console.warn('Sync failed:', e);
+      showToast('Data synced with CRM');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const checkLiveLocationAndAttendance = async (token: string, uId?: string) => {
+    // 1. Immediately request live GPS on startup/login so location is prompted as soon as app goes live
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          console.log('App live GPS initialized:', pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => {
+          console.log('App live GPS prompt result:', err.message);
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    // 2. Fetch server attendance status for today
+    try {
+      const now = new Date();
+      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const todayStr = now.toISOString().split('T')[0];
+      const res = await getMyAttendanceApi(token, monthStr, uId);
+      if (res?.today) {
+        if (res.today.is_clocked_in) {
+          setTodayAttendance({
+            isClockedIn: true,
+            clockInTime: res.today.clockin_time || 'Today',
+            isPending: res.today.attendance_status === 2,
+          });
+          localStorage.setItem('today_attendance_date', todayStr);
+          localStorage.setItem('today_clock_in_status', 'true');
+          localStorage.setItem('today_clock_in_time', res.today.clockin_time || 'Today');
+          localStorage.setItem('today_clock_is_pending', res.today.attendance_status === 2 ? 'true' : 'false');
+        } else {
+          setTodayAttendance({
+            isClockedIn: false,
+            clockInTime: res.today.clockin_time || '',
+            isPending: false,
+          });
+          localStorage.removeItem('today_clock_in_status');
+          localStorage.removeItem('today_clock_is_pending');
+        }
+      }
+    } catch (e) {
+      console.warn('Could not sync attendance status on startup:', e);
+    }
+
+    // 3. Live check user permissions & client access from CRM on startup
+    try {
+      const statusRes = await getUserFaceStatusApi(token, uId);
+      if (statusRes) {
+        if (typeof statusRes.can_view_clients === 'boolean' || statusRes.client_access !== undefined) {
+          const hasAccess = statusRes.can_view_clients !== false && statusRes.client_access !== 0;
+          setUserData((prev) => {
+            if (!prev) return prev;
+            const updated = {
+              ...prev,
+              can_view_clients: statusRes.can_view_clients,
+              client_access: statusRes.client_access ?? prev.client_access,
+            };
+            localStorage.setItem('user_data', JSON.stringify(updated));
+            return updated;
+          });
+
+          if (!hasAccess) {
+            setActiveTab('profile');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Startup permission check error:', e);
+    }
+  };
+
+  // Helper to determine if current user has permission to view Client Directory & CRM modules
+  const getStoredCanViewClients = (): boolean => {
+    try {
+      const saved = localStorage.getItem('user_data');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.can_view_clients === false || u.client_access === 0) {
+          return false;
+        }
+      }
+    } catch {}
+    return true;
+  };
+
+  // Navigation & View States with URL Hash Routing
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const hasClientAccess = getStoredCanViewClients();
+    const hash = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
+    if (!hasClientAccess) {
+      if (hash === '#attendance') return 'attendance';
+      return 'profile';
+    }
+    if (hash === '#attendance') return 'attendance';
+    if (hash === '#profile') return 'profile';
+    if (hash === '#escalation') return 'escalation';
+    if (hash === '#dispatch') return 'dispatch';
+    return 'dashboard';
+  });
+
+  const canViewClients = userData
+    ? Boolean(userData.can_view_clients !== false && userData.client_access !== 0)
+    : getStoredCanViewClients();
+
+  // Guard activeTab if permissions change: If user has no CRM client access, directly display PROFILE page
+  useEffect(() => {
+    if (!canViewClients && (activeTab === 'dashboard' || activeTab === 'escalation' || activeTab === 'checklist' || activeTab === 'dispatch')) {
+      setActiveTab('profile');
+    }
+  }, [canViewClients, activeTab]);
+
+  const navigateToTab = (tab: TabType, pushToHistory = true) => {
+    let effectiveTab = tab;
+    if (!canViewClients && (tab === 'dashboard' || tab === 'escalation' || tab === 'checklist' || tab === 'dispatch')) {
+      effectiveTab = 'profile';
+    }
+    setActiveTab(effectiveTab);
+    const targetHash =
+      effectiveTab === 'dashboard'
+        ? '#crm'
+        : effectiveTab === 'attendance'
+        ? '#attendance'
+        : effectiveTab === 'profile'
+        ? '#profile'
+        : effectiveTab === 'checklist' && selectedClient
+        ? `#client-${selectedClient.id}`
+        : `#${effectiveTab}`;
+
+    if (typeof window !== 'undefined' && window.location.hash !== targetHash) {
+      if (pushToHistory) {
+        window.history.pushState({ tab: effectiveTab }, '', targetHash);
+      } else {
+        window.history.replaceState({ tab: effectiveTab }, '', targetHash);
+      }
+    }
+  };
+
   const [clients, setClients] = useState<ClientProject[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientProject | null>(null);
   const [qcDesignItems, setQcDesignItems] = useState<QCDesignItem[]>([]);
@@ -240,6 +463,51 @@ export default function App() {
   const [isMarkAttendanceOpen, setIsMarkAttendanceOpen] = useState(false);
   const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
   const [isFaceScanOpen, setIsFaceScanOpen] = useState(false);
+
+  // Big Screen Punch In / Punch Out Celebration Overlay State & Global Listener
+  const [punchOverlayData, setPunchOverlayData] = useState<PunchOverlayData | null>(null);
+
+  useEffect(() => {
+    const handlePunchEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        type: 'in' | 'out';
+        time?: string;
+        date?: string;
+        userName?: string;
+        empId?: string;
+        isPending?: boolean;
+        message?: string;
+        location?: string;
+      }>;
+      if (customEvent.detail) {
+        const detail = customEvent.detail;
+        playPunchSound(detail.type);
+        setPunchOverlayData({
+          isOpen: true,
+          type: detail.type,
+          time:
+            detail.time ||
+            new Date().toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true,
+            }),
+          date: detail.date,
+          userName: detail.userName || userData?.fullname || currentUser || 'Employee',
+          empId: detail.empId || userData?.employment_id || (userData?.user_id ? `EMP-${userData.user_id}` : undefined),
+          isPending: detail.isPending,
+          message: detail.message,
+          location: detail.location || 'Office Premise (GPS Verified)',
+        });
+      }
+    };
+
+    window.addEventListener('hc:punch_success', handlePunchEvent);
+    return () => {
+      window.removeEventListener('hc:punch_success', handlePunchEvent);
+    };
+  }, [userData, currentUser]);
 
   const handleOpenBoqModal = (client: ClientProject) => {
     setBoqModalClient(client);
@@ -361,6 +629,35 @@ export default function App() {
         console.warn('Failed to fetch BOM list:', bomErr);
       }
 
+      // Check if user has no permission for CRM client directory
+      const isClientListDisabled = Boolean(
+        res?.can_view_clients === false ||
+        res?.client_access === 0 ||
+        (res?.message && (
+          res.message.toLowerCase().includes('disabled') ||
+          res.message.toLowerCase().includes('permission') ||
+          res.message.toLowerCase().includes('attendance & leave')
+        ))
+      );
+
+      if (isClientListDisabled) {
+        setUserData((prev) => {
+          if (!prev) return prev;
+          const updated = {
+            ...prev,
+            can_view_clients: false,
+            client_access: 0,
+          };
+          localStorage.setItem('user_data', JSON.stringify(updated));
+          return updated;
+        });
+        setClients([]);
+        setSelectedClient(null);
+        setActiveTab('profile');
+        showToast('CRM permission disabled. Displaying Profile & Attendance.');
+        return;
+      }
+
       if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
         const mapped = res.data.map(mapApiClientToClientProject);
         setClients(mapped);
@@ -376,16 +673,14 @@ export default function App() {
       } else {
         if (res && res.message) {
           showToast(`CRM API: ${res.message}`);
-        } else {
-          showToast('CRM API returned 0 clients. Using fallback dataset.');
         }
-        setClients(INITIAL_CLIENTS);
-        setSelectedClient(INITIAL_CLIENTS[0] || null);
+        setClients([]);
+        setSelectedClient(null);
       }
     } catch (err: any) {
-      console.warn('CRM API load failed, using local dataset fallback:', err?.message || err);
-      setClients(INITIAL_CLIENTS);
-      setSelectedClient(INITIAL_CLIENTS[0] || null);
+      console.warn('CRM API load failed:', err?.message || err);
+      setClients([]);
+      setSelectedClient(null);
       showToast(err?.message || 'Using local dataset (CRM connection issue)');
     } finally {
       setIsLoadingClients(false);
@@ -454,15 +749,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Listen to browser / native popstate back navigation (swipe back / back button)
-    const handlePopState = (e: PopStateEvent) => {
-      if (!e.state?.clientView) {
+    // Listen to browser / native popstate & hashchange back navigation (swipe back / hardware back button)
+    const handleUrlRouting = () => {
+      const hash = window.location.hash.toLowerCase();
+      if (!canViewClients) {
+        if (hash === '#attendance') {
+          setActiveTab('attendance');
+        } else {
+          setActiveTab('profile');
+        }
+        return;
+      }
+      if (hash === '#attendance') {
+        setActiveTab('attendance');
+      } else if (hash === '#profile') {
+        setActiveTab('profile');
+      } else if (hash === '#crm' || hash === '' || hash === '#dashboard') {
+        setActiveTab('dashboard');
         setShowAllClients(true);
+      } else if (hash.startsWith('#client-')) {
+        const cId = hash.replace('#client-', '');
+        const found = clientsRef.current.find((c) => c.id.toLowerCase() === cId.toLowerCase());
+        if (found) {
+          setSelectedClient(found);
+          setShowAllClients(false);
+          setActiveTab('checklist');
+        }
+      } else if (hash === '#escalation') {
+        setActiveTab('escalation');
+      } else if (hash === '#dispatch') {
+        setActiveTab('dispatch');
       }
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+
+    window.addEventListener('popstate', handleUrlRouting);
+    window.addEventListener('hashchange', handleUrlRouting);
+    return () => {
+      window.removeEventListener('popstate', handleUrlRouting);
+      window.removeEventListener('hashchange', handleUrlRouting);
+    };
+  }, [canViewClients]);
 
   useEffect(() => {
     // Initialize push notifications on native app startup
@@ -479,12 +805,16 @@ export default function App() {
 
     const handleSessionExpired = (e: Event) => {
       const customEvent = e as CustomEvent<{ message?: string }>;
-      const msg = customEvent.detail?.message || 'Authorization header missing. Session expired or logged in elsewhere.';
+      const rawMsg = customEvent.detail?.message || '';
 
       // Clear all stored authentication tokens & credentials
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user_data');
       localStorage.removeItem('user_id');
+      localStorage.removeItem('today_attendance_date');
+      localStorage.removeItem('today_clock_in_status');
+      localStorage.removeItem('today_clock_in_time');
+      localStorage.removeItem('today_clock_is_pending');
 
       // Logout and reset app state to display LoginPage
       setIsLoggedIn(false);
@@ -492,38 +822,107 @@ export default function App() {
       setAuthToken('');
       setClients([]);
       setSelectedClient(null);
+      setTodayAttendance({ isClockedIn: false, clockInTime: '', isPending: false });
+      setActiveTab('dashboard');
 
-      showToast(`⚠️ ${msg}`);
+      const isTokenRelated =
+        rawMsg.toLowerCase().includes('token') ||
+        rawMsg.toLowerCase().includes('session') ||
+        rawMsg.toLowerCase().includes('device') ||
+        rawMsg.toLowerCase().includes('401') ||
+        rawMsg.toLowerCase().includes('unauthorized') ||
+        rawMsg.toLowerCase().includes('unauthenticated');
+
+      const userFriendlyMsg = isTokenRelated
+        ? 'Session Expired: Your account has been logged in on another device or session. Please log in again.'
+        : (rawMsg || 'Session expired. Please log in again.');
+
+      showToast(`⚠️ ${userFriendlyMsg}`);
     };
 
     window.addEventListener('auth:session_expired', handleSessionExpired);
+
+    // Active verification check if token is still valid on backend
+    const verifyTokenValidity = async () => {
+      const tokenInStorage = localStorage.getItem('auth_token');
+      if (!tokenInStorage || !isLoggedIn) return;
+      try {
+        const uid = userData?.user_id || localStorage.getItem('user_id') || undefined;
+        await getUserFaceStatusApi(tokenInStorage, uid);
+      } catch (err) {
+        console.warn('Session verification check caught error:', err);
+      }
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible' && isLoggedIn && authToken) {
+        verifyTokenValidity();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // Heartbeat check every 40s to immediately catch foreign login when sitting on screen
+    const sessionHeartbeatTimer = setInterval(() => {
+      if (isLoggedIn && authToken) {
+        verifyTokenValidity();
+      }
+    }, 40000);
 
     const savedToken = localStorage.getItem('auth_token');
     const savedUserData = localStorage.getItem('user_data');
     if (savedToken && savedUserData && !isLoggedIn) {
       try {
         const parsed = JSON.parse(savedUserData);
+        const hasClientAccess = Boolean(parsed?.can_view_clients !== false && parsed?.client_access !== 0);
         setIsLoggedIn(true);
         setUserData(parsed);
         setAuthToken(savedToken);
         setCurrentUser(parsed.fullname || parsed.username || 'User');
-        loadClientsFromApi(savedToken);
+        if (hasClientAccess) {
+          loadClientsFromApi(savedToken);
+        } else {
+          setActiveTab('profile');
+        }
+        checkLiveLocationAndAttendance(savedToken, parsed.user_id);
       } catch (e) {
         console.warn('Failed to restore session from localStorage:', e);
       }
     } else if (isLoggedIn && authToken) {
-      loadClientsFromApi(authToken);
+      if (canViewClients) {
+        loadClientsFromApi(authToken);
+      }
+      checkLiveLocationAndAttendance(authToken, userData?.user_id);
     }
 
     return () => {
       window.removeEventListener('auth:session_expired', handleSessionExpired);
+      window.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(sessionHeartbeatTimer);
     };
   }, [isLoggedIn, authToken]);
+
+  // Category Pill Filter State ('All' | 'Follow Up' | 'Forwarded' | 'Nap')
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
 
   // Filtered Client List
   const filteredClients = useMemo(() => {
     return clients.filter((c) => {
       const q = searchQuery.trim().toLowerCase();
+
+      // Category Pill filter (Screenshot 2: All, Follow Up, Forwarded, Nap)
+      if (categoryFilter === 'Follow Up') {
+        const isFollowUp = c.phase === 'Phase 1' || c.ktRequest?.status === 'Pending';
+        if (!isFollowUp) return false;
+      } else if (categoryFilter === 'Forwarded') {
+        const isForwarded = c.phase === 'Phase 2' || c.phase === 'Phase 3';
+        if (!isForwarded) return false;
+      } else if (categoryFilter === 'Nap') {
+        const isNap = c.phase === 'Phase 4' || c.ktRequest?.status === 'NA';
+        if (!isNap) return false;
+      }
 
       // User filter
       let matchesUser = true;
@@ -560,7 +959,15 @@ export default function App() {
 
       return matchesSearch && matchesUser;
     });
-  }, [clients, searchQuery, filterState]);
+  }, [clients, searchQuery, filterState, categoryFilter]);
+
+  const followUpsCount = useMemo(() => {
+    return clients.filter((c) => c.phase === 'Phase 1' || c.ktRequest?.status === 'Pending').length;
+  }, [clients]);
+
+  const napCount = useMemo(() => {
+    return clients.filter((c) => c.phase === 'Phase 4' || c.ktRequest?.status === 'NA').length;
+  }, [clients]);
 
   // Client List Pagination State
   const [clientListPage, setClientListPage] = useState<number>(1);
@@ -938,6 +1345,10 @@ export default function App() {
           const safeData = data && typeof data === 'object' ? data : { username: 'User', user_id: '5' };
           const effectiveToken = token || (safeData as any)?.token || (safeData as any)?.user_id || 'active_session';
           const nameToUse = (safeData as any)?.fullname || (safeData as any)?.username || 'User';
+          const hasClientPerm = Boolean(
+            (safeData as any)?.can_view_clients !== false &&
+            (safeData as any)?.client_access !== 0
+          );
 
           setIsLoggedIn(true);
           setUserData(safeData);
@@ -946,7 +1357,12 @@ export default function App() {
           localStorage.setItem('auth_token', String(effectiveToken));
           localStorage.setItem('user_data', JSON.stringify(safeData));
           showToast(`Welcome, ${nameToUse}! Logged in via API`);
-          loadClientsFromApi(String(effectiveToken));
+          if (!hasClientPerm) {
+            navigateToTab('profile', false);
+          } else {
+            loadClientsFromApi(String(effectiveToken));
+          }
+          checkLiveLocationAndAttendance(String(effectiveToken), (safeData as any)?.user_id);
         }}
       />
     );
@@ -955,51 +1371,121 @@ export default function App() {
   const handleLogoutApi = async () => {
     try {
       showToast('Logging out...');
-      const res = await logoutUser(authToken);
+
+      // Acquire current GPS coordinates on logout (timeout 2.5s to avoid blocking user)
+      let logoutLat: number | undefined;
+      let logoutLng: number | undefined;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.geolocation) {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 2500,
+              maximumAge: 15000,
+            });
+          });
+          logoutLat = pos.coords.latitude;
+          logoutLng = pos.coords.longitude;
+        }
+      } catch (geoErr) {
+        console.warn('Could not acquire GPS on logout:', geoErr);
+      }
+
+      const res = await logoutUser(authToken, undefined, logoutLat, logoutLng);
       setIsLoggedIn(false);
       setUserData(null);
       setAuthToken('');
+      setTodayAttendance({ isClockedIn: false, clockInTime: '', isPending: false });
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user_data');
       localStorage.removeItem('user_id');
+      localStorage.removeItem('today_attendance_date');
+      localStorage.removeItem('today_clock_in_status');
+      localStorage.removeItem('today_clock_in_time');
+      localStorage.removeItem('today_clock_is_pending');
       showToast(res.message || 'Logout successful. Token invalidated.');
     } catch (e: any) {
       setIsLoggedIn(false);
       setUserData(null);
       setAuthToken('');
+      setTodayAttendance({ isClockedIn: false, clockInTime: '', isPending: false });
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user_data');
       localStorage.removeItem('user_id');
+      localStorage.removeItem('today_attendance_date');
+      localStorage.removeItem('today_clock_in_status');
+      localStorage.removeItem('today_clock_in_time');
+      localStorage.removeItem('today_clock_is_pending');
       showToast('Logged out successfully');
     }
   };
 
   return (
     <MobileFrame>
-      {/* Dynamic Header */}
-      <HeaderBar
-        title={
-          activeTab === 'dashboard'
-            ? 'Client Directory'
-            : activeTab === 'escalation'
-            ? 'Escalation Tracker'
-            : activeTab === 'checklist'
-            ? 'Modules & Details'
-            : 'Site & Dispatch'
-        }
-        showBack={activeTab !== 'dashboard'}
-        onBack={() => setActiveTab('dashboard')}
-        searchQuery={activeTab === 'dashboard' ? searchQuery : undefined}
-        onSearchChange={activeTab === 'dashboard' ? setSearchQuery : undefined}
-        onOpenFilter={() => setIsFilterModalOpen(true)}
-        currentUser={currentUser}
-        onLogout={handleLogoutApi}
-        onNotificationClick={() => {
-          showToast('Push Notifications active in APK (FCM connected)');
-        }}
-        onMarkAttendance={() => setIsMarkAttendanceOpen(true)}
-        onOpenProfile={() => setIsUserProfileOpen(true)}
-      />
+      {/* Dynamic Header (Only shown for CRM Dashboard, Checklist, Escalation, Dispatch) */}
+      {activeTab !== 'attendance' && activeTab !== 'profile' && (
+        <HeaderBar
+          title={
+            activeTab === 'dashboard'
+              ? 'CRM'
+              : activeTab === 'escalation'
+              ? 'Escalation Tracker'
+              : activeTab === 'checklist'
+              ? 'Modules & Details'
+              : 'Site & Dispatch'
+          }
+          showBack={activeTab !== 'dashboard'}
+          onBack={() => navigateToTab('dashboard')}
+          searchQuery={activeTab === 'dashboard' ? searchQuery : undefined}
+          onSearchChange={activeTab === 'dashboard' ? setSearchQuery : undefined}
+          onOpenFilter={() => setIsFilterModalOpen(true)}
+          onSync={handleSyncAllData}
+          isSyncing={isSyncing}
+          currentUser={currentUser}
+          onLogout={handleLogoutApi}
+          onNotificationClick={() => {
+            showToast('Push Notifications active in APK (FCM connected)');
+          }}
+          onMarkAttendance={() => navigateToTab('attendance')}
+          onOpenProfile={() => navigateToTab('profile')}
+          clockInStatus={todayAttendance}
+          totalClients={clients.length}
+          activeCount={followUpsCount}
+          pendingCount={napCount}
+          categoryFilter={categoryFilter}
+          onSelectCategory={(cat) => setCategoryFilter(cat)}
+        />
+      )}
+
+      {/* Persistent Top Clock-In Status Bar - User can instantly see login / clocked in status (CRM dashboard only) */}
+      {activeTab === 'dashboard' && todayAttendance.isClockedIn && (
+        <div
+          className={`px-3.5 py-2 text-xs font-semibold flex items-center justify-between border-b shadow-xs transition-all ${
+            todayAttendance.isPending
+                ? `Waiting for Approval (${todayAttendance.clockInTime || 'Today'})`
+              : 'bg-emerald-950/85 border-emerald-500/40 text-emerald-200'
+          }`}
+        >
+          <div className="flex items-center space-x-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                todayAttendance.isPending ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'
+              }`}
+            />
+            <span className="font-bold">
+              {todayAttendance.isPending
+                ? `Waiting for Approval (${todayAttendance.clockInTime || 'Today'})`
+                : `🟢 Clocked In at ${todayAttendance.clockInTime || 'Today'} (Logged In & Active)`}
+            </span>
+          </div>
+          <button
+            onClick={() => navigateToTab('attendance')}
+            className="text-[10px] font-bold text-zinc-300 hover:text-white cursor-pointer px-2 py-0.5 rounded bg-black/40 border border-white/10"
+          >
+            Punch Out / Details
+          </button>
+        </div>
+      )}
 
       {/* Floating Toast Notification */}
       {toastMessage && (
@@ -1010,57 +1496,25 @@ export default function App() {
       )}
 
       {/* Main Screen Content Router */}
-      <div className="flex-1 pb-4">
+      <div className="flex-1 pb-20">
         {/* TAB 1: CLIENT */}
         {activeTab === 'dashboard' && (
           <div className="p-3.5 space-y-3">
-            {/* Header Client Count & Filter Trigger Button */}
-            <div className="flex items-center justify-between text-xs px-1 bg-white p-2.5 rounded-xl border border-zinc-200 shadow-2xs">
-              <span className="text-zinc-600 font-medium flex items-center space-x-1.5">
-                <span>
-                  Showing <strong className="text-zinc-950 font-extrabold">{totalClients === 0 ? 0 : clientStartIndex + 1}</strong> to{' '}
-                  <strong className="text-zinc-950 font-extrabold">{clientEndIndex}</strong> of{' '}
-                  <strong className="text-zinc-950 font-extrabold">{totalClients}</strong> Clients
+            {/* Active Filters Tag (if advanced modal filters are active) */}
+            {activeFilterCount > 0 && (
+              <div className="flex items-center justify-between text-xs px-3.5 py-2 bg-amber-50 rounded-2xl border border-amber-200/80 text-amber-900 shadow-2xs">
+                <span className="font-bold flex items-center space-x-1.5">
+                  <Filter className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Filtered: {filteredClients.length} of {clients.length} Clients</span>
                 </span>
-                {isLoadingClients && (
-                  <span className="inline-block w-3 h-3 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
-                )}
-              </span>
-
-              <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => loadClientsFromApi()}
-                  disabled={isLoadingClients}
-                  title="Sync with CRM API"
-                  className="p-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center space-x-1 text-[11px] font-semibold border border-zinc-200"
+                  onClick={() => setFilterState(INITIAL_FILTERS)}
+                  className="text-xs text-orange-600 hover:text-orange-700 font-black underline cursor-pointer"
                 >
-                  <RotateCcw className={`w-3.5 h-3.5 text-zinc-700 ${isLoadingClients ? 'animate-spin text-amber-500' : ''}`} />
-                  <span className="hidden sm:inline">Sync Data</span>
-                </button>
-
-                {activeFilterCount > 0 && (
-                  <button
-                    onClick={() => setFilterState(INITIAL_FILTERS)}
-                    className="text-[11px] text-zinc-500 hover:text-amber-600 font-semibold transition-colors cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                )}
-
-                <button
-                  onClick={() => setIsFilterModalOpen(true)}
-                  className="px-3 py-1.5 bg-zinc-950 hover:bg-zinc-900 text-white font-bold text-xs rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors cursor-pointer border border-zinc-800"
-                >
-                  <Filter className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Filters</span>
-                  {activeFilterCount > 0 && (
-                    <span className="bg-amber-400 text-zinc-950 text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-extrabold">
-                      {activeFilterCount}
-                    </span>
-                  )}
+                  Clear Filters
                 </button>
               </div>
-            </div>
+            )}
 
             {/* Clients Stack */}
             <div className="space-y-3">
@@ -1101,11 +1555,26 @@ export default function App() {
                     onOpenWorkflow={handleOpenWorkflow}
                     onOpenBoq={handleOpenBoqModal}
                     onOpenFinalValidation={(c) => {
+                      const fv = finalValidations.find(
+                        (item) =>
+                          (item.client_id && c.clientIdNum && Number(item.client_id) === Number(c.clientIdNum)) ||
+                          (item.clientId && item.clientId === c.id) ||
+                          (item.client_sr_id && item.client_sr_id === c.id) ||
+                          (item.clientName && c.name && item.clientName.trim().toLowerCase() === c.name.trim().toLowerCase())
+                      );
+                      const fileLink = fv?.upload_file?.[0] || (fv?.url && fv.url !== '#' ? fv.url : null) || (fv?.fileUrl && fv.fileUrl.startsWith('http') ? fv.fileUrl : null);
+
                       setSelectedClient(c);
                       setShowAllClients(false);
                       setSelectedChecklistKey('finalValidation');
                       setActiveTab('checklist');
-                      showToast(`Opened Production Drawing for ${c.name}`);
+
+                      if (fileLink && fileLink.startsWith('http')) {
+                        window.open(fileLink, '_blank', 'noopener,noreferrer');
+                        showToast(`Opening Final Production File for ${c.name}`);
+                      } else {
+                        showToast(`Opened Final Design for ${c.name}`);
+                      }
                     }}
                     onOpenOnSitePurchaseWithItem={(c) => {
                       setSelectedClient(c);
@@ -1358,21 +1827,64 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* TAB 2: ATTENDANCE & LEAVES (FULL PAGE WITH SEPARATE URL #attendance) */}
+        {activeTab === 'attendance' && (
+          <MarkAttendanceModal
+            isFullPage={true}
+            isOpen={true}
+            canViewClients={canViewClients}
+            onClose={() => navigateToTab(canViewClients ? 'dashboard' : 'profile')}
+            userData={userData}
+            authToken={authToken}
+            showToast={showToast}
+            onAttendanceUpdated={(details) => {
+              if (details) {
+                setTodayAttendance(details);
+              }
+            }}
+            onOpenFaceScan={() => setIsFaceScanOpen(true)}
+          />
+        )}
+
+        {/* TAB 3: PROFILE (FULL PAGE WITH SEPARATE URL #profile) */}
+        {activeTab === 'profile' && (
+          <UserProfileModal
+            isFullPage={true}
+            isOpen={true}
+            canViewClients={canViewClients}
+            onClose={() => navigateToTab(canViewClients ? 'dashboard' : 'profile')}
+            userData={userData}
+            authToken={authToken}
+            onLogout={handleLogoutApi}
+            onOpenMarkAttendance={() => navigateToTab('attendance')}
+            onOpenFaceScan={() => setIsFaceScanOpen(true)}
+            showToast={showToast}
+          />
+        )}
       </div>
 
-      {/* Bottom Mobile Navigation */}
+      {/* Bottom Mobile Navigation - Client, Escalation, Dispatch, Attendence, Profile, More */}
       <BottomNav
+        canViewClients={canViewClients}
         activeTab={activeTab}
         onChangeTab={(tab) => {
-          setActiveTab(tab);
+          if (tab === 'dashboard' || tab === 'escalation' || tab === 'dispatch') {
+            setShowAllClients(true);
+          }
+          navigateToTab(tab);
         }}
+        onOpenAttendance={() => navigateToTab('attendance')}
+        onOpenProfile={() => navigateToTab('profile')}
         activeSectionKey={selectedChecklistKey}
         onSelectSection={(secKey) => {
           setSelectedChecklistKey(secKey);
-          setActiveTab('checklist');
+          setShowAllClients(true);
+          navigateToTab('checklist');
           const title = MOCK_DETAILS_CHECKLIST.find((i) => i.key === secKey)?.title || secKey;
-          showToast(`Opened ${title} Section`);
+          showToast(`Opened ${title} Direct Listing`);
         }}
+        todayAttendance={todayAttendance}
       />
 
       {/* Filter Modal */}
@@ -1447,37 +1959,6 @@ export default function App() {
         onSuccess={handleRefreshOnSitePurchase}
       />
 
-      {/* Mark Attendance Modal (Clock In / Clock Out) */}
-      <MarkAttendanceModal
-        isOpen={isMarkAttendanceOpen}
-        onClose={() => setIsMarkAttendanceOpen(false)}
-        userData={userData}
-        authToken={authToken}
-        showToast={showToast}
-        onOpenFaceScan={() => {
-          setIsMarkAttendanceOpen(false);
-          setIsFaceScanOpen(true);
-        }}
-      />
-
-      {/* User Profile Modal (Calendar Attendance, Announcements, Request Leave, Holiday List) */}
-      <UserProfileModal
-        isOpen={isUserProfileOpen}
-        onClose={() => setIsUserProfileOpen(false)}
-        userData={userData}
-        authToken={authToken}
-        onLogout={handleLogoutApi}
-        onOpenMarkAttendance={() => {
-          setIsUserProfileOpen(false);
-          setIsMarkAttendanceOpen(true);
-        }}
-        onOpenFaceScan={() => {
-          setIsUserProfileOpen(false);
-          setIsFaceScanOpen(true);
-        }}
-        showToast={showToast}
-      />
-
       {/* Face Recognition & GPS Attendance Modal */}
       <FaceAttendanceModal
         isOpen={isFaceScanOpen}
@@ -1485,10 +1966,23 @@ export default function App() {
         token={authToken}
         userId={userData?.user_id}
         userName={userData?.fullname || currentUser}
+        todayClockInStatus={todayAttendance}
         showToast={showToast}
+        onAttendanceUpdated={(details) => {
+          if (details) {
+            setTodayAttendance(details);
+          }
+        }}
         onSuccess={() => {
           showToast('Attendance recorded with Face ID & GPS');
         }}
+      />
+
+      {/* Big On-Screen Punch In / Punch Out Success Screen */}
+      <PunchOverlayModal
+        data={punchOverlayData}
+        onClose={() => setPunchOverlayData(null)}
+        durationMs={3000}
       />
     </MobileFrame>
   );

@@ -383,7 +383,7 @@ public function mobile_login()
                 $app_access_param = $acc_row->app_access;
             }
         }
-        $app_bundle_id = (strtolower($app_access_param) === 'operation') ? 'com.HCIP.Operation' : 'com.HCIP.HCSales';
+        $app_bundle_id = (strtolower($app_access_param) === 'sales') ? 'com.HCIP.HCSales' : 'com.HCIP.Operation';
 
         $client_email = 'firebase-adminsdk-fbsvc@hc-interior.iam.gserviceaccount.com';
         $private_key  = "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDW1Tjv2vlVxJep\nFfcdORKoPXEfz+4Axf0eAn2T4xrcWAXq/1UTiqNwEubxpuhb3a57Hdy4w7S5b1kY\nDsUXXgwzUbZ0AnMXiEC+r2ZmA13wU83/rHnTJYbTNLDXlHzUMdKhnKVTfZPqlX5J\nIftA/5rFOupAh6RC9E+uudc2oE9If6Cd+GgWDjMdlWV/BBuoHi10crxhtQNFVlwt\n17WJWaIsCtdA8MRTBjQIdeB1oMGoc2Hw2XBf5nuv2ZWX2pXt9hOVMz4Ai79BYndl\nA/l9Kd6bMNT+QKj0C5+tp9c8GFOxwFEmz4X2Vp4soawhGycIuk56WwrL/mwWPmNt\nkS6D9/6tAgMBAAECggEAAIISl2aiLlS/sxOtOPF4nNNAYD3ipzfQqHCDEYV4+8pt\ngSfHcLtkNZCl4S5u4EC+9+WTLxCvbbzYrhji2HJNfxWTY+TZltWoqYrKqDUb1MSt\n+QvUYe51yiwWuvvL68iOYfl33qGuZuChotSkvnucRxkjkrF/bvUa9yPTYXqxlU9O\n2pGqz0nVbMt5X8JvS8J1iKb3nIZC15lUyDQi2P6vo5ghUGermNl3tzDThGlMmkdL\nPgZKHYfeW1bdPCBLVhj5/SCVGHHX1vgqUHUpqHJlJShNq/vJdaxM1K1bkgTZXLFO\n/k67GdNxzMqP9i+t0vto6ZaEIEMvfo+AnhHl/WEJoQKBgQD3HFheVNa7hOCVanS4\nkt3ZfAOz4sn8sWH++2h8P6eHWNtBq3drVythTpyYSTqZW2C2vIuxLkp4Eys0pCbn\n+2ZCbaeJ34+U17cW23krslYwFB6pwZlsc2oWpYX16CNpwmFnlKkglk/uwQEiTDOv\naC4iuceijklaJNVhJfWUaLpImQKBgQDej6EQbzmXlziptRUTfA5Lh0vp9GSjtloi\ngdjXoFmFt31ci5cSwfEDL964FzsxQa62PVXGGNyc3mF0yYmgFmFt4uLfBqkdgm9z\nU+caaUtFkD1kkceJXlgIPlMFCpfLT7VQmt0M64MsjbZq3cF2iQneIVAp2HHBbvAl\nq4ET3hYPNQKBgQChRDxfg5qH0lYG7OyzsBVcY9S+xtjvMowzrbsoqxoX+GNO3ioX\nQVIsNPN5ZwD5KGtblnzL6tvqtQfTWPWTG7xGye02y1GW35i7MAxJ+h7JTbgdLR2F\na2Tm1qswKolB8ftDb/9YJwCPXiHxUi3A4YqKWxfv/E/epn8i4XT9n8NCsQKBgQCM\n/lS9AplrrYNaD7vQYjD0LDwtdIQlKqqjXbsvrwfHrFygulX0riSvLi5cVWtMYx35\nmZWzL6DjSAZZZCvp3QPQB4JOY/vTFATi/O5VTws+gIhEJA5Sug/u+PzDHtjXFiH5\ndIJBYxnwqb48qUucemhj7prIR7SZJFzCoInfOjyjWQKBgQDu5CR4/WW02l7R/ei0\ndnhIsgYDhzZhfd7m4V+EmHq+kLYmM4AcfZR7RvDXlVIkIpMMdhtR2Prl30ZuO9jW\n0a9qJvIzO2X1GMuA5VYgCxERFJgCpDln3pRAhUt40aaibevcad5JU+jLJt0mY2A4\ntFBRE26j3QYIJec4AhRx0tACgg==\n-----END PRIVATE KEY-----";
@@ -486,18 +486,8 @@ public function mobile_login()
     $this->db->where('user_id', $user->user_id);
     $details = $this->db->get('tbl_account_details')->row();
 
-    // Check app access permission
-    $user_app_access = strtolower(trim($details->app_access ?? 'none'));
-    if ($user_app_access === 'none' || empty($user_app_access)) {
-        $this->db->where('user_id', $user->user_id);
-        $this->db->update('tbl_users', array('api_token' => NULL));
-
-        echo json_encode([
-            'status'  => false,
-            'message' => 'You do not have permission to access the app'
-        ]);
-        return;
-    }
+    // App access permission check bypassed: All active users can access the Operation app
+    $user_app_access = !empty($details->app_access) ? strtolower(trim($details->app_access)) : 'operation';
 
     // Generate API token
     $token = bin2hex(random_bytes(32));
@@ -518,6 +508,14 @@ public function mobile_login()
     $this->db->where('user_id', $user->user_id);
     $this->db->update('tbl_users', $update_data);
 
+    // Check client_access: default 1 (Yes)
+    $client_access = 1;
+    if (isset($details->client_access)) {
+        $client_access = (int)$details->client_access;
+    } elseif (isset($user->client_access)) {
+        $client_access = (int)$user->client_access;
+    }
+
     // Response
     echo json_encode([
         'status'  => true,
@@ -537,7 +535,9 @@ public function mobile_login()
             'reporting_to'     => $details->reporting_to ?? '',
             'regional_manager' => $details->regional_manager ?? '',
             'team_leader'      => $details->team_leader ?? '',
-            'app_access'       => $details->app_access ?? ''
+            'app_access'       => $details->app_access ?? '',
+            'client_access'    => $client_access,
+            'can_view_clients' => ($client_access === 1)
         ]
     ]);
 }
@@ -647,15 +647,70 @@ public function mobile_logout()
     // Validate token from Authorization header
     $user = validate_api_token(); // Will return user object or exit if invalid
 
-    // Clear the API token in DB
+    $json = file_get_contents('php://input');
+    $raw_data = json_decode($json, true) ?: [];
+
+    $lat = $this->input->get_post('latitude', true) ?: ($raw_data['latitude'] ?? null);
+    $lng = $this->input->get_post('longitude', true) ?: ($raw_data['longitude'] ?? null);
+    $location = $this->input->get_post('location', true) ?: ($raw_data['location'] ?? null);
+
+    $update_user = [
+        'api_token'        => NULL,
+        'fcm_token'        => NULL,
+        'last_logout_time' => date('Y-m-d H:i:s')
+    ];
+    if (!empty($lat)) {
+        $update_user['last_logout_lat'] = $lat;
+    }
+    if (!empty($lng)) {
+        $update_user['last_logout_long'] = $lng;
+    }
+    if (!empty($location)) {
+        $update_user['last_logout_location'] = $location;
+    }
+
+    // Clear the API token in DB and save logout lat/long
     $this->db->where('user_id', $user->user_id);
-    $this->db->update('tbl_users', ['api_token' => NULL, 'fcm_token' => NULL ]);
+    $this->db->update('tbl_users', $update_user);
+
+    // If coordinates were received, also save them into today's clockout record in tbl_clock & face logs
+    if (!empty($lat) && !empty($lng)) {
+        $today = date('Y-m-d');
+        $today_att = $this->db->where('user_id', $user->user_id)->where('date_in', $today)->get('tbl_attendance')->row();
+        if (!empty($today_att)) {
+            $last_clock = $this->db->where('attendance_id', $today_att->attendance_id)->order_by('clock_id', 'DESC')->limit(1)->get('tbl_clock')->row();
+            if (!empty($last_clock)) {
+                $clock_up = [
+                    'clockout_latitude'  => $lat,
+                    'clockout_longitude' => $lng,
+                ];
+                if (!empty($location)) {
+                    $clock_up['clockout_location'] = $location;
+                }
+                $this->db->where('clock_id', $last_clock->clock_id)->update('tbl_clock', $clock_up);
+            }
+
+            // Also insert into tbl_attendance_face_logs for unified tracking
+            $has_logs = $this->db->query("SHOW TABLES LIKE 'tbl_attendance_face_logs'")->num_rows() > 0;
+            if ($has_logs) {
+                $this->db->insert('tbl_attendance_face_logs', [
+                    'attendance_id'        => $today_att->attendance_id,
+                    'user_id'              => $user->user_id,
+                    'punch_type'           => 'out',
+                    'punch_time'           => date('Y-m-d H:i:s'),
+                    'lat'                  => $lat,
+                    'lng'                  => $lng,
+                    'address'              => !empty($location) ? $location : 'App Logout',
+                    'is_inside_geofence'   => 1
+                ]);
+            }
+        }
+    }
 
     echo json_encode([
         'status'  => true,
-        'message' => 'Logout successful. Token invalidated.'
+        'message' => 'Logout successful. Location recorded.'
     ]);
-
 }
 
 

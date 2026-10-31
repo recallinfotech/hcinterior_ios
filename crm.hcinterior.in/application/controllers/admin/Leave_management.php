@@ -988,12 +988,14 @@ class Leave_Management extends Admin_Controller
 
     public function leave_credits()
     {
-        $data['title'] = lang('leave_credits') ? lang('leave_credits') : 'Earn & Sick Leave (Monthly Credits)';
+        $this->ensure_leave_credits_table();
+
+        $data['title'] = lang('leave_credits') ? lang('leave_credits') : 'Leave Balances & Mid-Year Setup';
         $data['active'] = 5;
         $data['leave_active'] = 5;
 
         // Fetch all active staff
-        $this->db->select('tbl_users.user_id, tbl_users.username, tbl_users.email, tbl_account_details.fullname, tbl_account_details.emp_code, tbl_account_details.employment_id, tbl_account_details.avatar, tbl_designations.designations, tbl_departments.deptname');
+        $this->db->select('tbl_users.user_id, tbl_users.username, tbl_users.email, tbl_account_details.fullname, tbl_account_details.emp_code, tbl_account_details.employment_id, tbl_account_details.avatar, tbl_account_details.joining_date, tbl_designations.designations, tbl_departments.deptname');
         $this->db->from('tbl_users');
         $this->db->join('tbl_account_details', 'tbl_account_details.user_id = tbl_users.user_id', 'left');
         $this->db->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left');
@@ -1341,6 +1343,256 @@ class Leave_Management extends Admin_Controller
                 'leave_quota' => $quota,
                 'label' => $display_label
             )
+        ));
+        exit();
+    }
+
+    /**
+     * Self-healing helper: Ensures tbl_user_leave_credits table exists and supports opening_balance
+     */
+    private function ensure_leave_credits_table()
+    {
+        $this->db->query("CREATE TABLE IF NOT EXISTS `tbl_user_leave_credits` (
+            `leave_credit_id` int NOT NULL AUTO_INCREMENT,
+            `user_id` int NOT NULL,
+            `leave_category_id` int NOT NULL,
+            `leave_type` varchar(20) NOT NULL,
+            `month_year` varchar(7) NOT NULL,
+            `credits` decimal(5,2) NOT NULL DEFAULT '0.00',
+            `added_by` int DEFAULT NULL,
+            `added_type` varchar(50) NOT NULL DEFAULT 'monthly_manual',
+            `remarks` text,
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`leave_credit_id`),
+            KEY `idx_user_leave_type` (`user_id`, `leave_type`),
+            KEY `idx_user_month` (`user_id`, `month_year`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        // Ensure added_type column is VARCHAR(50) so it doesn't fail on enum restriction
+        if ($this->db->table_exists('tbl_user_leave_credits')) {
+            @$this->db->query("ALTER TABLE `tbl_user_leave_credits` MODIFY `added_type` VARCHAR(50) NOT NULL DEFAULT 'monthly_manual'");
+        }
+    }
+
+    /**
+     * Save/Update manual leave balance for an individual employee (Mid-Year Setup / New Joining / Adjustment)
+     */
+    public function save_employee_leave_balances()
+    {
+        $this->ensure_leave_credits_table();
+
+        $user_id_sess = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && empty(admin()) && empty(admin_head())) {
+            echo json_encode(array('status' => 'error', 'message' => 'Permission denied. Only admins or HR can set leave balances.'));
+            exit();
+        }
+
+        $user_id = $this->input->post('user_id', TRUE);
+        $balance_type = $this->input->post('balance_type', TRUE);
+        if (empty($balance_type)) {
+            $balance_type = 'opening_balance';
+        }
+        $remarks = $this->input->post('remarks', TRUE);
+        if (empty($remarks)) {
+            $remarks = ($balance_type === 'new_joining') ? 'New Joining Pro-Rated Leave Balance' : 'Mid-Year Opening Leave Balance';
+        }
+
+        $year = $this->input->post('year', TRUE);
+        if (empty($year)) {
+            $year = date('Y');
+        }
+        $month_year = $year . '-' . date('m');
+
+        if (empty($user_id)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Employee is required.'));
+            exit();
+        }
+
+        $categories = $this->db->get('tbl_leave_category')->result();
+        $updated_cats = array();
+
+        $balances_input = $this->input->post('balances', TRUE);
+
+        foreach ($categories as $cat) {
+            $cat_id = $cat->leave_category_id;
+            $cat_code = strtoupper(trim($cat->leave_category));
+            
+            $val = null;
+            if (isset($balances_input[$cat_id])) {
+                $val = floatval($balances_input[$cat_id]);
+            } elseif (isset($balances_input[$cat_code])) {
+                $val = floatval($balances_input[$cat_code]);
+            } elseif ($this->input->post('balance_' . $cat_id, TRUE) !== null) {
+                $val = floatval($this->input->post('balance_' . $cat_id, TRUE));
+            } elseif ($this->input->post('balance_' . strtolower($cat_code), TRUE) !== null) {
+                $val = floatval($this->input->post('balance_' . strtolower($cat_code), TRUE));
+            }
+
+            if ($val !== null && $val >= 0) {
+                // Calculate any taken leaves for this user and category in current year
+                $where_taken = array(
+                    'user_id' => $user_id,
+                    'leave_category_id' => $cat_id,
+                    'YEAR(`leave_start_date`)' => $year,
+                    'application_status' => 2
+                );
+                $taken_list = $this->db->where($where_taken)->get('tbl_leave_application')->result();
+                $curr_taken = 0;
+                if (!empty($taken_list)) {
+                    $taken_res = calculate_taken_leave($taken_list);
+                    $curr_taken = floatval($taken_res['total_taken']) + floatval($taken_res['total_hourly']);
+                }
+
+                // Balance = Allocated - Taken, so Allocated (credits) = Desired Balance + Taken
+                $credits_to_save = $val + $curr_taken;
+
+                // Delete older credits for this user and category in the year to ensure clean opening balance
+                $this->db->where('user_id', $user_id)
+                    ->where('leave_category_id', $cat_id)
+                    ->like('month_year', $year . '-', 'after')
+                    ->delete('tbl_user_leave_credits');
+
+                $this->db->insert('tbl_user_leave_credits', array(
+                    'user_id'           => $user_id,
+                    'leave_category_id' => $cat_id,
+                    'leave_type'        => $cat_code,
+                    'month_year'        => $month_year,
+                    'credits'           => $credits_to_save,
+                    'added_by'          => $user_id_sess,
+                    'added_type'        => $balance_type,
+                    'remarks'           => $remarks
+                ));
+
+                $updated_cats[] = "$cat_code: $val";
+            }
+        }
+
+        $emp = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+        $emp_name = !empty($emp) ? $emp->fullname : "User #$user_id";
+
+        // Activity log
+        $this->application_model->_table_name = 'tbl_activities';
+        $this->application_model->_primary_key = 'activities_id';
+        $this->application_model->save(array(
+            'user'            => $user_id_sess,
+            'module'          => 'leave_management',
+            'module_field_id' => $user_id,
+            'activity'        => 'activity_set_opening_leave_balance',
+            'icon'            => 'fa-sliders',
+            'value1'          => $emp_name,
+            'value2'          => implode(', ', $updated_cats)
+        ));
+
+        // Get fresh balances
+        $fresh_balances = get_user_leave_balance_details($user_id, $year);
+
+        echo json_encode(array(
+            'status'   => 'success',
+            'message'  => "Leave balance set successfully for $emp_name! (" . implode(', ', $updated_cats) . ")",
+            'user_id'  => $user_id,
+            'balances' => $fresh_balances
+        ));
+        exit();
+    }
+
+    /**
+     * Save batch leave balances for multiple staff members at once
+     */
+    public function save_batch_leave_balances()
+    {
+        $this->ensure_leave_credits_table();
+
+        $user_id_sess = $this->session->userdata('user_id');
+        $user_type = $this->session->userdata('user_type');
+        if ($user_type != 1 && empty(admin()) && empty(admin_head())) {
+            echo json_encode(array('status' => 'error', 'message' => 'Permission denied.'));
+            exit();
+        }
+
+        $batch_data = $this->input->post('batch_balances', TRUE);
+        $remarks = $this->input->post('remarks', TRUE);
+        if (empty($remarks)) {
+            $remarks = 'Mid-Year Batch Leave Balance Setup';
+        }
+        $year = date('Y');
+        $month_year = $year . '-' . date('m');
+
+        if (empty($batch_data) || !is_array($batch_data)) {
+            echo json_encode(array('status' => 'error', 'message' => 'No balance data received.'));
+            exit();
+        }
+
+        $categories = $this->db->get('tbl_leave_category')->result();
+        $cat_code_map = array();
+        foreach ($categories as $cat) {
+            $cat_code_map[$cat->leave_category_id] = strtoupper(trim($cat->leave_category));
+        }
+
+        $updated_staff_count = 0;
+
+        foreach ($batch_data as $uid => $user_cats) {
+            $uid = intval($uid);
+            if ($uid <= 0 || !is_array($user_cats)) {
+                continue;
+            }
+
+            $user_had_update = false;
+
+            foreach ($user_cats as $cat_id => $val_str) {
+                if ($val_str === '' || $val_str === null) {
+                    continue; // Skip untouched fields
+                }
+                $cat_id = intval($cat_id);
+                $val = floatval($val_str);
+                if ($val < 0) $val = 0;
+
+                $cat_code = isset($cat_code_map[$cat_id]) ? $cat_code_map[$cat_id] : 'LEAVE';
+
+                // Calculate any taken leaves for this user and category in current year
+                $where_taken = array(
+                    'user_id' => $uid,
+                    'leave_category_id' => $cat_id,
+                    'YEAR(`leave_start_date`)' => $year,
+                    'application_status' => 2
+                );
+                $taken_list = $this->db->where($where_taken)->get('tbl_leave_application')->result();
+                $curr_taken = 0;
+                if (!empty($taken_list)) {
+                    $taken_res = calculate_taken_leave($taken_list);
+                    $curr_taken = floatval($taken_res['total_taken']) + floatval($taken_res['total_hourly']);
+                }
+
+                $credits_to_save = $val + $curr_taken;
+
+                // Delete older credits for this user and category in the year to ensure clean opening balance
+                $this->db->where('user_id', $uid)
+                    ->where('leave_category_id', $cat_id)
+                    ->like('month_year', $year . '-', 'after')
+                    ->delete('tbl_user_leave_credits');
+
+                $this->db->insert('tbl_user_leave_credits', array(
+                    'user_id'           => $uid,
+                    'leave_category_id' => $cat_id,
+                    'leave_type'        => $cat_code,
+                    'month_year'        => $month_year,
+                    'credits'           => $credits_to_save,
+                    'added_by'          => $user_id_sess,
+                    'added_type'        => 'opening_balance',
+                    'remarks'           => $remarks
+                ));
+
+                $user_had_update = true;
+            }
+
+            if ($user_had_update) {
+                $updated_staff_count++;
+            }
+        }
+
+        echo json_encode(array(
+            'status'  => 'success',
+            'message' => "Successfully updated leave balances for $updated_staff_count staff members!"
         ));
         exit();
     }

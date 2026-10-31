@@ -177,6 +177,27 @@ class Client extends CI_Controller
         ];
 
 
+        // 🔒 CHECK MOBILE CLIENT ACCESS PERMISSION
+        $client_access = 1;
+        $acc_check = $this->db->select('client_access')->where('user_id', $user_id)->get('tbl_account_details')->row();
+        if (isset($acc_check->client_access)) {
+            $client_access = (int)$acc_check->client_access;
+        } else {
+            $u_check = $this->db->select('client_access')->where('user_id', $user_id)->get('tbl_users')->row();
+            if (isset($u_check->client_access)) {
+                $client_access = (int)$u_check->client_access;
+            }
+        }
+        if ($client_access === 0 && (int)$user_type !== 1) {
+            echo json_encode([
+                'status'  => true,
+                'data'    => [],
+                'total'   => 0,
+                'message' => 'Attendance & Leave user - Client list disabled'
+            ]);
+            exit();
+        }
+
         $this->load->helper('permission_helper');
         $has_all_client_perm    = check_permission('all_client_list', $user_id);
         $has_region_client_perm = check_permission('region_wise_client', $user_id);
@@ -13237,43 +13258,158 @@ class Client extends CI_Controller
         $time = $this->input->get_post('time', true) ?: date('H:i:s');
         $lat = $this->input->get_post('latitude', true) ?: null;
         $long = $this->input->get_post('longitude', true) ?: null;
+        $location = $this->input->get_post('location', true) ?: ($this->input->get_post('address', true) ?: '');
+
+        // Strict Multi-Office Geofence calculation
+        $user_row = $this->db->where('user_id', $user_id)->get('tbl_users')->row();
+        $acc_row = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+        $user_office_id = null;
+        if (!empty($user_row) && !empty($user_row->office_location_id)) {
+            $user_office_id = (int)$user_row->office_location_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_location_id)) {
+            $user_office_id = (int)$acc_row->office_location_id;
+        } elseif (!empty($user_row) && !empty($user_row->office_id)) {
+            $user_office_id = (int)$user_row->office_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_id)) {
+            $user_office_id = (int)$acc_row->office_id;
+        }
+
+        $target_office = null;
+        if (!empty($user_office_id) && $this->db->table_exists('tbl_office_locations')) {
+            $target_office = $this->db->where('id', $user_office_id)->where('status', 1)->get('tbl_office_locations')->row();
+        }
+
+        // Strict Requirement: If no office is assigned to employee, block attendance punch
+        if (empty($target_office)) {
+            echo json_encode([
+                'status'              => false,
+                'has_assigned_office' => false,
+                'message'             => 'No office location is assigned to your profile. You cannot mark attendance. Please contact Admin/HR to assign your office.'
+            ]);
+            exit();
+        }
+
+        // Attendance Block: As long as Face ID is not approved by Admin, user cannot punch attendance
+        if ($type !== 'clock_out') {
+            $bio = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
+            if (empty($bio) || empty($bio->face_descriptor) || (int)$bio->is_approved === 2) {
+                echo json_encode([
+                    'status'          => false,
+                    'is_enrolled'     => false,
+                    'approval_status' => 2,
+                    'message'         => 'Face ID is not registered or has been reset by Admin. Please enroll your Face ID first.'
+                ]);
+                exit();
+            }
+            if ((int)$bio->is_approved === 0) {
+                echo json_encode([
+                    'status'          => false,
+                    'is_face_pending' => true,
+                    'approval_status' => 0,
+                    'message'         => 'Your Face ID is currently PENDING Admin approval. You cannot mark attendance until Admin approves your Face ID.'
+                ]);
+                exit();
+            }
+            if ((int)$bio->is_approved === 3) {
+                echo json_encode([
+                    'status'          => false,
+                    'is_face_rejected'=> true,
+                    'approval_status' => 3,
+                    'rejection_reason'=> $bio->rejection_reason,
+                    'message'         => 'Your Face ID was REJECTED by Admin' . (!empty($bio->rejection_reason) ? ' (' . $bio->rejection_reason . ')' : '') . '. Please re-register your Face ID.'
+                ]);
+                exit();
+            }
+        }
+
+        $distance = 9999999;
+        $matched_office_name = $target_office->location_name;
+        $is_inside_geofence = false;
+
+        if (!empty($lat) && !empty($long)) {
+            $earthRadius = 6371000;
+            $latTo = deg2rad(floatval($lat));
+            $lonTo = deg2rad(floatval($long));
+
+            $latFrom = deg2rad(floatval($target_office->latitude));
+            $lonFrom = deg2rad(floatval($target_office->longitude));
+            $latDelta = $latTo - $latFrom;
+            $lonDelta = $lonTo - $lonFrom;
+            $a = sin($latDelta / 2) * sin($latDelta / 2) +
+                cos($latFrom) * cos($latTo) *
+                sin($lonDelta / 2) * sin($lonDelta / 2);
+            $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+            $distance = $earthRadius * $c;
+
+            if ($distance <= floatval($target_office->allowed_radius ?: 250)) {
+                $is_inside_geofence = true;
+            }
+        } else {
+            $is_inside_geofence = false;
+        }
+
+        $allow_outside = (!empty($user_row) && !empty($user_row->allow_manual_punch));
+        if ($type !== 'clock_out' && !$is_inside_geofence && !$allow_outside) {
+            $dist_str = ($distance >= 1000) ? round($distance / 1000, 1) . ' km' : round($distance) . ' meters';
+            echo json_encode([
+                'status'  => false,
+                'message' => 'Punch Blocked: You are outside your assigned office (' . $matched_office_name . ') range (~' . $dist_str . '). Outside office punch is not permitted. Please mark your punch inside your assigned office premises.'
+            ]);
+            exit();
+        }
+
+        // Attendance status: 1 = Present (Both inside and outsider/on-site punches are recorded as Present)
+        $attendance_status = 1;
 
         $existing_att = $this->db->where('user_id', $user_id)->where('date_in', $date)->get('tbl_attendance')->row();
 
         if ($type === 'clock_out') {
             if (empty($existing_att)) {
-                echo json_encode(['status' => false, 'message' => 'No active Clock In found for today.']);
+                echo json_encode(['status' => false, 'message' => 'No active Clock In found for today to punch out from.']);
                 exit();
             }
 
-            // Find last clock entry that has no clockout_time
-            $open_clock = $this->db->where('attendance_id', $existing_att->attendance_id)->where('clockout_time IS NULL', null, false)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+            // Close ALL open clock records for this attendance to ensure 100% sync with CRM mark_attendance
+            $this->db->where('attendance_id', $existing_att->attendance_id)
+                     ->group_start()
+                         ->where('clockout_time IS NULL', null, false)
+                         ->or_where('clockout_time', '')
+                         ->or_where('clockout_time', '00:00:00')
+                         ->or_where('clocking_status', 1)
+                     ->group_end()
+                     ->update('tbl_clock', [
+                         'clockout_time'   => $time,
+                         'clocking_status' => 0,
+                         'comments'        => !empty($comments) ? $comments : (!$is_inside_geofence ? 'Outside Logout (~' . round($distance) . 'm)' : 'Office Logout'),
+                         'clockout_latitude'  => !empty($lat) ? $lat : null,
+                         'clockout_longitude' => !empty($long) ? $long : null,
+                         'clockout_location'  => !empty($location) ? $location : null
+                     ]);
 
-            if (!empty($open_clock)) {
-                $this->db->where('clock_id', $open_clock->clock_id)->update('tbl_clock', [
-                    'clockout_time' => $time,
-                    'comments'      => !empty($comments) ? $comments : $open_clock->comments
-                ]);
-            } else {
-                $this->db->insert('tbl_clock', [
-                    'attendance_id' => $existing_att->attendance_id,
-                    'clockin_time'  => $time,
-                    'clockout_time' => $time,
-                    'clocking_status' => 0,
-                    'ip_address'    => $this->input->ip_address(),
-                    'comments'      => $comments
-                ]);
-            }
-
+            // Ensure tbl_attendance is marked clocked out
             $this->db->where('attendance_id', $existing_att->attendance_id)->update('tbl_attendance', [
-                'clocking_status'   => 0,
-                'date_out'          => $date,
-                'attendance_status' => 1
+                'clocking_status' => 0,
+                'date_out'        => $date
+            ]);
+
+            // Log into tbl_attendance_face_logs
+            $this->db->insert('tbl_attendance_face_logs', [
+                'attendance_id'        => $existing_att->attendance_id,
+                'user_id'              => $user_id,
+                'punch_type'           => 'out',
+                'punch_time'           => date('Y-m-d H:i:s'),
+                'face_score'           => null,
+                'lat'                  => !empty($lat) ? $lat : null,
+                'lng'                  => !empty($long) ? $long : null,
+                'address'              => !empty($location) ? $location : 'Punch Out',
+                'photo_thumbnail'      => null,
+                'distance_from_office' => round($distance, 2),
+                'is_inside_geofence'   => $is_inside_geofence ? 1 : 0
             ]);
 
             echo json_encode([
                 'status'        => true,
-                'message'       => 'Clock Out recorded at ' . date('h:i A', strtotime($time)),
+                'message'       => 'Punch Out recorded at ' . date('h:i A', strtotime($time)),
                 'is_clocked_in' => false,
                 'clockout_time' => $time
             ]);
@@ -13281,24 +13417,108 @@ class Client extends CI_Controller
         }
 
         // Clock In / Present
-        $att_id = 0;
         if (!empty($existing_att)) {
+            $open_clock = $this->db->where('attendance_id', $existing_att->attendance_id)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+            $in_time = !empty($open_clock) ? date('h:i A', strtotime($open_clock->clockin_time)) : date('h:i A');
+
+            // If user is currently clocked in: MUST Clock Out first before clocking in again!
+            if ((int)$existing_att->clocking_status === 1) {
+                echo json_encode([
+                    'status'             => false,
+                    'already_clocked_in' => true,
+                    'is_pending'         => ((int)$existing_att->attendance_status === 2),
+                    'attendance_status'  => (int)$existing_att->attendance_status,
+                    'clockin_time'       => !empty($open_clock) ? $open_clock->clockin_time : '',
+                    'message'            => 'You are already Clocked In at ' . $in_time . '. To Clock In again, you must Clock Out first!'
+                ]);
+                exit();
+            }
+
+            // USER HAS CLOCKED OUT TODAY ($existing_att->clocking_status == 0):
+            // User CAN re-clock in on the same day!
             $att_id = $existing_att->attendance_id;
+
             $this->db->where('attendance_id', $att_id)->update('tbl_attendance', [
-                'attendance_status' => 1,
-                'clocking_status'   => 1,
-                'date_out'          => $date
+                'clocking_status' => 1
             ]);
-        } else {
-            $this->db->insert('tbl_attendance', [
-                'user_id'           => $user_id,
-                'date_in'           => $date,
-                'date_out'          => $date,
-                'attendance_status' => 1,
-                'clocking_status'   => 1
+
+            $clock_data = [
+                'attendance_id'   => $att_id,
+                'clockin_time'    => $time,
+                'clockout_time'   => null,
+                'clocking_status' => 1,
+                'ip_address'      => $this->input->ip_address(),
+                'comments'        => !empty($comments) ? $comments : 'Re-Clock In via Mobile App'
+            ];
+            if (!empty($lat)) $clock_data['latitude'] = $lat;
+            if (!empty($long)) $clock_data['longitude'] = $long;
+            if (!empty($location)) $clock_data['location'] = $location;
+
+            $this->db->insert('tbl_clock', $clock_data);
+            $clock_id = $this->db->insert_id();
+
+            // Also log into tbl_attendance_face_logs for unified tracking & Google Maps location
+            $this->db->query("CREATE TABLE IF NOT EXISTS `tbl_attendance_face_logs` (
+                `log_id` int NOT NULL AUTO_INCREMENT,
+                `attendance_id` int NULL,
+                `user_id` int NOT NULL,
+                `punch_type` enum('in','out') NOT NULL DEFAULT 'in',
+                `punch_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `face_score` decimal(5,2) NULL,
+                `lat` decimal(10, 8) NULL,
+                `lng` decimal(11, 8) NULL,
+                `address` text NULL,
+                `photo_thumbnail` longtext NULL,
+                `distance_from_office` decimal(8,2) NULL,
+                `is_inside_geofence` tinyint(1) NOT NULL DEFAULT 1,
+                PRIMARY KEY (`log_id`),
+                KEY `idx_att_user` (`user_id`, `punch_time`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            $this->db->insert('tbl_attendance_face_logs', [
+                'attendance_id'         => $att_id,
+                'user_id'               => $user_id,
+                'punch_type'            => 'in',
+                'punch_time'            => date('Y-m-d H:i:s'),
+                'face_score'            => null,
+                'lat'                   => !empty($lat) ? $lat : null,
+                'lng'                   => !empty($long) ? $long : null,
+                'address'               => !empty($location) ? $location : 'App Re-Clock In',
+                'photo_thumbnail'       => null,
+                'distance_from_office'  => round($distance, 2),
+                'is_inside_geofence'    => $is_inside_geofence ? 1 : 0
             ]);
-            $att_id = $this->db->insert_id();
+
+            $status_label = ($existing_att->attendance_status == 2) 
+                ? 'Re-Clock In marked! Submitted for CRM approval.'
+                : 'Re-Clock In successful at ' . date('h:i A', strtotime($time));
+
+            echo json_encode([
+                'status'             => true,
+                'message'            => $status_label,
+                'is_clocked_in'      => true,
+                'attendance_id'      => (int)$att_id,
+                'clock_id'           => (int)$clock_id,
+                'clockin_time'       => $time,
+                'date'               => $date,
+                'attendance_status'  => (int)$existing_att->attendance_status,
+                'is_inside_geofence' => (bool)$is_inside_geofence,
+                'distance_meters'    => round($distance),
+                'latitude'           => $lat,
+                'longitude'          => $long,
+                'location'           => $location
+            ]);
+            exit();
         }
+
+        $this->db->insert('tbl_attendance', [
+            'user_id'           => $user_id,
+            'date_in'           => $date,
+            'date_out'          => $date,
+            'attendance_status' => $attendance_status,
+            'clocking_status'   => 1
+        ]);
+        $att_id = $this->db->insert_id();
 
         $clock_data = [
             'attendance_id'   => $att_id,
@@ -13310,18 +13530,61 @@ class Client extends CI_Controller
         ];
         if (!empty($lat)) $clock_data['latitude'] = $lat;
         if (!empty($long)) $clock_data['longitude'] = $long;
+        if (!empty($location)) $clock_data['location'] = $location;
 
         $this->db->insert('tbl_clock', $clock_data);
         $clock_id = $this->db->insert_id();
 
+        // Also log into tbl_attendance_face_logs for unified tracking & Google Maps location
+        $this->db->query("CREATE TABLE IF NOT EXISTS `tbl_attendance_face_logs` (
+            `log_id` int NOT NULL AUTO_INCREMENT,
+            `attendance_id` int NULL,
+            `user_id` int NOT NULL,
+            `punch_type` enum('in','out') NOT NULL DEFAULT 'in',
+            `punch_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `face_score` decimal(5,2) NULL,
+            `lat` decimal(10, 8) NULL,
+            `lng` decimal(11, 8) NULL,
+            `address` text NULL,
+            `photo_thumbnail` longtext NULL,
+            `distance_from_office` decimal(8,2) NULL,
+            `is_inside_geofence` tinyint(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (`log_id`),
+            KEY `idx_att_user` (`user_id`, `punch_time`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $this->db->insert('tbl_attendance_face_logs', [
+            'attendance_id'         => $att_id,
+            'user_id'               => $user_id,
+            'punch_type'            => 'in',
+            'punch_time'            => date('Y-m-d H:i:s'),
+            'face_score'            => null,
+            'lat'                   => !empty($lat) ? $lat : null,
+            'lng'                   => !empty($long) ? $long : null,
+            'address'               => !empty($location) ? $location : 'App Clock In',
+            'photo_thumbnail'       => null,
+            'distance_from_office'  => round($distance, 2),
+            'is_inside_geofence'    => $is_inside_geofence ? 1 : 0
+        ]);
+
+        $status_label = ($attendance_status === 2) 
+            ? 'Attendance marked! You are outside office range (' . round($distance) . 'm) - submitted for CRM approval.'
+            : 'Clock In successful at ' . date('h:i A', strtotime($time));
+
         echo json_encode([
-            'status'         => true,
-            'message'        => 'Clock In successful at ' . date('h:i A', strtotime($time)),
-            'is_clocked_in'  => true,
-            'attendance_id'  => (int)$att_id,
-            'clock_id'       => (int)$clock_id,
-            'clockin_time'   => $time,
-            'date'           => $date
+            'status'             => true,
+            'message'            => $status_label,
+            'is_clocked_in'      => true,
+            'attendance_id'      => (int)$att_id,
+            'clock_id'           => (int)$clock_id,
+            'clockin_time'       => $time,
+            'date'               => $date,
+            'attendance_status'  => (int)$attendance_status,
+            'is_inside_geofence' => (bool)$is_inside_geofence,
+            'distance_meters'    => round($distance),
+            'latitude'           => $lat,
+            'longitude'          => $long,
+            'location'           => $location
         ]);
         exit();
     }
@@ -13653,9 +13916,31 @@ class Client extends CI_Controller
 
         $existing = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
 
+        $force_re_enroll = $this->input->post('force_re_enroll', true);
+
+        // One-time registration restriction:
+        // Only if Face ID is ALREADY APPROVED (is_approved == 1), lock it so user cannot change it without Admin reset.
+        // If it is pending approval (is_approved == 0) or rejected (3) or reset (2), user can re-enroll with a clear human face.
+        if (!empty($existing) && !empty($existing->face_descriptor) && (int)$existing->is_approved === 1) {
+            echo json_encode([
+                'status'          => false,
+                'is_locked'       => true,
+                'is_enrolled'     => true,
+                'is_approved'     => true,
+                'approval_status' => 1,
+                'message'         => 'Face ID is already approved by CRM Admin. Only Admin can reset your Face ID.'
+            ]);
+            exit();
+        }
+
         $bio_data = [
             'face_descriptor'   => is_array($face_descriptor) ? json_encode($face_descriptor) : $face_descriptor,
             'face_image_base64' => !empty($face_image) ? substr($face_image, 0, 150000) : null,
+            'is_approved'       => 0, // 0 = Pending Admin Approval
+            'approved_by'       => null,
+            'approved_at'       => null,
+            'rejection_reason'  => null,
+            'enrolled_at'       => date('Y-m-d H:i:s'),
             'updated_at'        => date('Y-m-d H:i:s')
         ];
         if (!empty($image_path)) {
@@ -13666,16 +13951,18 @@ class Client extends CI_Controller
             $this->db->where('user_id', $user_id)->update('tbl_user_biometrics', $bio_data);
         } else {
             $bio_data['user_id'] = $user_id;
-            $bio_data['enrolled_at'] = date('Y-m-d H:i:s');
             $this->db->insert('tbl_user_biometrics', $bio_data);
         }
 
         echo json_encode([
-            'status'        => true,
-            'message'       => 'Face ID registered successfully! You can now mark attendance with your face.',
-            'is_enrolled'   => true,
-            'enrolled_at'   => date('Y-m-d H:i:s'),
-            'image_url'     => !empty($image_path) ? base_url($image_path) : null
+            'status'          => true,
+            'message'         => 'Face ID registered successfully! Sent to CRM Admin for approval.',
+            'is_enrolled'     => true,
+            'is_approved'     => false,
+            'approval_status' => 0,
+            'can_enroll'      => false,
+            'enrolled_at'     => date('Y-m-d H:i:s'),
+            'image_url'       => !empty($image_path) ? base_url($image_path) : null
         ]);
         exit();
     }
@@ -13699,24 +13986,102 @@ class Client extends CI_Controller
             exit();
         }
 
-        // Check biometrics
+        // Check biometrics - Direct Live Face Photo attendance is active for all employees
         $bio = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
+        $is_enrolled = true;
+        $is_approved = true;
+        $approval_status = 1;
+        $can_enroll = false;
+        $status_text = 'Direct Face Photo Ready';
 
-        // Default Office Coordinates (HC Interior HQ Noida / Delhi NCR)
-        $office_config = [
-            'name'          => 'HC Interior Head Office',
-            'latitude'      => 28.535517,
-            'longitude'     => 77.391029,
-            'radius_meters' => 250 // Allowed geofence boundary in meters
-        ];
+        // Strict Multi-Office Geofence configuration for this user
+        // An employee can ONLY mark attendance at their assigned office location.
+        // If no office is assigned, attendance is blocked.
+        $user_row = $this->db->where('user_id', $user_id)->get('tbl_users')->row();
+        $acc_row = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+
+        $user_office_id = null;
+        if (!empty($user_row) && !empty($user_row->office_location_id)) {
+            $user_office_id = (int)$user_row->office_location_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_location_id)) {
+            $user_office_id = (int)$acc_row->office_location_id;
+        } elseif (!empty($user_row) && !empty($user_row->office_id)) {
+            $user_office_id = (int)$user_row->office_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_id)) {
+            $user_office_id = (int)$acc_row->office_id;
+        }
+
+        $target_office = null;
+        if (!empty($user_office_id) && $this->db->table_exists('tbl_office_locations')) {
+            $target_office = $this->db->where('id', $user_office_id)->where('status', 1)->get('tbl_office_locations')->row();
+        }
+
+        $has_assigned_office = !empty($target_office);
+        $office_config = null;
+        $all_offices_list = [];
+
+        if ($has_assigned_office) {
+            $office_config = [
+                'id'            => (int)$target_office->id,
+                'name'          => $target_office->location_name,
+                'latitude'      => floatval($target_office->latitude),
+                'longitude'     => floatval($target_office->longitude),
+                'radius_meters' => floatval($target_office->allowed_radius ?: 250),
+                'address'       => $target_office->address ?: '',
+                'is_default'    => ((int)$target_office->is_default === 1)
+            ];
+            $all_offices_list = [$office_config];
+        }
+
+        // Check today's clock status for bidirectional sync with CRM
+        $today = date('Y-m-d');
+        $today_att = $this->db->where('user_id', $user_id)->where('date_in', $today)->get('tbl_attendance')->row();
+        $open_clock = !empty($today_att) ? $this->db->where('attendance_id', $today_att->attendance_id)->order_by('clock_id', 'DESC')->get('tbl_clock')->row() : null;
+
+        // User is clocked in if attendance exists, clocking_status == 1, and the latest clock row is still open
+        $is_clocked_in = (!empty($today_att) && (int)$today_att->clocking_status === 1 && !empty($open_clock) && (empty($open_clock->clockout_time) || $open_clock->clockout_time === '00:00:00'));
+        if (!empty($open_clock) && !empty($open_clock->clockout_time) && $open_clock->clockout_time !== '00:00:00') {
+            $is_clocked_in = false;
+        }
+
+        $user_row = $this->db->where('user_id', $user_id)->get('tbl_users')->row();
+        $allow_manual_punch = (!empty($user_row) && !empty($user_row->allow_manual_punch)) ? 1 : 0;
+
+        $client_access = 1;
+        $acc_details = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+        if (isset($acc_details->client_access)) {
+            $client_access = (int)$acc_details->client_access;
+        } elseif (isset($user_row->client_access)) {
+            $client_access = (int)$user_row->client_access;
+        }
+        $can_view_clients = ($client_access === 1);
 
         echo json_encode([
-            'status'            => true,
-            'is_enrolled'       => !empty($bio) && !empty($bio->face_descriptor),
+            'status'              => true,
+            'is_enrolled'         => $is_enrolled,
+            'is_approved'         => $is_approved,
+            'approval_status'     => $approval_status,
+            'has_assigned_office' => (bool)$has_assigned_office,
+            'allow_manual_punch'  => (!empty($allow_manual_punch)),
+            'can_enroll'          => $can_enroll,
+            'client_access'       => $client_access,
+            'can_view_clients'   => $can_view_clients,
+            'status_text'       => $status_text,
+            'rejection_reason'  => (!empty($bio) && !empty($bio->rejection_reason)) ? $bio->rejection_reason : null,
             'enrolled_at'       => !empty($bio) ? $bio->enrolled_at : null,
             'face_descriptor'   => !empty($bio) ? $bio->face_descriptor : null,
+            'face_image_base64' => (!empty($bio) && !empty($bio->face_image_base64)) ? $bio->face_image_base64 : null,
             'image_url'         => (!empty($bio) && !empty($bio->face_image_path)) ? base_url($bio->face_image_path) : null,
-            'office_config'     => $office_config
+            'office_config'     => $office_config,
+            'all_offices'       => $all_offices_list,
+            'today_clock'       => [
+                'has_punched_today' => !empty($today_att),
+                'is_clocked_in'     => $is_clocked_in,
+                'clocking_status'   => $is_clocked_in ? 1 : 0,
+                'clockin_time'      => !empty($open_clock) && !empty($open_clock->clockin_time) ? date('h:i A', strtotime($open_clock->clockin_time)) : '',
+                'clockout_time'     => !empty($open_clock) && !empty($open_clock->clockout_time) && $open_clock->clockout_time !== '00:00:00' ? date('h:i A', strtotime($open_clock->clockout_time)) : '',
+                'attendance_status' => !empty($today_att) ? (int)$today_att->attendance_status : 0
+            ]
         ]);
         exit();
     }
@@ -13747,7 +14112,64 @@ class Client extends CI_Controller
         $address = $this->input->post('address', true) ?: '';
         $photo = $this->input->post('photo', false) ?: '';
         $distance_from_office = floatval($this->input->post('distance_meters', true) ?: 0);
-        $is_inside_geofence = ($this->input->post('is_inside_geofence', true) === '1' || $this->input->post('is_inside_geofence', true) === 'true' || $distance_from_office <= 250);
+
+        // Strict Multi-Office Geofence calculation for Face Attendance
+        $user_row = $this->db->where('user_id', $user_id)->get('tbl_users')->row();
+        $acc_row = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+        $user_office_id = null;
+        if (!empty($user_row) && !empty($user_row->office_location_id)) {
+            $user_office_id = (int)$user_row->office_location_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_location_id)) {
+            $user_office_id = (int)$acc_row->office_location_id;
+        } elseif (!empty($user_row) && !empty($user_row->office_id)) {
+            $user_office_id = (int)$user_row->office_id;
+        } elseif (!empty($acc_row) && !empty($acc_row->office_id)) {
+            $user_office_id = (int)$acc_row->office_id;
+        }
+
+        $target_office = null;
+        if (!empty($user_office_id) && $this->db->table_exists('tbl_office_locations')) {
+            $target_office = $this->db->where('id', $user_office_id)->where('status', 1)->get('tbl_office_locations')->row();
+        }
+
+        // Strict Requirement: If no office is assigned to employee, block attendance punch
+        if (empty($target_office)) {
+            echo json_encode([
+                'status'              => false,
+                'has_assigned_office' => false,
+                'message'             => 'No office location is assigned to your profile. You cannot mark attendance. Please contact Admin/HR to assign your office.'
+            ]);
+            exit();
+        }
+
+        $is_inside_geofence = false;
+        $distance = 9999999;
+        $matched_office_name = $target_office->location_name;
+
+        if (!empty($lat) && !empty($lng)) {
+            $earthRadius = 6371000;
+            $latTo = deg2rad(floatval($lat));
+            $lonTo = deg2rad(floatval($lng));
+
+            $latFrom = deg2rad(floatval($target_office->latitude));
+            $lonFrom = deg2rad(floatval($target_office->longitude));
+            $latDelta = $latTo - $latFrom;
+            $lonDelta = $lonTo - $lonFrom;
+            $a = sin($latDelta / 2) * sin($latDelta / 2) +
+                cos($latFrom) * cos($latTo) *
+                sin($lonDelta / 2) * sin($lonDelta / 2);
+            $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+            $distance = $earthRadius * $c;
+
+            if ($distance <= floatval($target_office->allowed_radius ?: 250)) {
+                $is_inside_geofence = true;
+            }
+            if ($distance_from_office <= 0) {
+                $distance_from_office = $distance;
+            }
+        } else {
+            $is_inside_geofence = ($this->input->post('is_inside_geofence', true) === '1' || $this->input->post('is_inside_geofence', true) === 'true');
+        }
 
         $today = date('Y-m-d');
         $now_time = date('H:i:s');
@@ -13766,35 +14188,147 @@ class Client extends CI_Controller
             $resolved_type = ($punch_type === 'out') ? 'out' : 'in';
         }
 
+        $allow_outside = (!empty($user_row) && !empty($user_row->allow_manual_punch));
+        // Strict Assigned Office Geofence Validation for Clock In - Outside Punch Allowed if authorized by Admin
+        if ($resolved_type === 'in' && !$is_inside_geofence && !$allow_outside) {
+            $dist_str = ($distance_from_office >= 1000) ? round($distance_from_office / 1000, 1) . ' km' : round($distance_from_office) . ' meters';
+            echo json_encode([
+                'status'  => false,
+                'message' => 'Punch Blocked: You are outside your assigned office (' . $matched_office_name . ') range (~' . $dist_str . '). Outside office punch is not permitted. Please mark your punch inside your assigned office premises.'
+            ]);
+            exit();
+        }
+
+        // Direct Face Photo Punch: Convert to lightweight WebP format to prevent server storage bloat
+        $photo_relative_path = null;
+        if (!empty($photo)) {
+            $raw_photo_data = false;
+            if (strpos($photo, 'base64,') !== false) {
+                $parts = explode('base64,', $photo);
+                $raw_photo_data = base64_decode(end($parts));
+            } else {
+                $raw_photo_data = base64_decode($photo);
+            }
+
+            if ($raw_photo_data !== false) {
+                $im = @imagecreatefromstring($raw_photo_data);
+                if ($im !== false) {
+                    $att_folder = FCPATH . 'uploads/attendance_photos/';
+                    if (!is_dir($att_folder)) {
+                        @mkdir($att_folder, 0777, true);
+                    }
+                    $webp_filename = 'att_' . $user_id . '_' . $resolved_type . '_' . date('Ymd_His') . '_' . mt_rand(100, 999) . '.webp';
+                    $full_webp_path = $att_folder . $webp_filename;
+
+                    // Convert and save to .webp with quality 75 (typically 10-15KB only!)
+                    if (function_exists('imagewebp') && @imagewebp($im, $full_webp_path, 75)) {
+                        $photo_relative_path = 'uploads/attendance_photos/' . $webp_filename;
+                    }
+                    @imagedestroy($im);
+                }
+            }
+        }
+
+        // Save/update into tbl_user_biometrics so Admin can review in CRM
+        $bio = $this->db->where('user_id', $user_id)->get('tbl_user_biometrics')->row();
+        if (!empty($photo)) {
+            $bio_data = [
+                'is_approved'       => 1,
+                'enrolled_at'       => date('Y-m-d H:i:s')
+            ];
+            if (!empty($photo_relative_path)) {
+                $bio_data['face_image_path'] = $photo_relative_path;
+            } else {
+                $bio_data['face_image_base64'] = $photo;
+            }
+
+            if (empty($bio)) {
+                $bio_data['user_id'] = $user_id;
+                $this->db->insert('tbl_user_biometrics', $bio_data);
+            } elseif (empty($bio->face_image_path) && empty($bio->face_image_base64)) {
+                $this->db->where('user_id', $user_id)->update('tbl_user_biometrics', $bio_data);
+            }
+        }
+
         $attendance_id = null;
+        $loc_desc = $is_inside_geofence ? 'Office Range' : 'Outsider/On-Site (~' . round($distance_from_office) . 'm)';
 
         if ($resolved_type === 'in') {
-            if (empty($existing_att)) {
+            // Attendance status: Inside office = 1 (Present), Outside office (Field) = 2 (Pending Admin Approval)
+            $attendance_status = $is_inside_geofence ? 1 : 2;
+            $is_pending = ($attendance_status === 2);
+
+            if (!empty($existing_att)) {
+                $open_clock = $this->db->where('attendance_id', $existing_att->attendance_id)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
+                $in_time = !empty($open_clock) ? date('h:i A', strtotime($open_clock->clockin_time)) : date('h:i A');
+
+                // If user is currently clocked in: MUST Clock Out first before clocking in again!
+                if ((int)$existing_att->clocking_status === 1) {
+                    echo json_encode([
+                        'status'              => false,
+                        'already_clocked_in'  => true,
+                        'is_pending'          => ((int)$existing_att->attendance_status === 2),
+                        'attendance_status'   => (int)$existing_att->attendance_status,
+                        'clockin_time'        => !empty($open_clock) ? $open_clock->clockin_time : '',
+                        'message'             => 'You are already Clocked In at ' . $in_time . '. To Clock In again, you must Clock Out first!'
+                    ]);
+                    exit();
+                }
+
+                // USER HAS CLOCKED OUT TODAY ($existing_att->clocking_status == 0):
+                // User CAN re-clock in on the same day!
+                $attendance_id = $existing_att->attendance_id;
+
+                $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
+                    'clocking_status'   => 1,
+                    'attendance_status' => $attendance_status
+                ]);
+
+                // Create new open clock entry in tbl_clock
+                $this->db->insert('tbl_clock', [
+                    'attendance_id'   => $attendance_id,
+                    'clockin_time'    => $now_time,
+                    'clockout_time'   => null,
+                    'clocking_status' => 1,
+                    'ip_address'      => $this->input->ip_address(),
+                    'latitude'        => $lat,
+                    'longitude'       => $lng,
+                    'location'        => !empty($address) ? $address : null,
+                    'comments'        => 'Re-Clock In Face ID (' . round($face_score, 1) . '%) | ' . $loc_desc . ($is_pending ? ' [Waiting for Approval]' : ' [Approved]') . ' | GPS: ' . $lat . ',' . $lng
+                ]);
+
+                $action_message = $is_pending
+                    ? 'Field Punch recorded at ' . date('h:i A') . ' (Waiting for Admin Approval)'
+                    : 'Clock In successful (Office Range) at ' . date('h:i A');
+            } else {
+                // First Clock In of the day: Inside office = 1 (Present), Outside (Field) = 2 (Pending Admin Approval)
                 $att_data = [
                     'user_id'           => $user_id,
                     'date_in'           => $today,
-                    'attendance_status' => 1, // Present
+                    'date_out'          => $today,
+                    'attendance_status' => $attendance_status,
                     'clocking_status'   => 1  // Clocked In
                 ];
                 $this->db->insert('tbl_attendance', $att_data);
                 $attendance_id = $this->db->insert_id();
-            } else {
-                $attendance_id = $existing_att->attendance_id;
-                $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
-                    'clocking_status' => 1
+
+                // Create open clock entry in tbl_clock with GPS coordinates and location
+                $this->db->insert('tbl_clock', [
+                    'attendance_id'   => $attendance_id,
+                    'clockin_time'    => $now_time,
+                    'clockout_time'   => null,
+                    'clocking_status' => 1,
+                    'ip_address'      => $this->input->ip_address(),
+                    'latitude'        => $lat,
+                    'longitude'       => $lng,
+                    'location'        => !empty($address) ? $address : null,
+                    'comments'        => 'Face ID verified (' . round($face_score, 1) . '%) | ' . $loc_desc . ($is_pending ? ' [Waiting for Approval]' : ' [Approved]') . ' | GPS: ' . $lat . ',' . $lng
                 ]);
+
+                $action_message = $is_pending
+                    ? 'Field Punch recorded at ' . date('h:i A') . ' (Waiting for Admin Approval)'
+                    : 'Clock In successful (Office Range) at ' . date('h:i A');
             }
-
-            // Create open clock entry in tbl_clock
-            $this->db->insert('tbl_clock', [
-                'attendance_id'   => $attendance_id,
-                'clockin_time'    => $now_time,
-                'clocking_status' => 1,
-                'ip_address'      => $this->input->ip_address(),
-                'comments'        => 'Face ID verified (' . round($face_score, 1) . '%) | GPS: ' . $lat . ',' . $lng
-            ]);
-
-            $action_message = 'Clocked In successfully with Face ID at ' . date('h:i A');
         } else {
             // Clock Out
             if (empty($existing_att)) {
@@ -13803,32 +14337,29 @@ class Client extends CI_Controller
             }
             $attendance_id = $existing_att->attendance_id;
 
-            // Close open clock record
-            $open_clock = $this->db->where('attendance_id', $attendance_id)->where('clockout_time IS NULL', null, false)->order_by('clock_id', 'DESC')->get('tbl_clock')->row();
-
-            if (!empty($open_clock)) {
-                $this->db->where('clock_id', $open_clock->clock_id)->update('tbl_clock', [
-                    'clockout_time'   => $now_time,
-                    'clocking_status' => 0,
-                    'comments'        => $open_clock->comments . ' | Out: Face ID (' . round($face_score, 1) . '%)'
-                ]);
-            } else {
-                $this->db->insert('tbl_clock', [
-                    'attendance_id'   => $attendance_id,
-                    'clockin_time'    => $now_time,
-                    'clockout_time'   => $now_time,
-                    'clocking_status' => 0,
-                    'ip_address'      => $this->input->ip_address(),
-                    'comments'        => 'Face ID Clock Out (' . round($face_score, 1) . '%)'
-                ]);
-            }
+            // Close ALL open clock records for this attendance to ensure 100% sync with CRM mark_attendance
+            $this->db->where('attendance_id', $attendance_id)
+                     ->group_start()
+                         ->where('clockout_time IS NULL', null, false)
+                         ->or_where('clockout_time', '')
+                         ->or_where('clockout_time', '00:00:00')
+                         ->or_where('clocking_status', 1)
+                     ->group_end()
+                     ->update('tbl_clock', [
+                         'clockout_time'   => $now_time,
+                         'clocking_status' => 0,
+                         'comments'        => (!$is_inside_geofence ? 'Outside Logout (~' . round($distance_from_office) . 'm)' : 'Office Logout'),
+                         'clockout_latitude'  => $lat,
+                         'clockout_longitude' => $lng,
+                         'clockout_location'  => $address
+                     ]);
 
             $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
                 'clocking_status' => 0,
                 'date_out'        => $today
             ]);
 
-            $action_message = 'Clocked Out successfully with Face ID at ' . date('h:i A');
+            $action_message = 'Clocked Out successfully at ' . date('h:i A');
         }
 
         // Log into tbl_attendance_face_logs
@@ -13849,7 +14380,8 @@ class Client extends CI_Controller
             KEY `idx_att_user` (`user_id`, `punch_time`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-        $this->db->insert('tbl_attendance_face_logs', [
+        // Save log with WebP photo path
+        $face_log_data = [
             'attendance_id'         => $attendance_id,
             'user_id'               => $user_id,
             'punch_type'            => $resolved_type,
@@ -13858,10 +14390,17 @@ class Client extends CI_Controller
             'lat'                   => $lat,
             'lng'                   => $lng,
             'address'               => $address,
-            'photo_thumbnail'       => !empty($photo) ? substr($photo, 0, 100000) : null,
+            'photo_thumbnail'       => !empty($photo_relative_path) ? $photo_relative_path : (!empty($photo) ? substr($photo, 0, 50000) : null),
             'distance_from_office'  => $distance_from_office,
             'is_inside_geofence'    => $is_inside_geofence ? 1 : 0
-        ]);
+        ];
+        if ($this->db->field_exists('photo_path', 'tbl_attendance_face_logs')) {
+            $face_log_data['photo_path'] = $photo_relative_path;
+        }
+        $this->db->insert('tbl_attendance_face_logs', $face_log_data);
+
+        $final_att = $this->db->where('attendance_id', $attendance_id)->get('tbl_attendance')->row();
+        $curr_att_status = !empty($final_att) ? (int)$final_att->attendance_status : ($is_inside_geofence ? 1 : 2);
 
         echo json_encode([
             'status'             => true,
@@ -13872,8 +14411,513 @@ class Client extends CI_Controller
             'face_score'         => $face_score,
             'distance_meters'    => round($distance_from_office),
             'is_inside_geofence' => $is_inside_geofence,
+            'attendance_status'  => $curr_att_status,
+            'is_pending'         => ($curr_att_status === 2),
             'attendance_id'      => $attendance_id
         ]);
         exit();
     }
+
+    /**
+     * API: /mobileapi/Client/get_employment_application
+     * Get employment application form details for current user
+     */
+    public function get_employment_application()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? (int)$user->user_id : (int)$this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = (int)$this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required']);
+            exit();
+        }
+
+        ensure_application_form_table();
+
+        // Fetch core account details
+        $acc = $this->db->where('user_id', $user_id)->get('tbl_account_details')->row();
+        $user_row = $this->db->where('user_id', $user_id)->get('tbl_users')->row();
+
+        // Fetch application form row
+        $form = $this->db->where('user_id', $user_id)->get('tbl_employee_application_form')->row();
+
+        $edu_list = [];
+        $ref_list = [];
+        $fam_list = [];
+        $exp_list = [];
+
+        if (!empty($form)) {
+            if (!empty($form->educational_qualifications)) {
+                $edu_list = json_decode($form->educational_qualifications, true) ?: [];
+            }
+            if (!empty($form->professional_references)) {
+                $ref_list = json_decode($form->professional_references, true) ?: [];
+            }
+            if (!empty($form->family_details)) {
+                $fam_list = json_decode($form->family_details, true) ?: [];
+            }
+            if (!empty($form->work_experience)) {
+                $exp_list = json_decode($form->work_experience, true) ?: [];
+            }
+        }
+
+        // Build merged data response: core user details prefill form
+        $data = [
+            'has_form'               => !empty($form),
+            'id'                     => !empty($form) ? (int)$form->id : null,
+            'user_id'                => $user_id,
+            'applicant_name'         => $acc->fullname ?? ($user_row->username ?? ''),
+            'employment_id'          => $acc->employment_id ?? '',
+            'joining_date'           => $acc->joining_date ?? '',
+            'father_name'            => $acc->father_name ?? '',
+            'father_mob_no'          => $form->father_mob_no ?? '',
+            'candidate_mobile'       => $acc->mobile ?? ($acc->phone ?? ''),
+            'email'                  => $user_row->email ?? '',
+            'date_of_birth'          => $acc->date_of_birth ?? '',
+            'gender'                 => $acc->gender ?? 'male',
+            'marital_status'         => $acc->maratial_status ?? 'Single',
+            'fresher_experience'     => $form->fresher_experience ?? 'Fresher',
+            'total_experience_years' => $form->total_experience_years ?? '',
+            'last_salary'            => $form->last_salary ?? '',
+            'present_salary'         => $form->present_salary ?? '',
+            'aadhaar_no'             => $form->aadhaar_no ?? '',
+            'pan_no'                 => $form->pan_no ?? '',
+            'date_of_marriage'       => $form->date_of_marriage ?? '',
+            'spouse_name'            => $form->spouse_name ?? '',
+            'blood_group'            => $form->blood_group ?? '',
+            'height_weight'          => $form->height_weight ?? '',
+            'present_address'        => !empty($form->present_address) ? $form->present_address : ($acc->present_address ?? ''),
+            'present_contact_no'     => $form->present_contact_no ?? ($acc->phone ?? ''),
+            'permanent_address'      => $form->permanent_address ?? '',
+            'permanent_contact_no'   => $form->permanent_contact_no ?? '',
+            'relative_friend_in_company' => $form->relative_friend_in_company ?? '',
+            'previously_applied'     => $form->previously_applied ?? '',
+            'photograph'             => !empty($form->photograph) ? base_url($form->photograph) : (!empty($acc->avatar) ? base_url($acc->avatar) : ''),
+            'aadhaar_card_doc'       => !empty($form->aadhaar_card_doc) ? base_url($form->aadhaar_card_doc) : '',
+            'pan_card_doc'           => !empty($form->pan_card_doc) ? base_url($form->pan_card_doc) : '',
+            'signature_doc'          => !empty($form->signature_doc) ? base_url($form->signature_doc) : '',
+            'educational_qualifications' => $edu_list,
+            'professional_references'    => $ref_list,
+            'family_details'             => $fam_list,
+            'work_experience'            => $exp_list,
+            'declaration_date'       => $form->declaration_date ?? date('Y-m-d'),
+            'declaration_place'      => $form->declaration_place ?? 'Noida',
+            'status'                 => $form->status ?? 'draft', // 'draft', 'submitted', 'approved', 'rejected'
+            'rejection_reason'       => $form->rejection_reason ?? '',
+            'approved_at'            => $form->approved_at ?? null,
+            'is_locked'              => (!empty($form) && $form->status === 'approved')
+        ];
+
+        echo json_encode([
+            'status' => true,
+            'data'   => $data
+        ]);
+        exit();
+    }
+
+    /**
+     * API: /mobileapi/Client/save_employment_application
+     * Save / submit employment application form from mobile app
+     */
+    public function save_employment_application()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? (int)$user->user_id : (int)$this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = (int)$this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required']);
+            exit();
+        }
+
+        ensure_application_form_table();
+
+        $raw_body = file_get_contents('php://input');
+        $json_input = json_decode($raw_body, true);
+        if (!is_array($json_input)) {
+            $json_input = [];
+        }
+
+        $form_action = $this->input->get_post('action', true) ?: ($json_input['action'] ?? 'submit');
+        $status = ($form_action === 'draft') ? 'draft' : 'submitted';
+
+        // Check if existing form was approved and user wants to edit it
+        $existing = $this->db->where('user_id', $user_id)->get('tbl_employee_application_form')->row();
+
+        // Handle File / Base64 uploads
+        $upload_dir = 'uploads/employee_kyc/';
+        if (!is_dir(FCPATH . $upload_dir)) {
+            @mkdir(FCPATH . $upload_dir, 0777, true);
+        }
+
+        $photograph_path = !empty($existing->photograph) ? $existing->photograph : '';
+        $aadhaar_doc_path = !empty($existing->aadhaar_card_doc) ? $existing->aadhaar_card_doc : '';
+        $pan_doc_path = !empty($existing->pan_card_doc) ? $existing->pan_card_doc : '';
+        $signature_path = !empty($existing->signature_doc) ? $existing->signature_doc : '';
+
+        // Helper for file / base64 save
+        $save_doc = function($field_name, $json_key) use ($upload_dir, $user_id, $json_input) {
+            if (!empty($_FILES[$field_name]['name'])) {
+                $ext = pathinfo($_FILES[$field_name]['name'], PATHINFO_EXTENSION);
+                $file_name = 'kyc_' . $field_name . '_' . $user_id . '_' . time() . '.' . $ext;
+                $target = FCPATH . $upload_dir . $file_name;
+                if (move_uploaded_file($_FILES[$field_name]['tmp_name'], $target)) {
+                    return $upload_dir . $file_name;
+                }
+            } elseif (!empty($json_input[$json_key]) && strpos($json_input[$json_key], 'data:') === 0) {
+                $b64 = $json_input[$json_key];
+                $parts = explode(',', $b64, 2);
+                if (count($parts) === 2) {
+                    $decoded = base64_decode($parts[1]);
+                    $ext = 'jpg';
+                    if (strpos($parts[0], 'image/png') !== false) $ext = 'png';
+                    elseif (strpos($parts[0], 'application/pdf') !== false) $ext = 'pdf';
+                    $file_name = 'kyc_' . $field_name . '_' . $user_id . '_' . time() . '.' . $ext;
+                    if (file_put_contents(FCPATH . $upload_dir . $file_name, $decoded)) {
+                        return $upload_dir . $file_name;
+                    }
+                }
+            }
+            return null;
+        };
+
+        $new_photo = $save_doc('photograph', 'photograph');
+        if ($new_photo) $photograph_path = $new_photo;
+
+        $new_aadhaar = $save_doc('aadhaar_card_doc', 'aadhaar_card_doc');
+        if ($new_aadhaar) $aadhaar_doc_path = $new_aadhaar;
+
+        $new_pan = $save_doc('pan_card_doc', 'pan_card_doc');
+        if ($new_pan) $pan_doc_path = $new_pan;
+
+        $new_sig = $save_doc('signature_doc', 'signature_doc');
+        if ($new_sig) $signature_path = $new_sig;
+
+        // Structured JSON data
+        $get_val = function($key, $default = '') use ($json_input) {
+            $val = $this->input->get_post($key, true);
+            if ($val !== null && $val !== '') return $val;
+            return $json_input[$key] ?? $default;
+        };
+
+        $encode_json = function($val) {
+            if (is_array($val)) return json_encode($val);
+            if (is_string($val) && (strpos($val, '[') === 0 || strpos($val, '{') === 0)) return $val;
+            return json_encode([]);
+        };
+
+        $edu_raw = $this->input->post('educational_qualifications', false) ?? ($json_input['educational_qualifications'] ?? []);
+        $ref_raw = $this->input->post('professional_references', false) ?? ($json_input['professional_references'] ?? []);
+        $fam_raw = $this->input->post('family_details', false) ?? ($json_input['family_details'] ?? []);
+        $exp_raw = $this->input->post('work_experience', false) ?? ($json_input['work_experience'] ?? []);
+
+        $save_data = [
+            'user_id'                   => $user_id,
+            'father_mob_no'             => $get_val('father_mob_no'),
+            'fresher_experience'        => $get_val('fresher_experience', 'Fresher'),
+            'total_experience_years'    => $get_val('total_experience_years'),
+            'last_salary'               => $get_val('last_salary'),
+            'present_salary'            => $get_val('present_salary'),
+            'aadhaar_no'                => $get_val('aadhaar_no'),
+            'pan_no'                    => $get_val('pan_no'),
+            'date_of_marriage'          => !empty($get_val('date_of_marriage')) ? $get_val('date_of_marriage') : null,
+            'spouse_name'               => $get_val('spouse_name'),
+            'blood_group'               => $get_val('blood_group'),
+            'height_weight'             => $get_val('height_weight'),
+            'present_address'           => $get_val('present_address'),
+            'present_contact_no'        => $get_val('present_contact_no'),
+            'permanent_address'         => $get_val('permanent_address'),
+            'permanent_contact_no'      => $get_val('permanent_contact_no'),
+            'relative_friend_in_company'=> $get_val('relative_friend_in_company'),
+            'previously_applied'        => $get_val('previously_applied'),
+            'photograph'                => $photograph_path,
+            'aadhaar_card_doc'          => $aadhaar_doc_path,
+            'pan_card_doc'              => $pan_doc_path,
+            'signature_doc'             => $signature_path,
+            'educational_qualifications'=> $encode_json($edu_raw),
+            'professional_references'   => $encode_json($ref_raw),
+            'family_details'            => $encode_json($fam_raw),
+            'work_experience'           => $encode_json($exp_raw),
+            'declaration_date'          => !empty($get_val('declaration_date')) ? $get_val('declaration_date') : date('Y-m-d'),
+            'declaration_place'         => $get_val('declaration_place', 'Noida'),
+            'status'                    => $status,
+            'updated_at'                => date('Y-m-d H:i:s')
+        ];
+
+        if (empty($existing)) {
+            $save_data['created_at'] = date('Y-m-d H:i:s');
+            $this->db->insert('tbl_employee_application_form', $save_data);
+        } else {
+            $this->db->where('user_id', $user_id)->update('tbl_employee_application_form', $save_data);
+        }
+
+        // Sync core personal profile to tbl_account_details
+        $acc_updates = [];
+        $father = $get_val('father_name');
+        if (!empty($father)) $acc_updates['father_name'] = $father;
+        $dob = $get_val('date_of_birth');
+        if (!empty($dob)) $acc_updates['date_of_birth'] = $dob;
+        $gender = $get_val('gender');
+        if (!empty($gender)) $acc_updates['gender'] = $gender;
+        $marital = $get_val('marital_status');
+        if (!empty($marital)) $acc_updates['maratial_status'] = $marital;
+        $pres_addr = $get_val('present_address');
+        if (!empty($pres_addr)) $acc_updates['present_address'] = $pres_addr;
+        $mobile = $get_val('candidate_mobile');
+        if (!empty($mobile)) $acc_updates['mobile'] = $mobile;
+        if (!empty($photograph_path)) $acc_updates['avatar'] = $photograph_path;
+
+        if (!empty($acc_updates)) {
+            $this->db->where('user_id', $user_id)->update('tbl_account_details', $acc_updates);
+        }
+
+        $msg = ($status === 'submitted')
+            ? 'Application form submitted successfully! Pending HR verification & approval.'
+            : 'Application form saved as draft successfully.';
+
+        echo json_encode([
+            'status'      => true,
+            'message'     => $msg,
+            'form_status' => $status
+        ]);
+        exit();
+    }
+
+    /**
+     * API: /mobileapi/Client/get_my_salary_slips
+     * Fetch list of generated salary slips and breakdown for logged-in employee
+     */
+    public function get_my_salary_slips()
+    {
+        header('Content-Type: application/json');
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? (int)$user->user_id : (int)$this->input->get_post('user_id', true);
+
+        if (empty($user_id)) {
+            $user_id = (int)$this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            echo json_encode(['status' => false, 'message' => 'User authentication required', 'data' => []]);
+            exit();
+        }
+
+        $payments = $this->db->select('tbl_salary_payment.*, tbl_salary_payslip.payslip_number, tbl_salary_payslip.payslip_id')
+            ->from('tbl_salary_payment')
+            ->join('tbl_salary_payslip', 'tbl_salary_payslip.salary_payment_id = tbl_salary_payment.salary_payment_id', 'left')
+            ->where('tbl_salary_payment.user_id', $user_id)
+            ->order_by('tbl_salary_payment.payment_month', 'DESC')
+            ->order_by('tbl_salary_payment.salary_payment_id', 'DESC')
+            ->get()->result();
+
+        $token = $this->input->get_post('token', true) ?: ($this->input->get_post('api_token', true) ?: '');
+        $data = [];
+
+        if (!empty($payments)) {
+            foreach ($payments as $p) {
+                $pid = (int)$p->salary_payment_id;
+
+                $details = $this->db->where('salary_payment_id', $pid)->get('tbl_salary_payment_details')->result();
+                $allowances = $this->db->where('salary_payment_id', $pid)->get('tbl_salary_payment_allowance')->result();
+                $deductions = $this->db->where('salary_payment_id', $pid)->get('tbl_salary_payment_deduction')->result();
+
+                $basic_salary = 0.0;
+                $salary_grade = '';
+                $overtime_hour = '0:0';
+                $overtime_amount = 0.0;
+                $details_list = [];
+
+                if (!empty($details)) {
+                    foreach ($details as $d) {
+                        $label = $d->salary_payment_details_label;
+                        $val = $d->salary_payment_details_value;
+                        $details_list[] = ['label' => $label, 'value' => $val];
+
+                        if (stripos($label, 'basic') !== false) {
+                            $basic_salary = floatval(str_replace(',', '', $val));
+                        } elseif (stripos($label, 'grade') !== false) {
+                            $salary_grade = $val;
+                        } elseif (stripos($label, 'overtime_hour') !== false || stripos($label, 'overtime hour') !== false) {
+                            $overtime_hour = $val;
+                        } elseif (stripos($label, 'overtime_amount') !== false || stripos($label, 'overtime amount') !== false) {
+                            $overtime_amount = floatval(str_replace(',', '', $val));
+                        }
+                    }
+                }
+
+                $allowance_list = [];
+                $total_allowance = 0.0;
+                if (!empty($allowances)) {
+                    foreach ($allowances as $al) {
+                        $al_val = floatval(str_replace(',', '', $al->salary_payment_allowance_value));
+                        $total_allowance += $al_val;
+                        $allowance_list[] = [
+                            'label'     => $al->salary_payment_allowance_label,
+                            'value'     => $al_val,
+                            'formatted' => number_format($al_val, 2)
+                        ];
+                    }
+                }
+
+                $deduction_list = [];
+                $total_deduction = 0.0;
+                if (!empty($deductions)) {
+                    foreach ($deductions as $de) {
+                        $de_val = floatval(str_replace(',', '', $de->salary_payment_deduction_value));
+                        $total_deduction += $de_val;
+                        $deduction_list[] = [
+                            'label'     => $de->salary_payment_deduction_label,
+                            'value'     => $de_val,
+                            'formatted' => number_format($de_val, 2)
+                        ];
+                    }
+                }
+
+                $fine_deduction = floatval($p->fine_deduction ?? 0);
+                if ($fine_deduction > 0) {
+                    $total_deduction += $fine_deduction;
+                    $deduction_list[] = [
+                        'label'     => 'Fine Deduction',
+                        'value'     => $fine_deduction,
+                        'formatted' => number_format($fine_deduction, 2)
+                    ];
+                }
+
+                $gross_salary = $basic_salary + $total_allowance + $overtime_amount;
+                $net_payable = max(0, $gross_salary - $total_deduction);
+
+                $m_timestamp = strtotime($p->payment_month . '-01');
+                $month_name = date('F Y', $m_timestamp);
+
+                $token_param = !empty($token) ? ('&token=' . urlencode($token)) : '';
+
+                $data[] = [
+                    'salary_payment_id' => $pid,
+                    'user_id'           => (int)$p->user_id,
+                    'payment_month'     => $p->payment_month,
+                    'month_name'        => $month_name,
+                    'payslip_number'    => !empty($p->payslip_number) ? $p->payslip_number : (date('Ym') . $pid),
+                    'payment_status'    => !empty($p->payment_status) ? $p->payment_status : 'paid',
+                    'payment_type'      => !empty($p->payment_type) ? $p->payment_type : 'Bank',
+                    'comments'          => $p->comments ?: '',
+                    'paid_date'         => !empty($p->paid_date) ? date('d M Y', strtotime($p->paid_date)) : '',
+                    'paid_date_raw'     => $p->paid_date,
+                    'basic_salary'      => $basic_salary,
+                    'salary_grade'      => $salary_grade,
+                    'overtime_hour'     => $overtime_hour,
+                    'overtime_amount'   => $overtime_amount,
+                    'gross_salary'      => round($gross_salary, 2),
+                    'total_allowance'   => round($total_allowance, 2),
+                    'total_deduction'   => round($total_deduction, 2),
+                    'net_payable'       => round($net_payable, 2),
+                    'formatted_net'     => number_format(round($net_payable, 2), 2),
+                    'allowances'        => $allowance_list,
+                    'deductions'        => $deduction_list,
+                    'details'           => $details_list,
+                    'pdf_url'           => base_url('mobileapi/Client/download_salary_slip_pdf?salary_payment_id=' . $pid . $token_param),
+                    'high_creation_pdf_url' => base_url('mobileapi/Client/download_salary_slip_pdf?month=' . $p->payment_month . '&user_id=' . $user_id . $token_param),
+                    'view_url'          => base_url('mobileapi/Client/view_salary_slip_html?month=' . $p->payment_month . '&user_id=' . $user_id . $token_param),
+                ];
+            }
+        }
+
+        echo json_encode([
+            'status' => true,
+            'count'  => count($data),
+            'data'   => $data
+        ]);
+        exit();
+    }
+
+    /**
+     * API: /mobileapi/Client/download_salary_slip_pdf
+     * Stream / download High Creation formatted Salary Slip PDF for mobile app
+     */
+    public function download_salary_slip_pdf()
+    {
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? (int)$user->user_id : (int)$this->input->get_post('user_id', true);
+        if (empty($user_id)) {
+            $user_id = (int)$this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            show_error('Unauthorized: User authentication required', 401);
+            return;
+        }
+
+        $payment_month = $this->input->get_post('month', true);
+        $payment_id = (int)$this->input->get_post('salary_payment_id', true);
+
+        if (empty($payment_month) && !empty($payment_id)) {
+            $pay = $this->db->where('salary_payment_id', $payment_id)->get('tbl_salary_payment')->row();
+            if (!empty($pay)) {
+                $payment_month = $pay->payment_month;
+            }
+        }
+
+        if (empty($payment_month)) {
+            $payment_month = date('Y-m');
+        }
+
+        $this->load->model('payroll_model');
+        $slip_data = $this->payroll_model->get_high_creation_salary_data($user_id, $payment_month);
+        $viewfile = $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data, TRUE);
+
+        $this->load->helper('dompdf');
+        $clean_name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $slip_data['emp_name']);
+        $filename = "Salary_Slip_{$clean_name}_{$slip_data['emp_code']}_{$slip_data['month_name']}_{$slip_data['year']}";
+        pdf_create($viewfile, $filename, TRUE, 'landscape');
+    }
+
+    /**
+     * API: /mobileapi/Client/view_salary_slip_html
+     * View High Creation Salary Slip in HTML for in-app preview
+     */
+    public function view_salary_slip_html()
+    {
+        $this->load->helper('api_helper');
+        $user = validate_api_token();
+        $user_id = (!empty($user) && !empty($user->user_id)) ? (int)$user->user_id : (int)$this->input->get_post('user_id', true);
+        if (empty($user_id)) {
+            $user_id = (int)$this->session->userdata('user_id');
+        }
+
+        if (empty($user_id)) {
+            show_error('Unauthorized: User authentication required', 401);
+            return;
+        }
+
+        $payment_month = $this->input->get_post('month', true);
+        $payment_id = (int)$this->input->get_post('salary_payment_id', true);
+
+        if (empty($payment_month) && !empty($payment_id)) {
+            $pay = $this->db->where('salary_payment_id', $payment_id)->get('tbl_salary_payment')->row();
+            if (!empty($pay)) {
+                $payment_month = $pay->payment_month;
+            }
+        }
+
+        if (empty($payment_month)) {
+            $payment_month = date('Y-m');
+        }
+
+        $this->load->model('payroll_model');
+        $slip_data = $this->payroll_model->get_high_creation_salary_data($user_id, $payment_month);
+        $this->load->view('admin/payroll/high_creation_salary_slip_pdf', $slip_data);
+    }
+
 }

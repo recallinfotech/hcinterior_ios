@@ -898,10 +898,11 @@ class User extends Admin_Controller
                     $this->user_model->save($profile_data);
                 }
 
-                if (empty($profile_data['app_access']) || strtolower(trim($profile_data['app_access'])) === 'none') {
-                    $this->db->where('user_id', $id);
-                    $this->db->update('tbl_users', array('api_token' => NULL));
-                }
+                // App access check bypassed - do not revoke token for active users
+                // if (empty($profile_data['app_access']) || strtolower(trim($profile_data['app_access'])) === 'none') {
+                //     $this->db->where('user_id', $id);
+                //     $this->db->update('tbl_users', array('api_token' => NULL));
+                // }
                 if (!empty($profile_data['designations_id'])) {
                     $desig = $this->db->where('designations_id', $profile_data['designations_id'])->get('tbl_designations')->row();
                     $department_head_id = $this->input->post('department_head_id', true);

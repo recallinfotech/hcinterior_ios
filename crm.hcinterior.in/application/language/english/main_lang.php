@@ -13,6 +13,8 @@ $lang['all_payments'] = 'All Payments';
 $lang['add_payment'] = 'Add Payment';
 $lang['all_users'] = 'All Users';
 $lang['user_details'] = 'User Details';
+$lang['employment_application'] = 'Employment Application';
+$lang['employment_applications'] = 'Employment Applications';
 $lang['online'] = 'Online';
 $lang['start'] = 'Start';
 $lang['amount'] = 'Amount';
@@ -661,6 +663,6 @@ $lang['access_denied'] = 'Access denied';
 $lang['message'] = 'Message';
 $lang['purchase_item_category'] = 'Purchase Item Category';
 $lang['purchase_item_brand'] = 'Purchase Item Brand';
-
-
-
+$lang['face_id_management'] = 'Face ID Management';
+$lang['face_id_requests'] = 'Face ID Management';
+$lang['office_locations'] = 'Office Locations';

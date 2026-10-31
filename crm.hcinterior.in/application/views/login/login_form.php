@@ -36,13 +36,13 @@
         $mark_attendance = 'mark_attendance';
     }
     ?>
-    <button type="submit" class="btn btn-primary <?= $class ?> btn-flat"><?= lang('sign_in') ?> <i
+    <button type="submit" class="btn btn-primary btn-block btn-flat"><?= lang('sign_in') ?> <i
                 class="fa fa-arrow-right"></i></button>
-    <?php if (empty($class)) { ?>
+    <?php /* if (empty($class)) { ?>
         <button type="submit" name="mark_attendance" id="<?= $mark_attendance ?>" value="mark_attendance"
                 class="btn btn-purple btn-flat pull-right">
             <i class="fa fa-clock-o"></i> <?= lang('mark_attendance') ?> </button>
-    <?php } ?>
+    <?php } */ ?>
 </form>
 <?php if (config_item('allow_client_registration') == 'TRUE') { ?>
     <p class="pt-lg text-center"><?= lang('do_not_have_an_account') ?></p><a href="<?= base_url() ?>login/register"

@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>HC Operation</string>
+	<string>HC Interior</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -70,5 +70,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>HC Interior requires camera access for Face ID attendance verification.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>HC Interior requires your location to verify office geofence attendance.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>HC Interior requires your location to verify office geofence attendance.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>HC Interior requires access to your photo library to select and upload documents and photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>HC Interior requires permission to save photos and reports to your library.</string>
 </dict>
 </plist>

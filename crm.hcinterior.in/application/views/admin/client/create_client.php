@@ -561,6 +561,47 @@ $deleted = can_action('4', 'deleted');
                                         </div>
                                     </div>
 
+                                    <!-- GST Option -->
+                                    <div class="form-group" style="border-top: 1px dashed #e2e8f0; padding-top: 15px; margin-top: 10px;">
+                                        <label class="col-lg-3 control-label" style="font-weight: 700; color: #1e293b;">GST</label>
+                                        <div class="col-lg-9" style="padding-top: 6px;">
+                                            <label class="radio-inline" style="font-weight: 600; cursor: pointer; margin-right: 25px; font-size: 13px;">
+                                                <input type="radio" name="is_gst" value="No" class="gst_toggle_radio" <?= (empty($client_info->is_gst) || $client_info->is_gst != 'Yes') ? 'checked' : '' ?> style="margin-top: 2px;"> No
+                                            </label>
+                                            <label class="radio-inline" style="font-weight: 600; cursor: pointer; font-size: 13px;">
+                                                <input type="radio" name="is_gst" value="Yes" class="gst_toggle_radio" <?= (!empty($client_info->is_gst) && $client_info->is_gst == 'Yes') ? 'checked' : '' ?> style="margin-top: 2px;"> Yes
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- GST Details Container (Visible only when GST = Yes) -->
+                                    <div id="gst_details_wrapper" style="<?= (!empty($client_info->is_gst) && $client_info->is_gst == 'Yes') ? 'display: block;' : 'display: none;' ?> background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px 12px 6px 12px; margin-bottom: 18px; margin-left: 15px; margin-right: 15px;">
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label" style="font-weight: 600;">GSTIN Number <span class="text-danger">*</span></label>
+                                            <div class="col-lg-9">
+                                                <input type="text" class="form-control" name="gst_number" id="gst_number_input" value="<?= !empty($client_info->gst_number) ? html_escape($client_info->gst_number) : '' ?>" placeholder="Enter GSTIN Number (e.g. 07AAAAA0000A1Z5)" maxlength="20" style="text-transform: uppercase;">
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group" style="margin-bottom: 10px;">
+                                            <label class="col-lg-3 control-label" style="font-weight: 600;">Upload GST PDF <span class="text-danger">*</span></label>
+                                            <div class="col-lg-9">
+                                                <?php if (!empty($client_info->gst_file)): ?>
+                                                    <?php $gst_f = json_decode($client_info->gst_file); ?>
+                                                    <?php if (!empty($gst_f->path)): ?>
+                                                        <div style="margin-bottom: 6px;">
+                                                            <a href="<?= base_url($gst_f->path) ?>" target="_blank" class="btn btn-xs btn-info">
+                                                                <i class="fa fa-file-pdf-o"></i> View Current GST Document
+                                                            </a>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                <?php endif; ?>
+                                                <input type="file" class="form-control" name="gst_file" id="gst_file_input" accept=".pdf,.jpg,.jpeg,.png">
+                                                <small class="text-muted" style="display: block; margin-top: 4px; font-size: 11px;"><i class="fa fa-info-circle"></i> Supported: PDF, JPG, PNG</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="wizard-buttons text-right">
                                         <button type="button" class="btn btn-default prev-step">Previous</button>
                                         <button type="submit" class="btn btn-success">Submit</button>
@@ -620,6 +661,18 @@ $(document).ready(function() {
 
         if (prev.length) {
             prev.find('a').trigger('click');
+        }
+    });
+
+    // GST Yes/No Radio Toggle
+    $('input[name="is_gst"]').on('change', function () {
+        if ($(this).val() === 'Yes') {
+            $('#gst_details_wrapper').slideDown(200);
+            $('#gst_number_input').focus();
+        } else {
+            $('#gst_details_wrapper').slideUp(200);
+            $('#gst_number_input').val('');
+            $('#gst_file_input').val('');
         }
     });
 

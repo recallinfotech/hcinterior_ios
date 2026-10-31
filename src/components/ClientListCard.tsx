@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClientProject } from '../types';
-import { FileText, ChevronRight, CheckCircle2, Clock, Send, Users, CalendarCheck, ShieldAlert, Package } from 'lucide-react';
+import { ChevronRight, Calendar, Users, FileText } from 'lucide-react';
 
 interface ClientListCardProps {
   client: ClientProject;
@@ -23,115 +23,82 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
 }) => {
   if (!client) return null;
 
-  const ktStatus = client.ktRequest?.status || 'Accepted';
-  const ktDate = client.ktRequest?.date || '24 July 2026';
-  const valDate = client.validationDate || '25 July 2026';
-  const designerName = client.assignedTeam?.designer || '';
-  const pmName = client.assignedTeam?.projectManager || '';
+  const phoneNum = client.mobile || '9874563210';
+  const displayDate = client.date ? client.date.split(' ')[0] : 'Today';
+  const initialLetter = client.name ? client.name.charAt(0).toUpperCase() : 'C';
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 shadow-xs hover:shadow-md hover:border-amber-400/50 transition-all p-3.5 mb-3 text-zinc-800 relative overflow-hidden group">
-      {/* Top Header Row */}
-      <div className="flex items-start justify-between pb-2 mb-2 border-b border-zinc-100">
-        <div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => onSelectClient(client)}
-              className="text-xs font-bold text-zinc-900 hover:text-amber-600 transition-colors flex items-center space-x-1 cursor-pointer"
-            >
-              <span className="bg-zinc-900 text-amber-400 px-2 py-0.5 rounded font-mono text-[11px] font-bold">{client.id}</span>
-            </button>
-            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-400/15 text-amber-700 border border-amber-400/30 uppercase">
-              {client.phase}
-            </span>
-          </div>
-          <h3
-            onClick={() => onSelectClient(client)}
-            className="text-sm font-bold text-zinc-900 mt-1 cursor-pointer hover:text-amber-600 transition-colors"
-          >
+    <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-md hover:border-amber-400/40 transition-all p-4 mb-3.5 text-slate-800 relative overflow-hidden group">
+      {/* Top Header Row: Squircle Avatar + Title/Phone + Status Pill */}
+      <div className="flex items-start justify-between gap-3">
+        {/* Left Squircle Avatar */}
+        <div
+          onClick={() => onSelectClient(client)}
+          className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-amber-500 text-slate-950 font-black text-xl flex items-center justify-center shrink-0 shadow-sm shadow-orange-500/25 cursor-pointer"
+        >
+          {initialLetter}
+        </div>
+
+        {/* Middle Info */}
+        <div className="flex-1 min-w-0" onClick={() => onSelectClient(client)}>
+          <h3 className="text-sm font-extrabold text-slate-900 truncate hover:text-orange-500 transition-colors cursor-pointer tracking-tight">
             {client.name}
           </h3>
-          <p className="text-[10px] text-zinc-400 font-mono mt-0.5">{client.date}</p>
-        </div>
-
-        {/* KT Request Badge */}
-        <div className="text-right">
-          {ktStatus === 'Accepted' && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-md text-[10px] font-bold inline-flex items-center space-x-1 shadow-2xs">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              <span>KT: Accepted</span>
-            </div>
-          )}
-          {ktStatus === 'Pending' && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-2.5 py-1 rounded-md text-[10px] font-bold inline-flex items-center space-x-1 shadow-2xs">
-              <Clock className="w-3 h-3 text-amber-600" />
-              <span>KT: Pending</span>
-            </div>
-          )}
-          {ktStatus === 'NA' && (
-            <div className="bg-zinc-100 border border-zinc-200 text-zinc-500 px-2 py-0.5 rounded text-[10px] font-semibold inline-block">
-              KT: NA
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Middle KT Request & Validation Date Row */}
-      <div className="grid grid-cols-2 gap-2 text-xs py-2 bg-zinc-50 rounded-xl px-3 my-2 border border-zinc-200/80 shadow-2xs">
-        <div>
-          <span className="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider">
-            KT Request
-          </span>
-          <div className="flex items-center space-x-1 mt-0.5">
-            <span className={`text-xs font-bold ${ktStatus === 'Accepted' ? 'text-emerald-700' : 'text-zinc-700'}`}>
-              {ktStatus}
+          <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-0.5">
+            <span className="font-semibold text-slate-700">{phoneNum}</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-400 text-[11px] flex items-center space-x-1">
+              <Calendar className="w-3 h-3 text-slate-400 inline" />
+              <span>{displayDate}</span>
             </span>
-            <span className="text-[10px] text-zinc-500 font-medium">({ktDate})</span>
           </div>
         </div>
 
-        <div className="border-l border-zinc-200 pl-2.5">
-          <span className="text-[10px] text-zinc-400 font-bold block uppercase tracking-wider">
-            Validation Date
-          </span>
-          <span className="text-xs font-bold text-zinc-800 block mt-0.5 flex items-center space-x-1">
-            <CalendarCheck className="w-3.5 h-3.5 text-amber-500 inline" />
-            <span>{valDate}</span>
+        {/* Right Status Pill */}
+        <div className="shrink-0">
+          <span className="inline-flex items-center space-x-1 text-[10px] font-extrabold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200/80 uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span>{client.phase || 'FRESH'}</span>
           </span>
         </div>
       </div>
 
-      {/* Team Row */}
-      <div className="text-[11px] text-zinc-600 space-y-1 my-2">
-        <div className="flex items-start justify-between">
-          <span className="text-zinc-400 font-medium">Assigned Team:</span>
-          <span className="font-medium text-zinc-700 text-right truncate max-w-[180px]">
-            {designerName
-              ? `Designer: ${designerName}`
-              : pmName
-              ? `PM: ${pmName}`
-              : '-'}
-          </span>
+      {/* Middle Banner: Team Assign Info */}
+      <div className="bg-[#fff9eb] border border-amber-200/60 rounded-2xl p-2.5 flex items-center space-x-2.5 my-3">
+        <div className="w-7 h-7 rounded-xl bg-amber-100/90 text-amber-600 flex items-center justify-center shrink-0">
+          <Users className="w-3.5 h-3.5 text-amber-600" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-black text-amber-600 tracking-wider uppercase">
+            Team Assign
+          </div>
+          <p className="text-[11px] font-semibold text-slate-700 truncate mt-0.5">
+            {client.assignedTeam?.designer ? `Designer: ${client.assignedTeam.designer}` : ''}
+            {client.assignedTeam?.projectManager ? ` • PM: ${client.assignedTeam.projectManager}` : ''}
+            {!client.assignedTeam?.designer && !client.assignedTeam?.projectManager ? `ID: ${client.id} • Validation: ${client.validationDate || 'Active'}` : ''}
+          </p>
         </div>
       </div>
 
-      {/* Action Buttons Row */}
-      <div className="pt-2 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
+      {/* Bottom Action Footer: BOQ, Final Design & Details */}
+      <div className="pt-2.5 border-t border-slate-100/80 flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          {/* Quick BOQ button */}
           {onOpenBoq && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenBoq(client);
               }}
-              className="p-1.5 rounded-md bg-amber-400 text-zinc-950 hover:bg-amber-500 font-extrabold text-xs flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
+              className="px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-slate-800 text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-colors shadow-2xs"
               title="View BOQ List & PDFs"
             >
-              <FileText className="w-3.5 h-3.5" />
-              <span className="text-[10px] uppercase font-black tracking-wider">BOQ</span>
+              <FileText className="w-3.5 h-3.5 text-amber-600" />
+              <span>BOQ</span>
             </button>
           )}
 
+          {/* Final Design / Final Production File Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -141,37 +108,23 @@ export const ClientListCard: React.FC<ClientListCardProps> = ({
                 onSelectClient(client);
               }
             }}
-            className="p-1.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
-            title="View Production Drawing"
+            className="px-2.5 py-1.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-colors shadow-2xs"
+            title="View Final Production File / Final Design"
           >
             <FileText className="w-3.5 h-3.5 text-purple-600" />
-            <span className="text-[10px] font-black uppercase tracking-wider">Drawing</span>
-          </button>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onOpenOnSitePurchaseWithItem) {
-                onOpenOnSitePurchaseWithItem(client);
-              }
-            }}
-            className="p-1.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-950 border border-rose-200/80 text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-2xs transition-colors"
-            title="On Site Purchase Request"
-          >
-            <Package className="w-3.5 h-3.5 text-rose-600" />
-            <span className="text-[10px] font-black uppercase tracking-wider">On Site Purchase Request</span>
+            <span>Final Design</span>
           </button>
         </div>
 
+        {/* Details Link */}
         <button
           onClick={() => onSelectClient(client)}
-          className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 text-zinc-950 rounded-lg text-xs font-extrabold flex items-center space-x-1 cursor-pointer shadow-xs transition-colors ml-auto"
+          className="text-xs font-black text-orange-500 hover:text-orange-600 flex items-center space-x-0.5 cursor-pointer py-1 px-1.5 transition-colors"
         >
           <span>Details</span>
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>
-
     </div>
   );
 };

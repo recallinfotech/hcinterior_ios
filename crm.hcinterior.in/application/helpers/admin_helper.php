@@ -2615,6 +2615,7 @@ function get_user_leave_balance_details($user_id, $year = null)
             'category_id' => $cat_id,
             'category_name' => $v_category->leave_category,
             'credit_count' => $credit_count,
+            'is_configured' => ($credit_count > 0),
             'credited' => $total_credited,
             'quota' => $quota,
             'allocated' => $total_allocated,
@@ -4558,7 +4559,7 @@ function client_details_tabs_old($id)
         'completion_file' => [
             'position' => 19,
             'name' => 'completion_file',
-             'tab_name' => 'Completation File',
+             'tab_name' => 'Handover Attachment',
             'url' => $url . $id . '/completion_file',
             'count' => '',
             'view' => $url . 'completion_file'
@@ -4718,14 +4719,23 @@ foreach ($tab_tables as $tab_key => $config) {
             unset($tabs['completion_file']);
         }
 
-    if($CI->session->userdata('user_type') == 1 || $CI->session->userdata('designations_id') == 45 || $CI->session->userdata('designations_id') == 71 || $CI->session->userdata('designations_id') == 76 || $CI->session->userdata('designations_id') == 72){
+    $user_type = $CI->session->userdata('user_type');
+    $desig_id  = $CI->session->userdata('designations_id');
+    $op_role   = $CI->session->userdata('operation_role_id');
+
+    if (empty($op_role) && !empty($desig_id) && function_exists('resolve_operation_role_from_designation')) {
+        $op_role = resolve_operation_role_from_designation($desig_id);
+    }
+
+    // Only Super Admin, Sr Project Coordinator (45 / role 1), SPM/Operation Manager (71, 72 / role 2), Design Manager (76 / role 3) get full bypass
+    if ($user_type == 1 || in_array($desig_id, [45, 71, 72, 76]) || in_array($op_role, [1, 2, 3])) {
        $tabs = array_values($tabs);
 
-    usort($tabs, function ($a, $b) {
-        return $a['position'] <=> $b['position'];
-    });
+        usort($tabs, function ($a, $b) {
+            return $a['position'] <=> $b['position'];
+        });
 
-    return apply_filters('client_details_tabs', $tabs);
+        return apply_filters('client_details_tabs', $tabs);
     }
 
     $designation_id = $CI->session->userdata('designations_id');
@@ -4753,6 +4763,16 @@ foreach ($tab_tables as $tab_key => $config) {
         $allowed_tabs[] = 'payment_record';
     }
 
+    $can_view_timelines = (
+        check_permission('design_timeline_view') ||
+        check_permission('design_timeline_date_edit') ||
+        check_permission('timeline_mark_done') ||
+        has_client_permission($id, 'designing_timeline')
+    );
+    if ($can_view_timelines) {
+        $allowed_tabs[] = 'timelines';
+    }
+
     foreach($tabs as $key => $tab){
 
         if(!in_array($key, $allowed_tabs)){
@@ -4775,75 +4795,126 @@ foreach ($tab_tables as $tab_key => $config) {
 }
 
 
-    $permission_map = [
-        'timelines'         => 'designing_timeline',
-        'project_timeline'  => 'execution_timeline',
-        'BOQ'               => 'boq',
-      //  'check_list'        => 'check_list',
-        'mom'               => 'mom',
-        'kt'                => 'kt',
-        '2ddesign'          => 'drawing',
-        '3ddesign'          => 'three_d',
-        'assigned_team'     => 'assigned_team',
-        'dispatch'          => 'dispatch',
-        'loose_furniture'   => 'loose_furniture',
-        'purchase_request'  => 'purchase_request',
-        'on_site_purchase_request' => 'on_site_purchase_request',
-        'on_site_purchase_request_new' => 'on_site_purchase_request',
-        'bom' => 'bom',
-        'validation' => 'validation',
-        
+    // Tab -> [role operation permissions] + [client-specific operation permissions]
+    $tab_permission_rules = [
+        'timelines' => [
+            'role_perms'   => ['design_timeline_view', 'design_timeline_date_edit', 'timeline_mark_done'],
+            'client_perms' => ['designing_timeline']
+        ],
+        'project_timeline' => [
+            'role_perms'   => ['execution_timeline_only_view', 'execution_timeline_edit'],
+            'client_perms' => ['execution_timeline']
+        ],
+        'boq' => [
+            'role_perms'   => ['boq_with_price_view', 'boq_with_price_edit', 'boq_without_price_view_pdf', 'old_boq'],
+            'client_perms' => ['boq', 'boq_with_price', 'without_price']
+        ],
+        'mom' => [
+            'role_perms'   => ['mom_only_view', 'mom_edit'],
+            'client_perms' => ['mom']
+        ],
+        'kt' => [
+            'role_perms'   => ['kt_only_view', 'kt_request', 'kt_done'],
+            'client_perms' => ['kt']
+        ],
+        '2ddesign' => [
+            'role_perms'   => ['civil_drawing_only_view', 'civil_drawing_add_edit'],
+            'client_perms' => ['drawing']
+        ],
+        '3ddesign' => [
+            'role_perms'   => ['3d_design_only_view', '3d_design_edit'],
+            'client_perms' => ['three_d', '3d']
+        ],
+        'assigned_team' => [
+            'role_perms'   => ['assign_team_view', 'assign_team_add'],
+            'client_perms' => ['assigned_team']
+        ],
+        'dispatch' => [
+            'role_perms'   => ['dispatch_date_request', 'dispatch_date_approval', 'dispatch_edit', 'dispatch_accept_reject', 'site_dispatch', 'field_dispatch'],
+            'client_perms' => ['dispatch']
+        ],
+        'loose_furniture' => [
+            'role_perms'   => ['loose_furniture_date_request', 'loose_furniture_edit'],
+            'client_perms' => ['loose_furniture']
+        ],
+        'purchase_request' => [
+            'role_perms'   => ['purchase_request_only_view', 'purchase_request_edit'],
+            'client_perms' => ['purchase_request']
+        ],
+        'on_site_purchase_request' => [
+            'role_perms'   => ['onsite_purchase_request_only_view', 'onsite_purchase_request_edit', 'create_on_site_purchase_request', 'on_site_request_accept_reject', 'item_received_approved', 'on_site_purchase_request_list'],
+            'client_perms' => ['on_site_purchase_request']
+        ],
+        'on_site_purchase_request_new' => [
+            'role_perms'   => ['onsite_purchase_request_only_view', 'onsite_purchase_request_edit', 'create_on_site_purchase_request', 'on_site_request_accept_reject', 'item_received_approved', 'on_site_purchase_request_list'],
+            'client_perms' => ['on_site_purchase_request']
+        ],
+        'bom' => [
+            'role_perms'   => ['bom_only_view', 'bom_edit', 'bom3_cutting_list_only_view', 'cutting_list', 'bom_list'],
+            'client_perms' => ['bom']
+        ],
+        'validation' => [
+            'role_perms'   => ['validation_only_view', 'validation_edit', 'modular_drawing_approval_reject', 'final_design_done'],
+            'client_perms' => ['validation']
+        ],
     ];
 
-    // foreach ($permission_map as $tab_key => $perm_key) {
+    foreach ($tab_permission_rules as $tab_key => $rule) {
 
-    //     if(isset($tabs[$tab_key])){
+        if (isset($tabs[$tab_key])) {
 
-    //         if(!has_client_permission($id, $perm_key)){
-    //             unset($tabs[$tab_key]);
-    //         }
+            $hasPermission = false;
 
-    //     }
-    // }
-
-    foreach ($permission_map as $tab_key => $perm_key) {
-
-    
-
-    if(isset($tabs[$tab_key])){
-
-        $hasPermission = has_client_permission($id, $perm_key);
-
-        // 🔥 EXTRA LOGIC FOR SALES (MOM only)
-        if($tab_key == 'mom'){
-
-            $CI->db->select('leads_id');
-            $CI->db->where('client_id', $id);
-            $client = $CI->db->get('tbl_client')->row();
-
-            if($client && !empty($client->leads_id)){
-
-                $lead = $CI->db->select('permission')
-                               ->where('leads_id', $client->leads_id)
-                               ->get('tbl_leads')
-                               ->row();
-
-                if($lead){
-                    $perm = json_decode($lead->permission, true);
-
-                    if(array_key_exists($CI->session->userdata('user_id'), $perm)){
-                        $hasPermission = true; // 🔥 SALES KO ACCESS
+            // 1. Role-based Operation Permissions (from hc_role_permissions)
+            if (!empty($rule['role_perms'])) {
+                foreach ($rule['role_perms'] as $rp) {
+                    if (check_permission($rp)) {
+                        $hasPermission = true;
+                        break;
                     }
                 }
             }
-        }
 
-        if(!$hasPermission){
-            unset($tabs[$tab_key]);
-        }
+            // 2. Client-assigned Operation Permissions (from operation_permissions table)
+            if (!$hasPermission && !empty($rule['client_perms'])) {
+                foreach ($rule['client_perms'] as $cp) {
+                    if (has_client_permission($id, $cp)) {
+                        $hasPermission = true;
+                        break;
+                    }
+                }
+            }
 
-    }
-} 
+            // 3. Extra logic for sales (MOM only)
+            if (!$hasPermission && $tab_key == 'mom') {
+
+                $CI->db->select('leads_id');
+                $CI->db->where('client_id', $id);
+                $client = $CI->db->get('tbl_client')->row();
+
+                if ($client && !empty($client->leads_id)) {
+
+                    $lead = $CI->db->select('permission')
+                                   ->where('leads_id', $client->leads_id)
+                                   ->get('tbl_leads')
+                                   ->row();
+
+                    if ($lead && !empty($lead->permission)) {
+                        $perm = json_decode($lead->permission, true);
+
+                        if (is_array($perm) && array_key_exists($CI->session->userdata('user_id'), $perm)) {
+                            $hasPermission = true; // Sales access
+                        }
+                    }
+                }
+            }
+
+            if (!$hasPermission) {
+                unset($tabs[$tab_key]);
+            }
+
+        }
+    } 
 
 
 
@@ -4879,6 +4950,10 @@ function get_client_team_members($client_id)
 function has_client_permission($client_id, $permission_key)
 {
     $CI =& get_instance();
+
+    if ($CI->session->userdata('user_type') == 1) {
+        return true;
+    }
 
     $user_id = $CI->session->userdata('user_id');
 
@@ -5032,6 +5107,13 @@ function user_details_tabs($id)
             'url' => $url . $id . '/document_details',
             'count' => total_rows('tbl_employee_document', array('user_id' => $id)),
             'view' => $url . 'document_details'
+        ],
+        'employment_application' => [
+            'position' => 4,
+            'name' => 'employment_application',
+            'url' => $url . $id . '/employment_application',
+            'count' => '',
+            'view' => 'admin/user/user_details/employment_application'
         ],
         'salary_details' => [
             'position' => 4,

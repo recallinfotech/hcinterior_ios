@@ -53,6 +53,7 @@ class Menu
             $module_menu = json_decode(json_encode($module));
             $user_menu = array_merge($user_menu, $module_menu);
         }
+
         $user_menu = apply_filters('sidebar_menu', $user_menu);
         // Create a multidimensional array to conatin a list of items and parents
         $menu = array(

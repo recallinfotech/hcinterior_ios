@@ -29,11 +29,11 @@ if (!$can_view_completion) {
     <div class="panel-heading">
         <div class="panel-title">
             <strong>
-                Completation File
+               Handover Attachment
             </strong>
 
             <button id="toggle_completion_form" class="btn btn-xs btn-primary pull-right">
-                <?= !empty($completion_info) ? '<i class="fa fa-times"></i> Close Form' : '<i class="fa fa-plus"></i> Add Completation File' ?>
+                <?= !empty($completion_info) ? '<i class="fa fa-times"></i> Close Form' : '<i class="fa fa-plus"></i> Add Attachment' ?>
             </button>
         </div>
     </div>

@@ -566,6 +566,25 @@ $regional_manager = $this->db->get('tbl_account_details')->row();
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <label class="col-sm-3 control-label"><strong>Client Access (Mobile App) </strong></label>
+                        <div class="col-sm-5">
+                            <?php
+                            $user_client_access = 1;
+                            if (isset($profile_info->client_access)) {
+                                $user_client_access = (int)$profile_info->client_access;
+                            } elseif (!empty($login_info) && isset($login_info->client_access)) {
+                                $user_client_access = (int)$login_info->client_access;
+                            }
+                            ?>
+                            <select class="form-control select_box" style="width:100%" name="client_access">
+                                <option value="1" <?= ($user_client_access == 1) ? 'selected' : ''; ?>>Yes (Full CRM + Attendance & Leave)</option>
+                                <option value="0" <?= ($user_client_access == 0) ? 'selected' : ''; ?>>No (Only Attendance & Leave)</option>
+                            </select>
+                            <span class="help-block"><small class="text-muted">Agar 'No' select karenge to user ko app mein sirf Attendance aur Leave dikhega, Client list aur project modules completely hide rahenge.</small></span>
+                        </div>
+                    </div>
+
   <div class="form-group" id="department" <?php
                                                             if (!empty($login_info) && $login_info->role_id != 2) {
                                                                 echo 'style="display:block"';
@@ -632,9 +651,25 @@ $regional_manager = $this->db->get('tbl_account_details')->row();
                         </div>
                     </div>
 
-
-
-                    <?php
+                    <div class="form-group">
+                        <label class="col-sm-3 control-label"><strong>Operation Role</strong></label>
+                        <div class="col-sm-5">
+                            <select class="form-control select_box" style="width: 100%" name="operation_role_id">
+                                <option value="">Auto Detect from Designation</option>
+                                <?php
+                                $op_roles = $this->db->order_by('role_name', 'ASC')->get('hc_roles')->result();
+                                if (!empty($op_roles)) {
+                                    foreach ($op_roles as $op_r) { ?>
+                                        <option value="<?= $op_r->id ?>" <?= (!empty($login_info->operation_role_id) && $login_info->operation_role_id == $op_r->id) ? 'selected' : '' ?>>
+                                            <?= html_escape($op_r->role_name) ?>
+                                        </option>
+                                <?php }
+                                }
+                                ?>
+                            </select>
+                            <span class="help-block text-muted" style="font-size: 11px;">If left on Auto Detect, operation role and permissions will be automatically mapped from the designation.</span>
+                        </div>
+                    </div>                    <?php
                     if (!empty($profile_info->user_id)) {
                         $user_id = $profile_info->user_id;
                     } else {

@@ -24,6 +24,14 @@ import {
   Mail,
   BadgeCheck,
   Camera,
+  FileCheck,
+  Receipt,
+  Download,
+  Eye,
+  ChevronDown,
+  ChevronUp,
+  RotateCw,
+  Wallet,
 } from 'lucide-react';
 import { UserData } from '../../services/authApi';
 import {
@@ -33,15 +41,20 @@ import {
   getLeaveTypesApi,
   requestLeaveApi,
   getMyLeavesApi,
+  getEmploymentApplicationApi,
+  getEmployeeSalarySlipsApi,
+  SalarySlipItem,
   AttendanceResponse,
   AnnouncementItem,
   HolidayItem,
   LeaveTypeItem,
   LeaveApplicationItem,
 } from '../../services/userPortalApi';
+import { EmploymentApplicationSection } from './EmploymentApplicationSection';
 
 interface UserProfileModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
+  isFullPage?: boolean;
   onClose: () => void;
   userData: UserData | null;
   authToken: string;
@@ -49,12 +62,14 @@ interface UserProfileModalProps {
   onLogout: () => void;
   onOpenMarkAttendance: () => void;
   onOpenFaceScan?: () => void;
+  canViewClients?: boolean;
 }
 
-type ProfileView = 'main' | 'attendance' | 'announcements' | 'requestLeave' | 'holidays';
+type ProfileView = 'main' | 'attendance' | 'announcements' | 'requestLeave' | 'holidays' | 'employmentForm' | 'salarySlips';
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
-  isOpen,
+  isOpen = true,
+  isFullPage = false,
   onClose,
   userData,
   authToken,
@@ -62,6 +77,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onLogout,
   onOpenMarkAttendance,
   onOpenFaceScan,
+  canViewClients = true,
 }) => {
   const [currentView, setCurrentView] = useState<ProfileView>('main');
 
@@ -96,6 +112,52 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isSubmittingLeave, setIsSubmittingLeave] = useState<boolean>(false);
   const [pastLeaves, setPastLeaves] = useState<LeaveApplicationItem[]>([]);
   const [leaveSubTab, setLeaveSubTab] = useState<'apply' | 'history'>('apply');
+
+  // Employment Application status
+  const [applicationStatus, setApplicationStatus] = useState<string>('draft');
+
+  // Salary Slips state
+  const [salarySlips, setSalarySlips] = useState<SalarySlipItem[]>([]);
+  const [isLoadingSalarySlips, setIsLoadingSalarySlips] = useState<boolean>(false);
+  const [expandedSlipId, setExpandedSlipId] = useState<number | null>(null);
+
+  const loadSalarySlips = async () => {
+    if (!authToken && !userData?.user_id) return;
+    setIsLoadingSalarySlips(true);
+    try {
+      const res = await getEmployeeSalarySlipsApi(authToken, userData?.user_id);
+      if (res && res.status && Array.isArray(res.data)) {
+        setSalarySlips(res.data);
+        if (res.data.length > 0 && expandedSlipId === null) {
+          setExpandedSlipId(res.data[0].salary_payment_id);
+        }
+      } else {
+        setSalarySlips([]);
+      }
+    } catch (e) {
+      console.warn('Failed to load salary slips:', e);
+      showToast('Could not load salary slips');
+    } finally {
+      setIsLoadingSalarySlips(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentView === 'salarySlips' && (authToken || userData?.user_id)) {
+      loadSalarySlips();
+    }
+  }, [currentView, authToken, userData?.user_id]);
+
+  useEffect(() => {
+    if (!authToken || !userData?.user_id) return;
+    getEmploymentApplicationApi(authToken, userData.user_id)
+      .then((res) => {
+        if (res && res.data?.status) {
+          setApplicationStatus(res.data.status);
+        }
+      })
+      .catch(() => {});
+  }, [authToken, userData?.user_id]);
 
   // Reset view on open
   useEffect(() => {
@@ -286,53 +348,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     return cells;
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3.5 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-zinc-900 border border-zinc-800 text-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
-        {/* Modal Header */}
-        <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/80 shrink-0">
-          <div className="flex items-center space-x-2">
-            {currentView !== 'main' ? (
-              <button
-                onClick={() => {
-                  setCurrentView('main');
-                  setSelectedDateDetail(null);
-                }}
-                className="p-1 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white transition-colors mr-1 cursor-pointer"
-              >
-                <ArrowLeft className="w-4 h-4 text-amber-400" />
-              </button>
-            ) : (
-              <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                <User className="w-4 h-4" />
-              </div>
-            )}
-            <div>
-              <h2 className="text-sm font-bold text-white tracking-tight">
-                {currentView === 'main' && 'User Profile & Work Center'}
-                {currentView === 'attendance' && 'Attendance Calendar'}
-                {currentView === 'announcements' && 'Company Announcements'}
-                {currentView === 'requestLeave' && 'Request Leave'}
-                {currentView === 'holidays' && 'Holiday List (2026)'}
-              </h2>
-              <p className="text-[10px] text-zinc-400">
-                {currentView === 'main' ? userData?.fullname || 'Staff Portal' : 'HC Interior HR System'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  if (!isOpen && !isFullPage) return null;
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* ========================================================= */}
-          {/* VIEW: MAIN PROFILE MENU                                   */}
-          {/* ========================================================= */}
+  const bodyContent = (
+    <>
+      {/* ========================================================= */}
+      {/* VIEW: MAIN PROFILE MENU                                   */}
+      {/* ========================================================= */}
           {currentView === 'main' && (
             <div className="space-y-4">
               {/* Profile Card */}
@@ -382,9 +404,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       onClose();
                       onOpenMarkAttendance();
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1.5 transition-all shadow-md shadow-emerald-950 cursor-pointer active:scale-95"
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-md shadow-emerald-950 cursor-pointer"
                   >
-                    <MapPin className="w-3.5 h-3.5" />
+                    <MapPin className="w-3.5 h-3.5 shrink-0" />
                     <span>Mark Attendance</span>
                   </button>
                 </div>
@@ -393,7 +415,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 {onOpenFaceScan && (
                   <div className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <div className="w-6 h-6 rounded-md bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-md bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
                         <Camera className="w-3.5 h-3.5" />
                       </div>
                       <div>
@@ -406,110 +428,161 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         onClose();
                         onOpenFaceScan();
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold text-[11px] flex items-center space-x-1.5 transition-all shadow-md cursor-pointer active:scale-95 border border-cyan-400/30"
+                      className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 active:from-cyan-700 active:to-teal-700 text-white font-bold text-[11px] flex items-center space-x-1.5 transition-colors shadow-md cursor-pointer border border-cyan-400/30"
                     >
-                      <Sparkles className="w-3 h-3 text-cyan-200" />
+                      <Sparkles className="w-3 h-3 text-cyan-200 shrink-0" />
                       <span>Scan / Enroll</span>
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* 4 CORE SECTION CARDS REQUESTED BY USER */}
-              <div className="space-y-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 px-1">
-                  Employee Self-Service (ESS)
+              {/* EMPLOYEE SELF-SERVICE (ESS) - 2 BOXES PER ROW, NO DESCRIPTIONS, CRM WHITE / LIGHT CREAM THEME */}
+              <div className="bg-[#faf8f5] border border-stone-200/90 rounded-2xl p-3.5 shadow-sm space-y-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-stone-600 px-1 flex items-center justify-between">
+                  <span>Employee Self-Service (ESS)</span>
+                  <span className="text-[10px] font-semibold text-stone-400">Portal</span>
                 </div>
 
-                {/* 1. View Attendance (in Calendar) */}
-                <button
-                  onClick={() => setCurrentView('attendance')}
-                  className="w-full bg-zinc-950/70 hover:bg-zinc-800/80 border border-zinc-800 hover:border-emerald-500/40 p-3.5 rounded-xl flex items-center justify-between transition-all cursor-pointer group text-left shadow-2xs"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
-                      <Calendar className="w-5 h-5" />
+                <div className="grid grid-cols-2 gap-2.5">
+                  {/* 1. View Attendance (in Calendar) */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('attendance')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-emerald-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-emerald-50 border border-emerald-200/80 text-emerald-600 flex items-center justify-center shrink-0">
+                        <Calendar className="w-4.5 h-4.5" />
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-stone-300 group-hover:text-emerald-600 transition-colors shrink-0" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">
-                        View Attendance (in Calendar)
-                      </h4>
-                      <p className="text-[10px] text-zinc-400">Monthly calendar, daily punch logs & work hours</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-                </button>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-emerald-700 transition-colors leading-snug line-clamp-2">
+                      View Attendance (in Calendar)
+                    </h4>
+                  </button>
 
-                {/* 2. Announcement (Notice) */}
-                <button
-                  onClick={() => setCurrentView('announcements')}
-                  className="w-full bg-zinc-950/70 hover:bg-zinc-800/80 border border-zinc-800 hover:border-amber-500/40 p-3.5 rounded-xl flex items-center justify-between transition-all cursor-pointer group text-left shadow-2xs"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
-                      <Bell className="w-5 h-5" />
+                  {/* 2. Announcement (Notice) */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('announcements')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-amber-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+                        <Bell className="w-4.5 h-4.5" />
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-stone-300 group-hover:text-amber-600 transition-colors shrink-0" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors">
-                        Announcement (Notice)
-                      </h4>
-                      <p className="text-[10px] text-zinc-400">Company announcements, circulars & notices</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-amber-400 transition-colors" />
-                </button>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-amber-700 transition-colors leading-snug line-clamp-2">
+                      Announcement (Notice)
+                    </h4>
+                  </button>
 
-                {/* 3. Request Leave */}
-                <button
-                  onClick={() => setCurrentView('requestLeave')}
-                  className="w-full bg-zinc-950/70 hover:bg-zinc-800/80 border border-zinc-800 hover:border-sky-500/40 p-3.5 rounded-xl flex items-center justify-between transition-all cursor-pointer group text-left shadow-2xs"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
-                      <FileText className="w-5 h-5" />
+                  {/* 3. Request Leave */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('requestLeave')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-sky-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-sky-50 border border-sky-200/80 text-sky-600 flex items-center justify-center shrink-0">
+                        <FileText className="w-4.5 h-4.5" />
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-stone-300 group-hover:text-sky-600 transition-colors shrink-0" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors">
-                        Request Leave
-                      </h4>
-                      <p className="text-[10px] text-zinc-400">Apply for Earn Leave, Sick Leave & check status</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-sky-400 transition-colors" />
-                </button>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-sky-700 transition-colors leading-snug line-clamp-2">
+                      Request Leave
+                    </h4>
+                  </button>
 
-                {/* 4. Holiday List */}
-                <button
-                  onClick={() => setCurrentView('holidays')}
-                  className="w-full bg-zinc-950/70 hover:bg-zinc-800/80 border border-zinc-800 hover:border-indigo-500/40 p-3.5 rounded-xl flex items-center justify-between transition-all cursor-pointer group text-left shadow-2xs"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
-                      <Palmtree className="w-5 h-5" />
+                  {/* 4. Holiday List */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('holidays')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-indigo-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-indigo-50 border border-indigo-200/80 text-indigo-600 flex items-center justify-center shrink-0">
+                        <Palmtree className="w-4.5 h-4.5" />
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-stone-300 group-hover:text-indigo-600 transition-colors shrink-0" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-white group-hover:text-indigo-400 transition-colors">
-                        Holiday List (2026)
-                      </h4>
-                      <p className="text-[10px] text-zinc-400">Official company holiday calendar & festivals</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
-                </button>
-              </div>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-indigo-700 transition-colors leading-snug line-clamp-2">
+                      Holiday List (2026)
+                    </h4>
+                  </button>
 
-              {/* Logout Button */}
-              <div className="pt-2">
-                <button
-                  onClick={() => {
-                    onClose();
-                    onLogout();
-                  }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-rose-950/20 hover:bg-rose-950/40 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Log Out of Session</span>
-                </button>
+                  {/* 5. Salary Slips */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('salarySlips')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-emerald-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-emerald-50 border border-emerald-200/80 text-emerald-600 flex items-center justify-center shrink-0">
+                        <Receipt className="w-4.5 h-4.5" />
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        Payslips
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-emerald-700 transition-colors leading-snug line-clamp-2">
+                      Salary Slips
+                    </h4>
+                  </button>
+
+                  {/* 6. Employment Form */}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('employmentForm')}
+                    className="bg-white hover:bg-stone-50 active:bg-stone-100 border border-stone-200/90 hover:border-purple-300 p-3 rounded-xl flex flex-col justify-between shadow-xs hover:shadow transition-all text-left cursor-pointer group min-h-[88px]"
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-purple-50 border border-purple-200/80 text-purple-600 flex items-center justify-center shrink-0">
+                        <FileCheck className="w-4.5 h-4.5" />
+                      </div>
+                      {applicationStatus === 'approved' && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Approved
+                        </span>
+                      )}
+                      {applicationStatus === 'submitted' && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          Review
+                        </span>
+                      )}
+                      {applicationStatus === 'rejected' && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                          Action
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-xs font-bold text-stone-800 group-hover:text-purple-700 transition-colors leading-snug line-clamp-2">
+                      Employment Form
+                    </h4>
+                  </button>
+
+                  {/* 7. Logout Card */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onLogout();
+                    }}
+                    className="col-span-2 bg-white hover:bg-rose-50/70 active:bg-rose-100/70 border border-rose-200/90 hover:border-rose-300 p-3 rounded-xl flex items-center justify-between shadow-xs hover:shadow transition-all cursor-pointer group text-left mt-0.5"
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                        <LogOut className="w-4.5 h-4.5 shrink-0" />
+                      </div>
+                      <h4 className="text-xs font-bold text-rose-700 group-hover:text-rose-800 transition-colors truncate">
+                        Log Out of Session
+                      </h4>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-rose-400 group-hover:text-rose-600 shrink-0" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -887,6 +960,268 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
             </div>
           )}
+
+          {/* ========================================================= */}
+          {/* VIEW: SALARY SLIPS                                        */}
+          {/* ========================================================= */}
+          {currentView === 'salarySlips' && (
+            <div className="space-y-3 animate-in fade-in duration-200">
+              {/* Header Banner */}
+              <div className="bg-gradient-to-r from-emerald-950/40 via-zinc-900 to-zinc-900 border border-emerald-500/20 rounded-2xl p-4 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                      <span>Monthly Salary Slips</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+                        {salarySlips.length} {salarySlips.length === 1 ? 'Slip' : 'Slips'}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">
+                      Month-wise salary slip view and PDF download
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadSalarySlips}
+                  disabled={isLoadingSalarySlips}
+                  className="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/60 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                  title="Refresh Salary Slips"
+                >
+                  <RotateCw className={`w-4 h-4 ${isLoadingSalarySlips ? 'animate-spin text-emerald-400' : ''}`} />
+                </button>
+              </div>
+
+              {/* Loading State */}
+              {isLoadingSalarySlips && salarySlips.length === 0 ? (
+                <div className="py-12 text-center text-zinc-400 space-y-3 bg-zinc-950/40 rounded-2xl border border-zinc-800/60">
+                  <RotateCw className="w-7 h-7 mx-auto animate-spin text-emerald-400" />
+                  <p className="text-xs">Fetching your salary slips...</p>
+                </div>
+              ) : salarySlips.length === 0 ? (
+                /* Empty State */
+                <div className="py-12 px-6 text-center text-zinc-400 space-y-3 bg-zinc-950/40 rounded-2xl border border-zinc-800/60">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-zinc-800/60 border border-zinc-700/50 flex items-center justify-center text-zinc-400">
+                    <Receipt className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-white">No Salary Slips Generated Yet</h4>
+                  <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
+                    Once HR generates your monthly salary payment, your payslip will be available here to view and download.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={loadSalarySlips}
+                    className="mt-2 inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-white transition-colors cursor-pointer"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Check Again</span>
+                  </button>
+                </div>
+              ) : (
+                /* Slips List - Clean Month-wise with View & Download */
+                <div className="space-y-3">
+                  {salarySlips.map((slip) => (
+                    <div
+                      key={slip.salary_payment_id}
+                      className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 shadow-lg hover:border-zinc-700/80 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      {/* Month Info */}
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                          <Receipt className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-bold text-white tracking-wide truncate">
+                              {slip.month_name || slip.payment_month}
+                            </span>
+                            {slip.payslip_number && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700/60 shrink-0">
+                                #{slip.payslip_number}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-0.5 truncate">
+                            {slip.paid_date ? `Paid on ${slip.paid_date}` : `Month: ${slip.payment_month}`}
+                            {slip.payment_type ? ` • via ${slip.payment_type}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons: View & Download */}
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = slip.view_url || slip.pdf_url;
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }}
+                          className="flex-1 sm:flex-initial bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white font-medium py-2 px-3.5 rounded-xl flex items-center justify-center space-x-1.5 text-xs transition-colors cursor-pointer border border-zinc-700/60 active:scale-95"
+                          title="View Salary Slip"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-zinc-300" />
+                          <span>View</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = slip.high_creation_pdf_url || slip.pdf_url;
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }}
+                          className="flex-1 sm:flex-initial bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold py-2 px-3.5 rounded-xl flex items-center justify-center space-x-1.5 text-xs shadow-md shadow-emerald-950/40 transition-all active:scale-95 cursor-pointer"
+                          title="Download PDF Slip"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download PDF</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* VIEW: EMPLOYMENT APPLICATION                              */}
+          {/* ========================================================= */}
+          {currentView === 'employmentForm' && (
+            <EmploymentApplicationSection
+              userData={userData}
+              authToken={authToken}
+              showToast={showToast}
+              onBack={() => setCurrentView('main')}
+              onStatusUpdated={(s) => setApplicationStatus(s)}
+            />
+          )}
+    </>
+  );
+
+  if (isFullPage) {
+    return (
+      <div className="flex-1 flex flex-col min-h-screen bg-[#080c14] text-white">
+        {/* Full Page Sticky Top Header */}
+        <div className="px-4 py-3.5 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/95 sticky top-0 z-20 backdrop-blur-md shrink-0">
+          <div className="flex items-center space-x-2">
+            {currentView !== 'main' ? (
+              <button
+                onClick={() => {
+                  setCurrentView('main');
+                  setSelectedDateDetail(null);
+                }}
+                className="p-1.5 rounded-full bg-zinc-800/80 text-zinc-300 hover:text-white transition-colors cursor-pointer mr-1"
+                title="Back to Profile"
+              >
+                <ArrowLeft className="w-5 h-5 text-amber-400 stroke-[2.5]" />
+              </button>
+            ) : canViewClients ? (
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-full bg-zinc-800/80 text-zinc-300 hover:text-white transition-colors cursor-pointer mr-1"
+                title="Back to CRM"
+              >
+                <ChevronLeft className="w-5 h-5 text-amber-400 stroke-[2.5]" />
+              </button>
+            ) : null}
+            <div className={`w-8 h-8 rounded-xl border flex items-center justify-center ${
+              currentView === 'salarySlips'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+            }`}>
+              {currentView === 'salarySlips' ? <Receipt className="w-4 h-4" /> : <User className="w-4 h-4" />}
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-tight">
+                {currentView === 'main' && 'User Profile & Work Center'}
+                {currentView === 'attendance' && 'Attendance Calendar'}
+                {currentView === 'announcements' && 'Company Announcements'}
+                {currentView === 'requestLeave' && 'Request Leave'}
+                {currentView === 'holidays' && 'Holiday List (2026)'}
+                {currentView === 'salarySlips' && 'Salary Slips'}
+                {currentView === 'employmentForm' && 'Employment Form'}
+              </h2>
+              <p className="text-[10px] text-zinc-400">
+                {currentView === 'main' ? userData?.fullname || 'Staff Portal' : 'HC Interior HR System'}
+              </p>
+            </div>
+          </div>
+          {canViewClients && (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Full Page Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 max-w-lg mx-auto w-full pb-24">
+          {bodyContent}
+        </div>
+
+        {/* Full Page Footer */}
+        <div className="px-4 py-3 bg-zinc-950 border-t border-zinc-800/80 text-center text-[10px] text-zinc-500 flex items-center justify-between shrink-0 mb-16">
+          <span>HC Interior Mobile App</span>
+          <span className="text-amber-400 font-semibold">{new Date().getFullYear()}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3.5 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-zinc-900 border border-zinc-800 text-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+        {/* Modal Header */}
+        <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/80 shrink-0">
+          <div className="flex items-center space-x-2">
+            {currentView !== 'main' ? (
+              <button
+                onClick={() => {
+                  setCurrentView('main');
+                  setSelectedDateDetail(null);
+                }}
+                className="p-1 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white transition-colors mr-1 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 text-amber-400" />
+              </button>
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <User className="w-4 h-4" />
+              </div>
+            )}
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-tight">
+                {currentView === 'main' && 'User Profile & Work Center'}
+                {currentView === 'attendance' && 'Attendance Calendar'}
+                {currentView === 'announcements' && 'Company Announcements'}
+                {currentView === 'requestLeave' && 'Request Leave'}
+                {currentView === 'holidays' && 'Holiday List (2026)'}
+                {currentView === 'salarySlips' && 'Salary Slips'}
+                {currentView === 'employmentForm' && 'Employment Form'}
+              </h2>
+              <p className="text-[10px] text-zinc-400">
+                {currentView === 'main' ? userData?.fullname || 'Staff Portal' : 'HC Interior HR System'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {bodyContent}
         </div>
 
         {/* Modal Footer */}

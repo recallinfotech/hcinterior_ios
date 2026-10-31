@@ -46,20 +46,6 @@ $can_edit_designer = !empty($is_designer);
     <div class="panel-heading">
         <div class="panel-title">
             <?= lang('all_proposals') ?>
-            
-            <div class="pull-right">
-                <?php
-                $prop_created = can_action('140', 'created');
-                $prop_edited = can_action('140', 'edited');
-                if (!empty($prop_created) || !empty($prop_edited)) {
-                    ?>
-                    <a href="<?= base_url() ?>admin/proposals/index/client/<?= $client_details->client_id ?>"
-                       class="btn btn-purple btn-xs"><?= lang('create_proposal') ?></a>
-                <?php } ?>
-                <a data-toggle="modal" data-target="#myModal"
-                   href="<?= base_url() ?>admin/invoice/zipped/proposal/<?= $client_details->client_id ?>"
-                   class="btn btn-success btn-xs"><?= lang('zip_proposal') ?></a>
-            </div>
         </div>
     </div>
     <div class="panel-body">
@@ -72,7 +58,9 @@ $can_edit_designer = !empty($is_designer);
                     <th><?= lang('phone') ?></th>
      <?php if($user_type == 1 ||  check_permission('boq_with_price_view') || $show_action){ ?>
                     <th><?= lang('G Total') ?></th> 
+                    <?php if($user_type == 1){ ?>
                     <th><?= lang('Site Handling') ?></th>
+                    <?php } ?>
                     <th><?= lang('To Be Paid') ?></th>
                     <?php } ?>
                     <th><?= lang('status') ?></th>
@@ -102,11 +90,37 @@ if (!empty($lead) && !empty($lead->permission)) {
     }
 }
                  
- $all_proposals_info = get_order_by(
-    'proposals',
-    array('lead_id' => $client_details->leads_id),
-    'id'
-);
+ $lead_id = !empty($client_details->leads_id) ? (int)$client_details->leads_id : 0;
+ $client_id = !empty($client_details->client_id) ? (int)$client_details->client_id : 0;
+ $conv_proposal_id = !empty($client_details->proposal_id) ? (int)$client_details->proposal_id : 0;
+
+ $all_proposals_info = [];
+ if (!empty($lead_id) || !empty($client_id)) {
+     $this->db->from('proposals');
+     $this->db->group_start();
+     if (!empty($lead_id)) {
+         $this->db->where('lead_id', $lead_id);
+     }
+     if (!empty($client_id)) {
+         if (!empty($lead_id)) {
+             $this->db->or_where('client_id', $client_id);
+         } else {
+             $this->db->where('client_id', $client_id);
+         }
+     }
+     $this->db->group_end();
+
+     if ($conv_proposal_id > 0) {
+         $this->db->group_start()
+             ->where('id >=', $conv_proposal_id)
+             ->or_where('client_id', $client_id)
+         ->group_end();
+     }
+
+     $this->db->order_by('id', 'DESC');
+     $all_proposals_info = $this->db->get()->result();
+ }
+
 
 $latest_proposal = null;
 $other_proposals = [];
@@ -135,7 +149,9 @@ if (!empty($all_proposals_info)) {
      <?php if($user_type == 1 ||  check_permission('boq_with_price_view') || $show_action){ ?>
 
         <td><?= number_format($v_proposals->grand_total, 2) ?></td>
+        <?php if($user_type == 1){ ?>
         <td><?= $v_proposals->siteHandling ?></td>
+        <?php } ?>
         <td><?= number_format($v_proposals->totalToBePaid, 2) ?></td>
     <?php } ?>
 
@@ -217,7 +233,7 @@ if (!empty($all_proposals_info)) {
 
         <?php 
         $can_view_old_boq = ($user_type == 1 || check_permission('old_boq'));
-        if ($can_view_old_boq) { 
+        if ($can_view_old_boq && !empty($other_proposals)) { 
         ?>
         <br><br>
 
@@ -233,7 +249,9 @@ if (!empty($all_proposals_info)) {
                     <th><?= lang('phone') ?></th>
      <?php if($user_type == 1 ||  check_permission('boq_with_price_view') || $show_action){ ?>
                     <th><?= lang('G Total') ?></th> 
+                    <?php if($user_type == 1){ ?>
                     <th><?= lang('Site Handling') ?></th>
+                    <?php } ?>
                     <th><?= lang('To Be Paid') ?></th>
                     <?php } ?>
                     <th><?= lang('status') ?></th>
@@ -271,7 +289,9 @@ if (!empty($all_proposals_info)) {
                             <td><?= $v_proposals->phone ?>  </td>
                            <?php if($user_type == 1 ||  check_permission('boq_with_price_view') || $show_action){ ?>
                             <td><?= number_format($v_proposals->grand_total, 2) ?>  </td>
+                            <?php if($user_type == 1){ ?>
                             <td><?= $v_proposals->siteHandling ?>  </td>
+                            <?php } ?>
                             <td><?= number_format($v_proposals->totalToBePaid, 2) ?>   </td>
                             <?php } ?>
                             </td>

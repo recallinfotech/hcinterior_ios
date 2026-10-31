@@ -1,16 +1,16 @@
 <?php if (!defined('BASEPATH'))
     exit('No direct script access allowed');
 $lang['payroll'] = 'Payroll';
-$lang['salary_template'] = 'Salary Template';
+$lang['salary_template'] = 'Set Employee Salary';
 $lang['hourly_rate'] = 'Hourly Template';
 $lang['employee_salary_list'] = 'Employee Salary List';
 $lang['manage_salary_details'] = 'Manage Salary';
 $lang['make_payment'] = 'Make Payment';
 $lang['generate_payslip'] = 'Generate Payslip';
 $lang['payroll_summary'] = 'Payroll Summary';
-$lang['salary_template_details'] = 'Salary Template Details';
-$lang['salary_template_list'] = 'Salary Template List';
-$lang['new_template'] = 'Set Salary Template';
+$lang['salary_template_details'] = 'Employee Salary Details';
+$lang['salary_template_list'] = 'Employee Salary Structures';
+$lang['new_template'] = 'Set Employee Salary';
 $lang['salary_grade'] = 'Salary Grades';
 $lang['basic_salary'] = 'Basic Salary';
 $lang['per_hour'] = 'Per Hour';

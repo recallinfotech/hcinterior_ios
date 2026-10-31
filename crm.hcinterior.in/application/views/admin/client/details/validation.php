@@ -32,6 +32,34 @@ $validation_files = $this->db
                        // echo $final_design;
                             ?>
 
+<?php
+$url = $this->uri->segment(5);
+$edit_id = ($url == 'validation') ? $this->uri->segment(6) : null;
+$design_info = null;
+if (!empty($edit_id)) {
+    $design_info = $this->db
+        ->where('id', $edit_id)
+        ->where('client_id', $client_details->client_id)
+        ->get('tbl_client_two_d_design')
+        ->row();
+}
+$id = !empty($design_info) ? $design_info->id : null;
+
+// 🔥 Check if Pre Validation file is uploaded and approved
+$latest_pre_val_check = $this->db
+    ->where('client_id', $client_details->client_id)
+    ->where('design_style', 'Pre Validation Design')
+    ->order_by('id', 'desc')
+    ->limit(1)
+    ->get('tbl_client_two_d_design')
+    ->row();
+
+$pre_val_is_uploaded = !empty($latest_pre_val_check);
+$pre_val_is_approved = ($pre_val_is_uploaded && $latest_pre_val_check->status == 'Approved');
+$can_upload_post_val = $pre_val_is_approved;
+$disable_post_opt = (!$can_upload_post_val && (empty($design_info) || $design_info->design_style != 'Post Validation Design'));
+?>
+
 
 <section class="panel panel-custom ">
     <div class="request">
@@ -47,7 +75,7 @@ $validation_files = $this->db
                 <?php } ?>
 
                 <?php if($final_design != 1 && $designation_id  != 77) { ?>
-                <button id="new_design" class="btn btn-xs pull-right b0">Add Modular Drawing</button>
+                <button id="new_design" class="btn btn-purple btn-xs pull-right" style="color: #ffffff !important;"><i class="fa fa-plus"></i> <?= !empty($design_info) ? 'Edit Modular Drawing' : 'Add Modular Drawing' ?></button>
                 <?php } ?>
 
 
@@ -80,8 +108,9 @@ $validation_files = $this->db
                             </option>
 
                             <option value="Post Validation Design"
+                                <?= $disable_post_opt ? 'disabled' : '' ?>
                                 <?= (!empty($design_info) && $design_info->design_style == 'Post Validation Design') ? 'selected' : '' ?>>
-                                Post Validation Design
+                                Post Validation Design<?= $disable_post_opt ? ' (Disabled: Pre Validation must be approved first)' : '' ?>
                             </option>
 
                         </select>
@@ -139,14 +168,14 @@ $validation_files = $this->db
                     <label class="col-lg-4 control-label">Upload URL</label>
                     <div class="col-lg-8">
                         <input type="text" name="upload_url" id="upload_url" class="form-control"
-                            value="<?= $design_info->upload_url ?>">
+                            value="<?= !empty($design_info->upload_url) ? htmlspecialchars($design_info->upload_url) : '' ?>">
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label class="col-lg-4 control-label">
-                        Upload Files
-                        <span class="text-danger">*</span>
+                        Modular Design File
+                        <?= empty($design_info) ? '<span class="text-danger">*</span>' : '' ?>
                     </label>
 
                     <div class="col-lg-8">
@@ -154,15 +183,71 @@ $validation_files = $this->db
                             accept=".jpg,.jpeg,.png,.pdf,.dwg,.ppt,.pptx">
 
                         <small class="text-muted">
-                            Allowed: JPG, PNG, PDF, DWG
+                            Allowed: JPG, PNG, PDF, DWG <?= !empty($design_info) ? '(Leave empty to keep current file)' : '' ?>
                         </small>
+
+                        <?php if (!empty($design_info->upload_file)) {
+                            $ex_files = json_decode($design_info->upload_file);
+                            if (!empty($ex_files)) {
+                                echo '<div class="file-preview mt-xs"><strong>Current File(s):</strong> ';
+                                foreach ($ex_files as $ef) {
+                                    echo '<a href="'.base_url($ef->path).'" target="_blank" class="label label-info mr-xs"><i class="fa fa-paperclip"></i> '.htmlspecialchars($ef->fileName).'</a> ';
+                                }
+                                echo '</div>';
+                            }
+                        } ?>
+                    </div>
+                </div>
+
+                <?php 
+                $has_lf = (!empty($design_info) && (($design_info->is_loose_furniture ?? '') == 'Yes' || !empty($design_info->loose_furniture_file)));
+                ?>
+                <div class="form-group">
+                    <label class="col-lg-4 control-label">
+                        Is Loose Furniture
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="col-lg-8">
+                        <select class="form-control" name="is_loose_furniture" id="is_loose_furniture" required>
+                            <option value="No" <?= (!$has_lf) ? 'selected' : '' ?>>No</option>
+                            <option value="Yes" <?= ($has_lf) ? 'selected' : '' ?>>Yes</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" id="loose_furniture_box" style="display: <?= $has_lf ? 'block' : 'none' ?>;">
+                    <label class="col-lg-4 control-label">
+                        Loose Furniture File
+                    </label>
+
+                    <div class="col-lg-8">
+                        <input type="file" name="loose_furniture_files[]" id="loose_furniture_files" class="form-control" multiple
+                            accept=".jpg,.jpeg,.png,.pdf,.dwg,.ppt,.pptx">
+
+                        <small class="text-muted">
+                            Allowed: JPG, PNG, PDF, DWG <?= !empty($design_info) ? '(Leave empty to keep current file)' : '' ?>
+                        </small>
+
+                        <?php if (!empty($design_info->loose_furniture_file)) {
+                            $ex_lfiles = json_decode($design_info->loose_furniture_file);
+                            if (!empty($ex_lfiles)) {
+                                echo '<div class="file-preview mt-xs"><strong>Current File(s):</strong> ';
+                                foreach ($ex_lfiles as $elf) {
+                                    echo '<a href="'.base_url($elf->path).'" target="_blank" class="label label-default mr-xs"><i class="fa fa-paperclip"></i> '.htmlspecialchars($elf->fileName).'</a> ';
+                                }
+                                echo '</div>';
+                            }
+                        } ?>
                     </div>
                 </div>
 
 
 
                 <div class="text-right">
-                    <button class="btn btn-primary  mt-lg mb-lg " type="submit"><?= lang('save') ?></button>
+                    <?php if (!empty($design_info)) { ?>
+                        <a href="<?= base_url('admin/client/details/' . $client_details->client_id . '/validation') ?>" class="btn btn-default mt-lg mb-lg">Cancel</a>
+                    <?php } ?>
+                    <button class="btn btn-primary mt-lg mb-lg" type="submit"><?= !empty($design_info) ? 'Update' : lang('save') ?></button>
                 </div>
 
             </form>
@@ -171,6 +256,47 @@ $validation_files = $this->db
         $(document).ready(function() {
             $('#new_design').click(function() {
                 $('.new_design').toggle('slow');
+            });
+
+            $(document).on('change', '#is_loose_furniture', function() {
+                if ($(this).val() === 'Yes') {
+                    $('#loose_furniture_box').slideDown();
+                } else {
+                    $('#loose_furniture_box').slideUp();
+                    $('#loose_furniture_files').val('');
+                }
+            });
+
+            $(document).on('change', 'select[name="design_style"]', function() {
+                var selectedVal = $(this).val();
+                var canUploadPost = <?= $can_upload_post_val ? 'true' : 'false' ?>;
+                var isEditingPost = <?= (!empty($design_info) && $design_info->design_style == 'Post Validation Design') ? 'true' : 'false' ?>;
+
+                if (selectedVal === 'Post Validation Design' && !canUploadPost && !isEditingPost) {
+                    <?php if(!$pre_val_is_uploaded) { ?>
+                        alert('Pre validation file has not been uploaded yet. Post validation drawing cannot be uploaded until Pre validation is uploaded and approved.');
+                    <?php } else { ?>
+                        alert('Pre validation file is not approved yet (Current Status: <?= !empty($latest_pre_val_check) ? $latest_pre_val_check->status : '' ?>). Post validation drawing cannot be uploaded until Pre validation is approved.');
+                    <?php } ?>
+                    $(this).val('Pre Validation Design');
+                    return false;
+                }
+            });
+
+            $('.new_design form').on('submit', function(e) {
+                var selectedVal = $(this).find('select[name="design_style"]').val();
+                var canUploadPost = <?= $can_upload_post_val ? 'true' : 'false' ?>;
+                var isEditingPost = <?= (!empty($design_info) && $design_info->design_style == 'Post Validation Design') ? 'true' : 'false' ?>;
+
+                if (selectedVal === 'Post Validation Design' && !canUploadPost && !isEditingPost) {
+                    e.preventDefault();
+                    <?php if(!$pre_val_is_uploaded) { ?>
+                        alert('Pre validation file has not been uploaded yet. Post validation drawing cannot be uploaded until Pre validation is uploaded and approved.');
+                    <?php } else { ?>
+                        alert('Pre validation file is not approved yet. Post validation drawing cannot be uploaded until Pre validation is approved.');
+                    <?php } ?>
+                    return false;
+                }
             });
         });
         </script>
@@ -284,22 +410,6 @@ $(document).on('click', '.preview-design', function() {
         $latest_proposal = $two_d_design[0]; // first = latest
         $other_proposals = array_slice($two_d_design, 1);
     }
-
-
-    $url = $this->uri->segment(5);
-    if ($url == '2ddesign') {        
-        $id = $this->uri->segment(6);
-       $design_info = $this->db
-    ->where('id', $id)
-    ->where('design_type', 'Modular Design')
-    ->where('design_style', 'Pre Validation Design')
-    ->get('tbl_client_two_d_design')
-    ->row();
-
-    } else {
-        $id = null;
-    }
-    
     ?>
     <div class="panel-body">
 
@@ -310,7 +420,8 @@ $(document).on('click', '.preview-design', function() {
             <thead>
                 <tr>
                     <th><?= lang('File Name' ) ?></th>
-                    <th><?= lang('File') ?></th>
+                    <th>Modular Design File</th>
+                    <th>Loose Furniture File</th>
                     <th><?= lang('Design Type') ?></th>
                     <th class="col-sm-3"><?= lang('URL') ?></th>
                     <th><?= lang('Status') ?></th>
@@ -353,6 +464,30 @@ $(document).on('click', '.preview-design', function() {
                                 data-type="pdf">'.$file->fileName.'</a>';
                                 }
                             }
+                        }
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        $loose_files = !empty($design->loose_furniture_file) ? json_decode($design->loose_furniture_file) : [];
+                        if (!empty($loose_files)) {
+                            foreach ($loose_files as $file) {
+                                if ($file->is_image) {
+                                echo '<img src="'.base_url($file->path).'" 
+                                width="60" 
+                                class="mr-sm preview-design" 
+                                data-path="'.base_url($file->path).'"
+                                data-type="'.($file->is_image ? 'image' : 'file').'"
+                                style="cursor:pointer">';
+                                } else {
+                                    echo '<a href="javascript:void(0)" 
+                                class="preview-design"
+                                data-path="'.base_url($file->path).'"
+                                data-type="pdf">'.$file->fileName.'</a> ';
+                                }
+                            }
+                        } else {
+                            echo '<span class="text-muted">-</span>';
                         }
                         ?>
                     </td>
@@ -426,7 +561,7 @@ $(document).on('click', '.preview-design', function() {
 
                         <?php if (  $user_type == 1  || check_permission('validation_only_view') || $user_type != 54) {
                     if($design->status == 'Pending') { ?>
-                        <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/' . $design->id) ?>
+                        <?= btn_edit('admin/client/details/' . $client_details->client_id . '/validation/' . $design->id) ?>
                         <?php }} ?>
                         <?php 
                           
@@ -471,7 +606,8 @@ $(document).on('click', '.preview-design', function() {
                 <thead>
                     <tr>
                         <th><?= lang('File Name' ) ?></th>
-                        <th><?= lang('File') ?></th>
+                        <th>Modular Design File</th>
+                        <th>Loose Furniture File</th>
                         <th><?= lang('Design Type') ?></th>
                         <th class="col-sm-3"><?= lang('URL') ?></th>
                         <th><?= lang('Status') ?></th>
@@ -509,6 +645,30 @@ $(document).on('click', '.preview-design', function() {
                                     data-type="pdf">'.$file->fileName.'</a>';
                                     }
                                 }
+                            }
+                            ?>
+                            </td>
+                            <td>
+                                <?php
+                            $loose_files = !empty($design->loose_furniture_file) ? json_decode($design->loose_furniture_file) : [];
+                            if (!empty($loose_files)) {
+                                foreach ($loose_files as $file) {
+                                    if ($file->is_image) {
+                                    echo '<img src="'.base_url($file->path).'" 
+                                    width="60" 
+                                    class="mr-sm preview-design" 
+                                    data-path="'.base_url($file->path).'"
+                                    data-type="'.($file->is_image ? 'image' : 'file').'"
+                                    style="cursor:pointer">';
+                                    } else {
+                                        echo '<a href="javascript:void(0)" 
+                                    class="preview-design"
+                                    data-path="'.base_url($file->path).'"
+                                    data-type="pdf">'.$file->fileName.'</a> ';
+                                    }
+                                }
+                            } else {
+                                echo '<span class="text-muted">-</span>';
                             }
                             ?>
                             </td>
@@ -565,7 +725,7 @@ $(document).on('click', '.preview-design', function() {
 
                             <?php if ( $user_type == 1  || check_permission('validation_only_view') || $user_type != 54) { 
                                  if($design->status == 'Pending') { ?>
-                            <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/' . $design->id) ?>
+                            <?= btn_edit('admin/client/details/' . $client_details->client_id . '/validation/' . $design->id) ?>
                             <?php }} ?>
                             <?php 
                            $user_id = $this->session->userdata('user_id');
@@ -626,6 +786,16 @@ $(document).on('click', '.preview-design', function() {
 
         </div>
     </div>
+    <?php if(!$can_upload_post_val) { ?>
+    <div class="alert alert-warning" style="margin: 10px 15px 0 15px;">
+        <i class="fa fa-exclamation-triangle"></i> 
+        <?php if(!$pre_val_is_uploaded) { ?>
+            <strong>Notice:</strong> Pre validation file has not been uploaded yet. Post validation drawing can only be uploaded once the Pre validation drawing is uploaded and approved.
+        <?php } else { ?>
+            <strong>Notice:</strong> Pre validation file is not approved yet (Current Status: <span class="label label-warning"><?= htmlspecialchars($latest_pre_val_check->status) ?></span>). Post validation drawing can only be uploaded once Pre validation is approved.
+        <?php } ?>
+    </div>
+    <?php } ?>
     <?php
     
     
@@ -655,22 +825,6 @@ $(document).on('click', '.preview-design', function() {
         $latest_proposal = $two_d_design[0]; // first = latest
         $other_proposals = array_slice($two_d_design, 1);
     }
-
-
-    $url = $this->uri->segment(5);
-    if ($url == '2ddesign') {        
-        $id = $this->uri->segment(6);
-       $design_info = $this->db
-    ->where('id', $id)
-    ->where('design_type', 'Modular Design')
-     ->where('design_style', 'Post Validation Design')
-    ->get('tbl_client_two_d_design')
-    ->row();
-
-    } else {
-        $id = null;
-    }
-    
     ?>
     <div class="panel-body">
 
@@ -678,7 +832,8 @@ $(document).on('click', '.preview-design', function() {
             <thead>
                 <tr>
                     <th><?= lang('File Name' ) ?></th>
-                    <th><?= lang('File') ?></th>
+                    <th>Modular Design File</th>
+                    <th>Loose Furniture File</th>
                     <th><?= lang('Design Type') ?></th>
                     <th class="col-sm-3"><?= lang('URL') ?></th>
                     <th><?= lang('Status') ?></th>
@@ -721,6 +876,30 @@ $(document).on('click', '.preview-design', function() {
                                 data-type="pdf">'.$file->fileName.'</a>';
                                 }
                             }
+                        }
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        $loose_files = !empty($design->loose_furniture_file) ? json_decode($design->loose_furniture_file) : [];
+                        if (!empty($loose_files)) {
+                            foreach ($loose_files as $file) {
+                                if ($file->is_image) {
+                                echo '<img src="'.base_url($file->path).'" 
+                                width="60" 
+                                class="mr-sm preview-design" 
+                                data-path="'.base_url($file->path).'"
+                                data-type="'.($file->is_image ? 'image' : 'file').'"
+                                style="cursor:pointer">';
+                                } else {
+                                    echo '<a href="javascript:void(0)" 
+                                class="preview-design"
+                                data-path="'.base_url($file->path).'"
+                                data-type="pdf">'.$file->fileName.'</a> ';
+                                }
+                            }
+                        } else {
+                            echo '<span class="text-muted">-</span>';
                         }
                         ?>
                     </td>
@@ -793,7 +972,7 @@ $(document).on('click', '.preview-design', function() {
 
                          <?php if ( $user_type == 1  || check_permission('validation_only_view') || $user_type != 54) {
                     if($design->status == 'Pending') { ?>
-                        <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/' . $design->id) ?>
+                        <?= btn_edit('admin/client/details/' . $client_details->client_id . '/validation/' . $design->id) ?>
                         <?php }} ?>
                         <?php 
                           
@@ -838,7 +1017,8 @@ $(document).on('click', '.preview-design', function() {
                 <thead>
                     <tr>
                         <th><?= lang('File Name' ) ?></th>
-                        <th><?= lang('File') ?></th>
+                        <th>Modular Design File</th>
+                        <th>Loose Furniture File</th>
                         <th><?= lang('Design Type') ?></th>
                         <th class="col-sm-3"><?= lang('URL') ?></th>
                         <th><?= lang('Status') ?></th>
@@ -876,6 +1056,30 @@ $(document).on('click', '.preview-design', function() {
                                 data-type="pdf">'.$file->fileName.'</a>';
                                 }
                             }
+                        }
+                        ?>
+                        </td>
+                        <td>
+                            <?php
+                        $loose_files = !empty($design->loose_furniture_file) ? json_decode($design->loose_furniture_file) : [];
+                        if (!empty($loose_files)) {
+                            foreach ($loose_files as $file) {
+                                if ($file->is_image) {
+                                echo '<img src="'.base_url($file->path).'" 
+                                width="60" 
+                                class="mr-sm preview-design" 
+                                data-path="'.base_url($file->path).'"
+                                data-type="'.($file->is_image ? 'image' : 'file').'"
+                                style="cursor:pointer">';
+                                } else {
+                                    echo '<a href="javascript:void(0)" 
+                                class="preview-design"
+                                data-path="'.base_url($file->path).'"
+                                data-type="pdf">'.$file->fileName.'</a> ';
+                                }
+                            }
+                        } else {
+                            echo '<span class="text-muted">-</span>';
                         }
                         ?>
                         </td>
@@ -932,7 +1136,7 @@ $(document).on('click', '.preview-design', function() {
 
                             <?php if (  $user_type == 1  || check_permission('validation_only_view') || $user_type != 54) { 
                              if($design->status == 'Pending') { ?>
-                            <?= btn_edit('admin/client/details/' . $client_details->client_id . '/2ddesign/' . $design->id) ?>
+                            <?= btn_edit('admin/client/details/' . $client_details->client_id . '/validation/' . $design->id) ?>
                             <?php }} ?>
                             <?php 
                            $user_id = $this->session->userdata('user_id');
@@ -991,11 +1195,12 @@ $(document).on('click', '.preview-design', function() {
 
             <?php 
                 $hide_inputs = !empty($validation_files->validation_checklist) 
-                            && !empty($validation_files->manual_correction_file);
+                            && !empty($validation_files->manual_correction_file)
+                            && !empty($validation_files->masking_photo);
                 ?>
 
             <div class="row">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="form-group">
                         <label>Validation Checklist File</label>
                         <?php if(!$hide_inputs || $user_type == 1 ) { ?>
@@ -1033,7 +1238,7 @@ $(document).on('click', '.preview-design', function() {
                 </div>
 
 
-                <div class="col-md-6">
+                <div class="col-md-4">
 
                     <div class="form-group">
                         <label>Manual Correction File</label>
@@ -1061,6 +1266,43 @@ $(document).on('click', '.preview-design', function() {
                             <a href="javascript:void(0)" class="btn btn-xs btn-warning preview-design"
                                 data-path="<?= $filePath ?>" data-type="pdf">
                                 View Manual File
+                            </a>
+                            <?php }} ?>
+                        </div>
+
+                        <?php } ?>
+
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+
+                    <div class="form-group">
+                        <label>Masking Photo</label>
+                        <?php if(!$hide_inputs || $user_type == 1  ) { ?>
+                        <input type="file" name="masking_photo" class="form-control"
+                            accept=".jpg,.jpeg,.png,.pdf,.xls,.xlsx">
+                        <?php } ?>
+
+
+                        <!-- Preview -->
+                        <?php if(!empty($validation_files->masking_photo)) { ?>
+
+                        <?php 
+                                    $filePath = base_url($validation_files->masking_photo);
+                                    $ext = pathinfo($validation_files->masking_photo, PATHINFO_EXTENSION);
+                                    $is_image = in_array(strtolower($ext), ['jpg','jpeg','png']);
+                                ?>
+    <?php if($user_type == 1  || check_permission('validation_only_view')) { ?>
+
+                        <div class="file-preview mt-sm">
+                            <?php if($is_image) { ?>
+                            <img src="<?= $filePath ?>" width="70" class="preview-design" data-path="<?= $filePath ?>"
+                                data-type="image">
+                            <?php } else { ?>
+                            <a href="javascript:void(0)" class="btn btn-xs btn-success preview-design"
+                                data-path="<?= $filePath ?>" data-type="pdf">
+                                View Masking Photo
                             </a>
                             <?php }} ?>
                         </div>

@@ -35,6 +35,8 @@ export interface ApiClientListResponse {
   limit?: number;
   total?: number;
   data?: ApiClientItem[];
+  client_access?: number;
+  can_view_clients?: boolean;
 }
 
 export interface ClientListFilters {
@@ -116,38 +118,57 @@ export function mapApiClientToClientProject(item: ApiClientItem): ClientProject 
   };
 }
 
+let lastSessionExpiredNotificationTime = 0;
+
 export function notifySessionExpired(message?: string) {
+  const now = Date.now();
+  if (now - lastSessionExpiredNotificationTime < 2500) {
+    return;
+  }
+  lastSessionExpiredNotificationTime = now;
+
   if (typeof window !== 'undefined') {
     const event = new CustomEvent('auth:session_expired', {
-      detail: { message: message || 'Authorization header missing or session invalidated. Please log in again.' }
+      detail: { message: message || 'Session expired or logged in from another device. Please log in again.' }
     });
     window.dispatchEvent(event);
   }
 }
 
-function checkAndNotifyTokenError(data: any) {
-  if (!data) return;
-  if (data.status === false && typeof data.message === 'string') {
-    const msg = data.message.toLowerCase();
-    if (
-      msg.includes('authorization header missing') ||
-      msg.includes('invalid token') ||
-      msg.includes('token expired') ||
-      msg.includes('unauthenticated') ||
-      msg.includes('session expired') ||
-      msg.includes('logged in from another') ||
-      msg.includes('account logged in elsewhere')
-    ) {
-      console.warn('Authentication error detected from API:', data.message);
-      notifySessionExpired(data.message);
-    }
+export function isTokenError(msg: string): boolean {
+  if (!msg) return false;
+  const lower = msg.toLowerCase();
+  return (
+    (lower.includes('invalid') && lower.includes('token')) ||
+    (lower.includes('token') && (lower.includes('expired') || lower.includes('missing') || lower.includes('empty') || lower.includes('invalid') || lower.includes('not found'))) ||
+    lower.includes('authorization header missing') ||
+    lower.includes('authorization token missing') ||
+    lower.includes('unauthorized') ||
+    lower.includes('unauthenticated') ||
+    lower.includes('session expired') ||
+    lower.includes('logged in from another') ||
+    lower.includes('account logged in elsewhere') ||
+    lower.includes('session invalidated')
+  );
+}
+
+export function checkAndNotifyTokenError(data: any): boolean {
+  if (!data) return false;
+  const msg = (typeof data.message === 'string' ? data.message : (typeof data.error === 'string' ? data.error : ''));
+  const isFail = data.status === false || data.status === 401 || data.code === 401 || data.success === false;
+
+  if (isFail && msg && isTokenError(msg)) {
+    console.warn('Authentication/Token error detected from API:', msg);
+    notifySessionExpired(msg);
+    return true;
   }
+  return false;
 }
 
 async function safeParseJson<T>(res: Response): Promise<T | null> {
   if (res.status === 401) {
     console.warn('HTTP 401 Unauthorized');
-    notifySessionExpired('Session expired or unauthorized request (HTTP 401)');
+    notifySessionExpired('Session expired or logged in from another device (HTTP 401)');
     return null;
   }
   try {
@@ -157,7 +178,10 @@ async function safeParseJson<T>(res: Response): Promise<T | null> {
       return null;
     }
     const parsed = JSON.parse(text) as T;
-    checkAndNotifyTokenError(parsed);
+    const isTokenErr = checkAndNotifyTokenError(parsed);
+    if (isTokenErr) {
+      return null;
+    }
     return parsed;
   } catch (e) {
     console.warn('Error parsing JSON:', e);
@@ -233,6 +257,7 @@ async function fetchCrmEndpoint<T>(
 
   for (const url of urls) {
     if (!url) continue;
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem('auth_token')) return null;
 
     // 1. Try JSON Body
     try {
@@ -323,6 +348,11 @@ export async function fetchClientList(
   const targetUrls = isApk ? [DIRECT_URL, CLOUD_PROXY_URL] : [PROXY_URL, DIRECT_URL, CLOUD_PROXY_URL];
 
   for (const url of targetUrls) {
+    if (!url) continue;
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem('auth_token')) {
+      return { status: false, message: 'Session expired', data: [] };
+    }
+
     // 1. Try JSON Body
     try {
       const headers = { ...baseHeaders, 'Content-Type': 'application/json' };

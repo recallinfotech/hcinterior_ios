@@ -260,11 +260,10 @@ GROUP BY tbl_goal_type.goal_type_id
                 $query = $this->db->select('language')->where('user_id', $this->session->userdata('user_id'))->get('tbl_account_details');
                 if ($query->num_rows() > 0) {
                     $row = $query->row();
-                    return $row->language;
+                    return !empty($row->language) ? $row->language : (config_item('default_language') ? config_item('default_language') : 'english');
                 }
-            } else {
-                return config_item('default_language');
             }
+            return config_item('default_language') ? config_item('default_language') : 'english';
         }
     }
 

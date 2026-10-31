@@ -1,4 +1,5 @@
 import { isMobileApkEnvironment } from './authApi';
+import { checkAndNotifyTokenError, notifySessionExpired } from './clientApi';
 
 const DIRECT_BASE = 'https://crm.hcinterior.in';
 const CLOUD_PROXY_BASE = 'https://ais-pre-p4l3km6ranu5hkwm757tro-734024418090.asia-southeast1.run.app/crm-api';
@@ -14,15 +15,38 @@ function getApiBases(): string[] {
 async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T | null> {
   const bases = getApiBases();
   for (const base of bases) {
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem('auth_token')) {
+      return null;
+    }
     const url = `${base}${path}`;
     try {
       const res = await fetch(url, options);
-      if (!res.ok) continue;
+      if (res.status === 401) {
+        console.warn(`HTTP 401 Unauthorized in userPortalApi: ${url}`);
+        notifySessionExpired('Session expired or logged in from another device (HTTP 401)');
+        return null;
+      }
+      if (!res.ok) {
+        try {
+          const errText = await res.text();
+          if (errText && (errText.trim().startsWith('{') || errText.trim().startsWith('['))) {
+            const errJson = JSON.parse(errText);
+            if (checkAndNotifyTokenError(errJson)) {
+              return null;
+            }
+          }
+        } catch (_) {}
+        continue;
+      }
       const text = await res.text();
       if (!text || (!text.trim().startsWith('{') && !text.trim().startsWith('['))) {
         continue;
       }
-      return JSON.parse(text) as T;
+      const data = JSON.parse(text) as T;
+      if (checkAndNotifyTokenError(data)) {
+        return null;
+      }
+      return data;
     } catch (e) {
       console.warn(`Request failed on ${url}:`, e);
     }
@@ -114,9 +138,23 @@ export async function markAttendanceApi(
     time?: string;
     latitude?: number;
     longitude?: number;
+    location?: string;
+    address?: string;
     leave_type?: string;
   }
-): Promise<{ status: boolean; message: string; is_clocked_in?: boolean }> {
+): Promise<{
+  status: boolean;
+  message: string;
+  is_clocked_in?: boolean;
+  attendance_status?: number;
+  already_clocked_in?: boolean;
+  is_completed?: boolean;
+  is_pending?: boolean;
+  is_face_pending?: boolean;
+  is_inside_geofence?: boolean;
+  distance_meters?: number;
+  location?: string;
+}> {
   const formData = new FormData();
   if (token) formData.append('token', token);
   if (payload.user_id) formData.append('user_id', payload.user_id);
@@ -126,9 +164,19 @@ export async function markAttendanceApi(
   if (payload.time) formData.append('time', payload.time);
   if (payload.latitude) formData.append('latitude', String(payload.latitude));
   if (payload.longitude) formData.append('longitude', String(payload.longitude));
+  if (payload.location) formData.append('location', payload.location);
+  if (payload.address) formData.append('address', payload.address);
   if (payload.leave_type) formData.append('leave_type', payload.leave_type);
 
-  const res = await requestApi<{ status: boolean; message: string; is_clocked_in?: boolean }>(
+  const res = await requestApi<{
+    status: boolean;
+    message: string;
+    is_clocked_in?: boolean;
+    attendance_status?: number;
+    is_inside_geofence?: boolean;
+    distance_meters?: number;
+    location?: string;
+  }>(
     '/mobileapi/Client/mark_attendance',
     {
       method: 'POST',
@@ -392,19 +440,41 @@ export async function getMyLeavesApi(token: string, userId?: string): Promise<{ 
 }
 
 export interface OfficeLocationConfig {
+  id?: number;
   name: string;
   latitude: number;
   longitude: number;
   radius_meters: number;
+  address?: string;
+  is_default?: boolean;
 }
 
 export interface UserFaceStatusResponse {
   status: boolean;
+  message?: string;
   is_enrolled: boolean;
+  is_approved?: boolean;
+  approval_status?: number; // 0=Pending, 1=Approved, 2=Reset, 3=Rejected
+  allow_manual_punch?: boolean;
+  can_enroll?: boolean;
+  status_text?: string;
+  rejection_reason?: string;
   enrolled_at?: string;
   face_descriptor?: string;
   image_url?: string;
-  office_config: OfficeLocationConfig;
+  has_assigned_office?: boolean;
+  office_config?: OfficeLocationConfig;
+  all_offices?: OfficeLocationConfig[];
+  client_access?: number;
+  can_view_clients?: boolean;
+  today_clock?: {
+    has_punched_today: boolean;
+    is_clocked_in: boolean;
+    clocking_status: number;
+    clockin_time: string;
+    clockout_time: string;
+    attendance_status: number;
+  };
 }
 
 export interface EnrollFaceParams {
@@ -412,6 +482,7 @@ export interface EnrollFaceParams {
   userId?: string;
   faceDescriptor: any;
   faceImageBase64?: string;
+  forceReEnroll?: boolean;
 }
 
 export interface MarkFaceAttendanceParams {
@@ -425,6 +496,7 @@ export interface MarkFaceAttendanceParams {
   photoBase64?: string;
   distanceMeters?: number;
   isInsideGeofence?: boolean;
+  liveDescriptor?: number[] | string;
 }
 
 export interface MarkFaceAttendanceResponse {
@@ -437,30 +509,47 @@ export interface MarkFaceAttendanceResponse {
   distance_meters?: number;
   is_inside_geofence?: boolean;
   attendance_id?: number;
+  attendance_status?: number;
+  is_pending?: boolean;
 }
 
 export async function getUserFaceStatusApi(token?: string, userId?: string): Promise<UserFaceStatusResponse> {
+  const effectiveToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') || '' : '');
+  if (!effectiveToken) {
+    return {
+      status: false,
+      message: 'Authentication required',
+      is_enrolled: false
+    };
+  }
+
   const urlParams = new URLSearchParams();
-  if (token) urlParams.append('token', token);
+  urlParams.append('token', effectiveToken);
   if (userId) urlParams.append('user_id', userId);
 
   const res = await requestApi<UserFaceStatusResponse>(
     `/mobileapi/Client/get_face_status?${urlParams.toString()}`,
     {
       method: 'GET',
-      headers: { Authorization: token ? `Bearer ${token}` : '' }
+      headers: { Authorization: `Bearer ${effectiveToken}` }
     }
   );
 
-  return res || {
+  if (res) return res;
+
+  if (typeof localStorage !== 'undefined' && !localStorage.getItem('auth_token')) {
+    return {
+      status: false,
+      message: 'Session expired. Please log in again.',
+      is_enrolled: false
+    };
+  }
+
+  return {
     status: true,
     is_enrolled: false,
-    office_config: {
-      name: 'HC Interior Head Office',
-      latitude: 28.535517,
-      longitude: 77.391029,
-      radius_meters: 250
-    }
+    has_assigned_office: false,
+    office_config: undefined,
   };
 }
 
@@ -471,6 +560,9 @@ export async function enrollUserFaceApi(params: EnrollFaceParams): Promise<{ sta
   formData.append('face_descriptor', typeof params.faceDescriptor === 'string' ? params.faceDescriptor : JSON.stringify(params.faceDescriptor));
   if (params.faceImageBase64) {
     formData.append('face_image', params.faceImageBase64);
+  }
+  if (params.forceReEnroll) {
+    formData.append('force_re_enroll', '1');
   }
 
   const res = await requestApi<{ status: boolean; message: string; image_url?: string }>(
@@ -497,6 +589,7 @@ export async function markFaceAttendanceApi(params: MarkFaceAttendanceParams): P
   if (params.photoBase64) formData.append('photo', params.photoBase64);
   if (params.distanceMeters !== undefined) formData.append('distance_meters', params.distanceMeters.toString());
   formData.append('is_inside_geofence', params.isInsideGeofence ? '1' : '0');
+  if (params.liveDescriptor) formData.append('live_descriptor', typeof params.liveDescriptor === 'string' ? params.liveDescriptor : JSON.stringify(params.liveDescriptor));
 
   const res = await requestApi<MarkFaceAttendanceResponse>(
     `/mobileapi/Client/mark_face_attendance`,
@@ -517,5 +610,196 @@ export async function markFaceAttendanceApi(params: MarkFaceAttendanceParams): P
     distance_meters: params.distanceMeters || 45,
     is_inside_geofence: params.isInsideGeofence !== false
   };
+}
+
+export interface EducationRow {
+  school_college: string;
+  from_period: string;
+  to_period: string;
+  division_grade: string;
+  percentage: string;
+  subjects: string;
+  scholarships_distinctions: string;
+}
+
+export interface ReferenceRow {
+  name: string;
+  designation_relation: string;
+  contact_no: string;
+}
+
+export interface FamilyRow {
+  name: string;
+  relation: string;
+  occupation: string;
+  date_of_birth: string;
+}
+
+export interface ExperienceRow {
+  company_name: string;
+  from_period: string;
+  to_period: string;
+  position_work: string;
+  ctc_pm: string;
+}
+
+export interface EmploymentApplicationData {
+  id?: number;
+  user_id?: number;
+  fullname?: string;
+  father_name?: string;
+  father_mob_no?: string;
+  date_of_birth?: string;
+  gender?: string;
+  maratial_status?: string;
+  mobile?: string;
+  present_address?: string;
+  permanent_address?: string;
+  present_contact_no?: string;
+  permanent_contact_no?: string;
+  joining_date?: string;
+  employment_id?: string;
+  fresher_experience?: string;
+  total_experience_years?: string;
+  last_salary?: string;
+  present_salary?: string;
+  aadhaar_no?: string;
+  pan_no?: string;
+  date_of_marriage?: string;
+  spouse_name?: string;
+  blood_group?: string;
+  height_weight?: string;
+  relative_friend_in_company?: string;
+  previously_applied?: string;
+  photograph?: string;
+  photograph_url?: string;
+  aadhaar_card_doc?: string;
+  aadhaar_card_url?: string;
+  pan_card_doc?: string;
+  pan_card_url?: string;
+  signature_doc?: string;
+  signature_url?: string;
+  educational_qualifications?: EducationRow[] | string;
+  professional_references?: ReferenceRow[] | string;
+  family_details?: FamilyRow[] | string;
+  work_experience?: ExperienceRow[] | string;
+  declaration_date?: string;
+  declaration_place?: string;
+  status?: 'draft' | 'submitted' | 'approved' | 'rejected' | 'not_submitted';
+  rejection_reason?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+}
+
+export interface EmploymentApplicationResponse {
+  status: boolean;
+  message?: string;
+  data?: EmploymentApplicationData;
+  is_locked?: boolean;
+}
+
+export async function getEmploymentApplicationApi(token?: string, userId?: string | number): Promise<EmploymentApplicationResponse> {
+  const effectiveToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') || '' : '');
+  const urlParams = new URLSearchParams();
+  if (effectiveToken) urlParams.append('token', effectiveToken);
+  if (userId) urlParams.append('user_id', String(userId));
+
+  const res = await requestApi<EmploymentApplicationResponse>(
+    `/mobileapi/Client/get_employment_application?${urlParams.toString()}`,
+    {
+      method: 'GET',
+      headers: { Authorization: effectiveToken ? `Bearer ${effectiveToken}` : '' }
+    }
+  );
+
+  return res || { status: false, message: 'Could not load application data' };
+}
+
+export async function saveEmploymentApplicationApi(
+  payload: Partial<EmploymentApplicationData> & { token?: string; action?: 'draft' | 'submit' }
+): Promise<{ status: boolean; message: string; form_id?: number; form_status?: string }> {
+  const effectiveToken = payload.token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') || '' : '');
+  const formData = new FormData();
+  if (effectiveToken) formData.append('token', effectiveToken);
+  if (payload.action) formData.append('action', payload.action);
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (key === 'token') return;
+    if (value === undefined || value === null) return;
+    if (typeof value === 'object') {
+      formData.append(key, JSON.stringify(value));
+    } else {
+      formData.append(key, String(value));
+    }
+  });
+
+  const res = await requestApi<{ status: boolean; message: string; form_id?: number; form_status?: string }>(
+    `/mobileapi/Client/save_employment_application`,
+    {
+      method: 'POST',
+      body: formData,
+      headers: { Authorization: effectiveToken ? `Bearer ${effectiveToken}` : '' }
+    }
+  );
+
+  return res || { status: false, message: 'Failed to submit application form' };
+}
+
+export interface SalaryBreakdownItem {
+  label: string;
+  value: number;
+  formatted: string;
+}
+
+export interface SalarySlipItem {
+  salary_payment_id: number;
+  user_id: number;
+  payment_month: string;
+  month_name: string;
+  payslip_number: string;
+  payment_status: 'paid' | 'hold' | 'unpaid';
+  payment_type: string;
+  comments: string;
+  paid_date: string;
+  paid_date_raw: string;
+  basic_salary: number;
+  salary_grade: string;
+  overtime_hour: string;
+  overtime_amount: number;
+  gross_salary: number;
+  total_allowance: number;
+  total_deduction: number;
+  net_payable: number;
+  formatted_net: string;
+  allowances: SalaryBreakdownItem[];
+  deductions: SalaryBreakdownItem[];
+  details: { label: string; value: string }[];
+  pdf_url: string;
+  high_creation_pdf_url: string;
+  view_url: string;
+}
+
+export interface SalarySlipsResponse {
+  status: boolean;
+  count: number;
+  data: SalarySlipItem[];
+  message?: string;
+}
+
+export async function getEmployeeSalarySlipsApi(token?: string, userId?: string | number): Promise<SalarySlipsResponse> {
+  const effectiveToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') || '' : '');
+  const urlParams = new URLSearchParams();
+  if (effectiveToken) urlParams.append('token', effectiveToken);
+  if (userId) urlParams.append('user_id', String(userId));
+
+  const res = await requestApi<SalarySlipsResponse>(
+    `/mobileapi/Client/get_my_salary_slips?${urlParams.toString()}`,
+    {
+      method: 'GET',
+      headers: { Authorization: effectiveToken ? `Bearer ${effectiveToken}` : '' }
+    }
+  );
+
+  return res || { status: false, count: 0, data: [], message: 'Could not load salary slips' };
 }
 

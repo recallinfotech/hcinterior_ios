@@ -483,6 +483,37 @@ if (!empty($floor_categories)) {
                                         </div>
                                     </div>
 
+                                    <!-- GST Option -->
+                                    <div class="form-group" style="border-top: 1px dashed #e2e8f0; padding-top: 15px; margin-top: 10px;">
+                                        <label class="col-lg-3 control-label" style="font-weight: 700; color: #1e293b;">GST</label>
+                                        <div class="col-lg-9" style="padding-top: 6px;">
+                                            <label class="radio-inline" style="font-weight: 600; cursor: pointer; margin-right: 25px; font-size: 13px;">
+                                                <input type="radio" name="is_gst" value="No" class="gst_toggle_radio" checked style="margin-top: 2px;"> No
+                                            </label>
+                                            <label class="radio-inline" style="font-weight: 600; cursor: pointer; font-size: 13px;">
+                                                <input type="radio" name="is_gst" value="Yes" class="gst_toggle_radio" style="margin-top: 2px;"> Yes
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- GST Details Container (Visible only when GST = Yes) -->
+                                    <div id="gst_details_wrapper" style="display: none; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px 12px 6px 12px; margin-bottom: 18px; margin-left: 15px; margin-right: 15px;">
+                                        <div class="form-group">
+                                            <label class="col-lg-3 control-label" style="font-weight: 600;">GSTIN Number <span class="text-danger">*</span></label>
+                                            <div class="col-lg-9">
+                                                <input type="text" class="form-control company" name="gst_number" id="gst_number_input" placeholder="Enter GSTIN Number (e.g. 07AAAAA0000A1Z5)" maxlength="20" style="text-transform: uppercase;">
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group" style="margin-bottom: 10px;">
+                                            <label class="col-lg-3 control-label" style="font-weight: 600;">Upload GST PDF <span class="text-danger">*</span></label>
+                                            <div class="col-lg-9">
+                                                <input type="file" class="form-control company" name="gst_file" id="gst_file_input" accept=".pdf,.jpg,.jpeg,.png">
+                                                <small class="text-muted" style="display: block; margin-top: 4px; font-size: 11px;"><i class="fa fa-info-circle"></i> Supported: PDF, JPG, PNG</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="wizard-buttons text-right">
                                         <button type="button" class="btn btn-default prev-step">Previous</button>
                                        <button type="submit" id="submitBtn" class="btn btn-success">Submit</button>
@@ -507,9 +538,33 @@ if (!empty($floor_categories)) {
 
     $(document).ready(function () {
 
+    // GST Yes/No Radio Toggle
+    $('input[name="is_gst"]').on('change', function () {
+        if ($(this).val() === 'Yes') {
+            $('#gst_details_wrapper').slideDown(200);
+            $('#gst_number_input').focus();
+        } else {
+            $('#gst_details_wrapper').slideUp(200);
+            $('#gst_number_input').val('');
+            $('#gst_file_input').val('');
+        }
+    });
+
     $('form').on('submit', function () {
 
         var btn = $('#submitBtn');
+
+        // GST Validation if Yes is selected
+        var isGst = $('input[name="is_gst"]:checked').val();
+        if (isGst === 'Yes') {
+            var gstNum = $.trim($('#gst_number_input').val());
+            if (gstNum === '') {
+                alert('Please enter GSTIN Number, or select "No" for GST.');
+                $('#gst_number_input').focus();
+                btn.prop('disabled', false).html('Submit');
+                return false;
+            }
+        }
 
         // prevent double click
         btn.prop('disabled', true);

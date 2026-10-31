@@ -861,8 +861,39 @@ class Dashboard extends Admin_Controller
                 $data['attendace_info'][$sl] = $this->attendance_model->attendance_report_by_empid($v_employee->user_id, $sdate);
             }
             $flag = '';
-//            }
+        // Fetch all punch in and punch out logs for the selected date
+        $punch_in_map = array();
+        $punch_out_map = array();
+        $outside_logout_map = array();
+
+        $has_logs_table = $this->db->query("SHOW TABLES LIKE 'tbl_attendance_face_logs'")->num_rows() > 0;
+        if ($has_logs_table) {
+            $all_logs_query = $this->db->select('log_id, user_id, punch_type, punch_time, distance_from_office, is_inside_geofence, address, lat, lng')
+                ->from('tbl_attendance_face_logs')
+                ->where("DATE(punch_time) = '$date'")
+                ->order_by('log_id', 'DESC')
+                ->get()->result();
+
+            if (!empty($all_logs_query)) {
+                foreach ($all_logs_query as $log_item) {
+                    if ($log_item->punch_type === 'in' && !isset($punch_in_map[$log_item->user_id])) {
+                        $punch_in_map[$log_item->user_id] = $log_item;
+                    }
+                    if ($log_item->punch_type === 'out') {
+                        if (!isset($punch_out_map[$log_item->user_id])) {
+                            $punch_out_map[$log_item->user_id] = $log_item;
+                        }
+                        if ((int)$log_item->is_inside_geofence === 0 && !isset($outside_logout_map[$log_item->user_id])) {
+                            $outside_logout_map[$log_item->user_id] = $log_item;
+                        }
+                    }
+                }
+            }
         }
+        $data['punch_in_map'] = $punch_in_map;
+        $data['punch_out_map'] = $punch_out_map;
+        $data['outside_logout_map'] = $outside_logout_map;
+
         $data['subview'] = $this->load->view('admin/settings/mark_attendance', $data, TRUE);
         $this->load->view('admin/_layout_main', $data); //page load
     }

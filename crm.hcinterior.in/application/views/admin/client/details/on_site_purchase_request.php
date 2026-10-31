@@ -37,7 +37,7 @@
     <div class="panel-heading">
         <div class="panel-title">
             <strong>
-                <?= lang('On Site Purchase Request') ?>
+                On Site Purchase Request
             </strong>
            
             <?php  if($user_type == 1 || check_permission('onsite_purchase_request_edit')) { ?> 
@@ -107,7 +107,7 @@
 
 
                 <div class="form-group" style="margin-bottom: 0px">
-                    <label for="field-1" class="col-sm-3 control-label"><?= lang('attachment') ?></label>
+                    <label for="field-1" class="col-sm-3 control-label">Attachment</label>
 
                     <div class="col-sm-5">
                         <div id="comments_file-dropzone" class="dropzone mb15">
@@ -178,7 +178,7 @@
                                 thumbnailHeight: 80,
                                 parallelUploads: 20,
                                 previewTemplate: previewTemplate,
-                                dictDefaultMessage: '<?php echo lang("file_upload_instruction"); ?>',
+                                dictDefaultMessage: '<strong> Drag files </strong> to upload <span class="block"> (or click)</span>',
                                 autoQueue: true,
                                 previewsContainer: "#comments_file-previews",
                                 clickable: true,
@@ -238,14 +238,14 @@
 
                                     $("#file-modal-footer").prepend(
                                         "<button id='add-more-file-button' type='button' class='btn  btn-default pull-left'><i class='fa fa-plus-circle'></i> " +
-                                        "<?php echo lang("add_more"); ?>" + "</button>");
+                                        "Add More</button>");
 
                                     $("#file-modal-footer").on("click", "#add-more-file-button",
                                         function() {
                                             var newFileRow =
                                                 "<div class='file-row pb pt10 b-b mb10'>" +
                                                 "<div class='pb clearfix '><button type='button' class='btn btn-xs btn-danger pull-left mr remove-file'><i class='fa fa-times'></i></button> <input class='pull-left' type='file' name='manualFiles[]' /></div>" +
-                                                "<div class='mb5 pb5'><input class='form-control description-field'  name='comment[]'  type='text' style='cursor: auto;' placeholder='<?php echo lang("comment") ?>' /></div>" +
+                                                "<div class='mb5 pb5'><input class='form-control description-field'  name='comment[]'  type='text' style='cursor: auto;' placeholder='Comment' /></div>" +
                                                 "</div>";
                                             $("#comments_file-previews").prepend(newFileRow);
                                         });
@@ -271,7 +271,7 @@
 
 
                 <div class="">
-                    <button class="btn btn-primary pull-right mt-lg mb-lg " type="submit"><?= lang('save') ?></button>
+                    <button class="btn btn-primary pull-right mt-lg mb-lg " type="submit">Save</button>
                 </div>
 
             </form>
@@ -287,13 +287,13 @@
         <table class="table table-striped " cellspacing="0" width="100%">
             <thead>
                 <tr>
-                    <th><?= lang('File Name' ) ?></th>
-                    <th><?= lang('Brand') ?></th>
-                    <th><?= lang('Message') ?></th>
-                    <th><?= lang('File') ?></th>
-                    <th class="col-sm-1"><?= lang('date') ?> </th>
-                    <th class="col-sm-2"><?= lang('Status') ?> </th>
-                    <th class="col-sm-1"><?= lang('action') ?></th>
+                    <th>File Name</th>
+                    <th>Brand</th>
+                    <th>Message</th>
+                    <th>File</th>
+                    <th class="col-sm-1">Date</th>
+                    <th class="col-sm-2">Status</th>
+                    <th class="col-sm-1">Action</th>
                 </tr>
             </thead>
 

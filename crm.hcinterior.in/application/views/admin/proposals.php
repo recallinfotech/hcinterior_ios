@@ -36,7 +36,9 @@
                     <th><?= lang('phone') ?></th>
      <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price')){ ?>
                     <th><?= lang('G Total') ?></th> 
+                    <?php if($user_type == 1){ ?>
                     <th><?= lang('Site Handling') ?></th>
+                    <?php } ?>
                     <th><?= lang('To Be Paid') ?></th>
                     <?php } ?>
                     <th><?= lang('status') ?></th>
@@ -82,7 +84,9 @@ if (!empty($all_proposals_info)) {
      <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price')){ ?>
 
         <td><?= number_format($v_proposals->grand_total, 2) ?></td>
+        <?php if($user_type == 1){ ?>
         <td><?= $v_proposals->siteHandling ?></td>
+        <?php } ?>
         <td><?= number_format($v_proposals->totalToBePaid, 2) ?></td>
     <?php } ?>
 
@@ -148,7 +152,9 @@ if (!empty($all_proposals_info)) {
                     <th><?= lang('phone') ?></th>
      <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price')){ ?>
                     <th><?= lang('G Total') ?></th> 
+                    <?php if($user_type == 1){ ?>
                     <th><?= lang('Site Handling') ?></th>
+                    <?php } ?>
                     <th><?= lang('To Be Paid') ?></th>
                     <?php } ?>
                     <th><?= lang('status') ?></th>
@@ -186,7 +192,9 @@ if (!empty($all_proposals_info)) {
                             <td><?= $v_proposals->phone ?>  </td>
      <?php if($user_type == 1 || has_client_permission($client_details->client_id,'boq_with_price')){ ?>
                             <td><?= number_format($v_proposals->grand_total, 2) ?>  </td>
+                            <?php if($user_type == 1){ ?>
                             <td><?= $v_proposals->siteHandling ?>  </td>
+                            <?php } ?>
                             <td><?= number_format($v_proposals->totalToBePaid, 2) ?>   </td>
                             <?php } ?>
                             </td>

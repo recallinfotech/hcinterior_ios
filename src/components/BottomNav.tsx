@@ -1,54 +1,60 @@
 import React, { useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   Users,
   ShieldAlert,
   Clock,
-  Grid,
   MoreHorizontal,
-  FileText,
-  Calendar,
   Package,
   Truck,
   CheckCircle2,
   ShieldCheck,
   ShoppingCart,
-  CreditCard,
+  User,
   X,
   ChevronRight,
   Layers,
   Sparkles,
+  Calendar,
+  FileCheck,
 } from 'lucide-react';
 
-export type TabType = 'dashboard' | 'escalation' | 'checklist' | 'dispatch';
+export type TabType = 'dashboard' | 'attendance' | 'profile' | 'escalation' | 'checklist' | 'dispatch';
 
 interface BottomNavProps {
-  activeTab: TabType;
-  onChangeTab: (tab: TabType) => void;
+  activeTab: string;
+  onChangeTab: (tab: any) => void;
+  onOpenAttendance?: () => void;
+  onOpenProfile?: () => void;
   activeSectionKey?: string;
   onSelectSection?: (sectionKey: string) => void;
+  todayAttendance?: {
+    isClockedIn: boolean;
+    clockInTime?: string;
+    isPending?: boolean;
+  };
+  canViewClients?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   onChangeTab,
+  onOpenAttendance,
+  onOpenProfile,
   activeSectionKey,
   onSelectSection,
+  todayAttendance,
+  canViewClients = true,
 }) => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
-  const mainNavItems = [
-    { id: 'dashboard' as TabType, label: 'Client', icon: Users },
-    { id: 'escalation' as TabType, label: 'Escalation', icon: ShieldAlert },
-    { id: 'dispatch' as TabType, label: 'Dispatch', icon: Truck },
-  ];
-
   const moreSections = [
     {
-      key: 'bom',
-      title: 'BOM',
-      desc: 'Bill of Materials & Tree',
-      icon: Package,
-      color: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+      key: 'escalation',
+      title: 'Escalation',
+      desc: 'Client issue logs & tickets tracker',
+      icon: ShieldAlert,
+      color: 'bg-rose-500/10 text-rose-500 border-rose-500/20',
     },
     {
       key: 'dispatch',
@@ -56,6 +62,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       desc: 'Logistics & Dispatch tracking',
       icon: Truck,
       color: 'bg-sky-500/10 text-sky-500 border-sky-500/20',
+    },
+    {
+      key: 'bom',
+      title: 'BOM',
+      desc: 'Bill of Materials & Tree',
+      icon: Package,
+      color: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
     },
     {
       key: 'looseFurniture',
@@ -78,97 +91,198 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       icon: ShieldCheck,
       color: 'bg-teal-500/10 text-teal-500 border-teal-500/20',
     },
-    // {
-    //   key: 'onSitePurchaseRequest',
-    //   title: 'On Site Purchase Request',
-    //   desc: 'Local material purchase logs & drawings',
-    //   icon: ShoppingCart,
-    //   color: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    // },
     {
       key: 'onSitePurchaseWithItem',
       title: 'On Site Purchase Request',
       desc: 'On-site item purchase requests & receiving logs',
-      icon: Package,
+      icon: ShoppingCart,
       color: 'bg-rose-500/10 text-rose-500 border-rose-500/20',
+    },
+    {
+      key: 'executionTimeline',
+      title: 'Execution Timeline',
+      desc: 'Site progress milestones & dates',
+      icon: Calendar,
+      color: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
+    },
+    {
+      key: 'handover',
+      title: 'Handover',
+      desc: 'Final client site handover checklist',
+      icon: FileCheck,
+      color: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
     },
   ];
 
   const handleMoreItemClick = (key: string) => {
     setIsMoreOpen(false);
-    if (onSelectSection) {
+    if (key === 'escalation') {
+      onChangeTab('escalation');
+    } else if (key === 'dispatch') {
+      onChangeTab('dispatch');
+    } else if (onSelectSection) {
       onSelectSection(key);
     }
   };
 
   const isMoreActive =
     isMoreOpen ||
-    (activeTab === 'checklist' &&
-      !!activeSectionKey &&
-      activeSectionKey !== 'workflow');
+    activeTab === 'escalation' ||
+    activeTab === 'dispatch' ||
+    (activeTab === 'checklist' && !!activeSectionKey && activeSectionKey !== 'menu');
 
   return (
     <>
-      <div className="bg-zinc-950 border-t border-zinc-800 text-zinc-400 py-1.5 px-2 flex items-center justify-around sticky bottom-0 z-30 shadow-2xl">
-        {mainNavItems.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id && !isMoreOpen;
-          return (
+      <div
+        className="bg-white border-t border-slate-200/90 pt-2 px-3 flex items-center justify-around sticky bottom-0 z-30 shadow-[0_-4px_25px_rgba(0,0,0,0.07)]"
+        style={{
+          paddingBottom:
+            Capacitor.getPlatform() === 'android'
+              ? '2.8rem'
+              : Capacitor.getPlatform() === 'ios'
+              ? 'max(2rem, calc(0.5rem + env(safe-area-inset-bottom, 0px)))'
+              : '0.75rem'
+        }}
+      >
+        {/* If user CANNOT view clients: 2 tabs with icons on the side, fixed size, no jumping */}
+        {canViewClients === false ? (
+          <div className="flex items-center justify-center gap-3 w-full max-w-xs mx-auto">
+            {/* 1. Attendance & Leave Tab */}
             <button
-              key={tab.id}
+              type="button"
+              title="Attendance & Leave"
+              aria-label="Attendance & Leave"
               onClick={() => {
                 setIsMoreOpen(false);
-                onChangeTab(tab.id);
+                onChangeTab('attendance');
+                if (onOpenAttendance) onOpenAttendance();
               }}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer relative ${
-                isActive
-                  ? 'text-amber-400 font-bold bg-amber-400/10 border border-amber-500/20'
-                  : 'hover:text-zinc-200 hover:bg-zinc-900 font-medium'
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer ${
+                activeTab === 'attendance'
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/30'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold'
               }`}
             >
-              <div className="relative">
-                <Icon
-                  className={`w-5 h-5 ${
-                    isActive ? 'text-amber-400 scale-110' : 'text-zinc-400'
-                  } transition-transform`}
-                />
+              <div className="relative shrink-0">
+                <Clock className="w-5 h-5 shrink-0" />
+                {todayAttendance?.isClockedIn && activeTab !== 'attendance' && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                )}
               </div>
-              <span className="text-[10px] mt-0.5 tracking-tight font-medium">
-                {tab.label}
-              </span>
             </button>
-          );
-        })}
 
-        {/* 5th Button: MORE */}
-        <button
-          onClick={() => setIsMoreOpen(!isMoreOpen)}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all cursor-pointer relative ${
-            isMoreActive
-              ? 'text-amber-400 font-bold bg-amber-400/10 border border-amber-500/20'
-              : 'hover:text-zinc-200 hover:bg-zinc-900 font-medium'
-          }`}
-        >
-          <div className="relative">
-            <MoreHorizontal
-              className={`w-5 h-5 ${
-                isMoreActive ? 'text-amber-400 scale-110' : 'text-zinc-400'
-              } transition-transform`}
-            />
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            {/* 2. Profile Tab */}
+            <button
+              type="button"
+              title="Profile"
+              aria-label="Profile"
+              onClick={() => {
+                setIsMoreOpen(false);
+                onChangeTab('profile');
+                if (onOpenProfile) onOpenProfile();
+              }}
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer ${
+                activeTab === 'profile'
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/30'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold'
+              }`}
+            >
+              <User className="w-5 h-5 shrink-0" />
+            </button>
           </div>
-          <span className="text-[10px] mt-0.5 tracking-tight font-bold">More</span>
-        </button>
+        ) : (
+          /* If user CAN view clients: 4 tabs with icons on the side, fixed size, no jumping */
+          <div className="flex items-center justify-between gap-1.5 w-full">
+            {/* 1. CRM Tab */}
+            <button
+              type="button"
+              title="CRM"
+              aria-label="CRM"
+              onClick={() => {
+                setIsMoreOpen(false);
+                onChangeTab('dashboard');
+              }}
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer ${
+                activeTab === 'dashboard' && !isMoreOpen
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/25'
+                  : 'text-slate-600 hover:text-amber-600 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <Users className="w-5 h-5 shrink-0" />
+            </button>
+
+            {/* 2. Attendance Tab */}
+            <button
+              type="button"
+              title="Attendance"
+              aria-label="Attendance"
+              onClick={() => {
+                setIsMoreOpen(false);
+                onChangeTab('attendance');
+                if (onOpenAttendance) onOpenAttendance();
+              }}
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer relative ${
+                activeTab === 'attendance' && !isMoreOpen
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/25'
+                  : 'text-slate-600 hover:text-amber-600 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <div className="relative shrink-0">
+                <Clock className="w-5 h-5 shrink-0" />
+                {todayAttendance?.isClockedIn && activeTab !== 'attendance' && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                )}
+              </div>
+            </button>
+
+            {/* 3. Profile Tab */}
+            <button
+              type="button"
+              title="Profile"
+              aria-label="Profile"
+              onClick={() => {
+                setIsMoreOpen(false);
+                onChangeTab('profile');
+                if (onOpenProfile) onOpenProfile();
+              }}
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer ${
+                activeTab === 'profile' && !isMoreOpen
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/25'
+                  : 'text-slate-600 hover:text-amber-600 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <User className="w-5 h-5 shrink-0" />
+            </button>
+
+            {/* 4. More Tab */}
+            <button
+              type="button"
+              title="More Sections"
+              aria-label="More Sections"
+              onClick={() => setIsMoreOpen(!isMoreOpen)}
+              className={`flex-1 h-11 rounded-full flex items-center justify-center transition-colors select-none outline-none cursor-pointer relative ${
+                isMoreActive
+                  ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 text-white font-extrabold shadow-md shadow-orange-500/25'
+                  : 'text-slate-600 hover:text-amber-600 hover:bg-slate-100 font-bold'
+              }`}
+            >
+              <div className="relative shrink-0">
+                <MoreHorizontal className="w-5 h-5 shrink-0" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              </div>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* MORE MENU SLIDE-UP MODAL / SHEET */}
       {isMoreOpen && (
         <div
-          className="fixed inset-0 bg-zinc-950/80 backdrop-blur-xs z-50 flex items-end justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-end justify-center p-0 sm:p-4 animate-in fade-in duration-200"
           onClick={() => setIsMoreOpen(false)}
         >
           <div
-            className="bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-t-3xl sm:rounded-2xl w-full max-w-lg p-4 space-y-3.5 shadow-2xl max-h-[80vh] overflow-y-auto animate-in slide-in-from-bottom duration-300"
+            className="bg-zinc-950 border border-zinc-800 text-zinc-100 rounded-t-3xl sm:rounded-2xl w-full max-w-lg p-4 space-y-3.5 shadow-2xl max-h-[82vh] overflow-y-auto animate-in slide-in-from-bottom duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -178,9 +292,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   <Layers className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-zinc-100">All Sections & Links</h3>
+                  <h3 className="font-bold text-sm text-zinc-100">All Sections &amp; Direct Links</h3>
                   <p className="text-[11px] text-zinc-400">
-                    Select any module to view client data
+                    Select Escalation, Dispatch or any module to view direct listings
                   </p>
                 </div>
               </div>
@@ -197,7 +311,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
               {moreSections.map((sec) => {
                 const Icon = sec.icon;
-                const isSelected = activeSectionKey === sec.key;
+                const isSelected =
+                  (sec.key === 'escalation' && activeTab === 'escalation') ||
+                  (sec.key === 'dispatch' && activeTab === 'dispatch') ||
+                  (activeTab === 'checklist' && activeSectionKey === sec.key);
+
                 return (
                   <button
                     key={sec.key}
@@ -232,4 +350,3 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     </>
   );
 };
-

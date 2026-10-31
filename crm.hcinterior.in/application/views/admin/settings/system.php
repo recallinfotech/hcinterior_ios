@@ -318,27 +318,37 @@
                         <div id="postmark_config" <?php echo (config_item('allow_geo_clock_in') != 'TRUE') ? 'style="display:none"' : '' ?>>
                             <div class="form-group">
                                 <label class="col-lg-3 control-label"><?= lang('office') . ' ' . lang('location'); ?>
-                                    <span
-                                            class="text-danger">*</span></label>
+                                    <span class="text-danger">*</span></label>
                                 <div class="col-lg-8">
                                     <div class="input-group">
                                         <input type="text" class="form-control inputText2"
                                                value="<?= set_value('office_location', config_item('office_location')); ?>"
-                                               id="searchTextField" name="office_location">
-                                        <div class="input-group-addon" id="get_location">
-                                            <i title="Get Current Location" style="cursor: pointer;"
-                                               class="fa fa-map-marker"></i>
+                                               id="searchTextField" name="office_location" placeholder="e.g. HC Interior Office">
+                                        <div class="input-group-addon" id="get_location" style="cursor: pointer; background: #23b7e5; color: #fff;">
+                                            <i title="Detect Current GPS Location" class="fa fa-map-marker"></i> Detect GPS
                                         </div>
                                     </div>
+                                    <span class="help-block" style="font-size: 11px; margin-bottom: 0;">Click "Detect GPS" to fetch current coordinates, or enter them manually below.</span>
                                 </div>
                             </div>
 
-                            <input type="hidden" class="form-control"
-                                   value="<?= set_value('lat', config_item('office_lat')); ?>" name="office_lat"
-                                   id="lat">
-                            <input type="hidden" class="form-control"
-                                   value="<?= set_value('long', config_item('office_long')); ?>" name="office_long"
-                                   id="long">
+                            <div class="form-group">
+                                <label class="col-lg-3 control-label">Office Latitude <span class="text-danger">*</span></label>
+                                <div class="col-lg-8">
+                                    <input type="text" class="form-control"
+                                           value="<?= set_value('office_lat', config_item('office_lat')); ?>" name="office_lat"
+                                           id="lat" placeholder="e.g. 28.535517" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="col-lg-3 control-label">Office Longitude <span class="text-danger">*</span></label>
+                                <div class="col-lg-8">
+                                    <input type="text" class="form-control"
+                                           value="<?= set_value('office_long', config_item('office_long')); ?>" name="office_long"
+                                           id="long" placeholder="e.g. 77.391029" required>
+                                </div>
+                            </div>
 
                             <div class="form-group">
                                 <label class="col-lg-3 control-label"><?= lang('allowed') . ' ' . lang('distance') . ' ' . lang('for') . ' ' . lang('login'); ?>
@@ -564,30 +574,41 @@ $google_api_key = config_item('google_api_key');
 
 <script>
     function initialize() {
-        var input = document.getElementById('searchTextField');
-        var autocomplete = new google.maps.places.Autocomplete(input);
-        google.maps.event.addListener(autocomplete, 'place_changed', function () {
-            var place = autocomplete.getPlace();
-            // document.getElementById('city').value = place.name;
-            document.getElementById('lat').value = place.geometry.location.lat();
-            document.getElementById('long').value = place.geometry.location.lng();
-        });
+        try {
+            if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+                var input = document.getElementById('searchTextField');
+                var autocomplete = new google.maps.places.Autocomplete(input);
+                google.maps.event.addListener(autocomplete, 'place_changed', function () {
+                    var place = autocomplete.getPlace();
+                    if (place && place.geometry && place.geometry.location) {
+                        document.getElementById('lat').value = place.geometry.location.lat().toFixed(6);
+                        document.getElementById('long').value = place.geometry.location.lng().toFixed(6);
+                    }
+                });
+            }
+        } catch(e) {
+            console.warn('Google Places Autocomplete error:', e);
+        }
     }
 
-    google.maps.event.addDomListener(window, 'load', initialize);
+    if (typeof google !== 'undefined' && google.maps) {
+        google.maps.event.addDomListener(window, 'load', initialize);
+    }
 </script>
 
 <script>
     $("#get_location").on("click", function () {
-        $("#searchTextField").val('');
-        $("#lat").val('');
-        $("#long").val('');
         get_geo_data_2();
     });
 
     function get_geo_data_2() {
         if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(do_action, handle_errors);
+            $("#searchTextField").attr('placeholder', 'Detecting GPS coordinates...');
+            navigator.geolocation.getCurrentPosition(do_action, handle_errors, {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 5000
+            });
         } else {
             alert("Geolocation is not supported by this browser.");
         }
@@ -597,42 +618,47 @@ $google_api_key = config_item('google_api_key');
         var latitude = position.coords.latitude;
         var longitude = position.coords.longitude;
         if (latitude != '' && longitude != '') {
-            var currgeocoder = new google.maps.Geocoder();
-            var location = new google.maps.LatLng(latitude, longitude);
-            currgeocoder.geocode({
-                'location': location
-            }, function (results, status) {
-                if (status == google.maps.GeocoderStatus.OK) {
-                    $("#searchTextField").val(results[0].formatted_address);
-                    $("#lat").val(latitude);
-                    $("#long").val(longitude);
-                    // document.getElementById('lat').value = latitude;
-                    // document.getElementById('long').value = longitude;
-                } else {
-                    alert('Geocode was not successful for the following reason: ' + status);
+            // Immediately fill Latitude and Longitude fields
+            $("#lat").val(latitude.toFixed(6));
+            $("#long").val(longitude.toFixed(6));
+
+            if (!$("#searchTextField").val()) {
+                $("#searchTextField").val("Office Location (" + latitude.toFixed(4) + ", " + longitude.toFixed(4) + ")");
+            }
+
+            // Optional reverse geocoding if Google Maps is available
+            try {
+                if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+                    var currgeocoder = new google.maps.Geocoder();
+                    var location = new google.maps.LatLng(latitude, longitude);
+                    currgeocoder.geocode({
+                        'location': location
+                    }, function (results, status) {
+                        if (status == google.maps.GeocoderStatus.OK && results && results[0]) {
+                            $("#searchTextField").val(results[0].formatted_address);
+                        }
+                    });
                 }
-            });
+            } catch(e) {
+                console.warn('Reverse geocode error:', e);
+            }
         }
     }
 
     function handle_errors(error) {
         switch (error.code) {
             case error.PERMISSION_DENIED:
-                alert("To get your current location, you must allow location access");
+                alert("Location permission denied. Please allow location access in your browser or enter Latitude & Longitude manually.");
                 break;
-
             case error.POSITION_UNAVAILABLE:
-                alert("could not detect current position");
+                alert("Could not detect current position. Please enter Latitude & Longitude manually.");
                 break;
-
             case error.TIMEOUT:
-                alert("retrieving position timedout");
+                alert("Location retrieval timed out. Please enter Latitude & Longitude manually.");
                 break;
-
             default:
-                alert("unknown error");
+                alert("Could not detect location. Please enter Latitude & Longitude manually.");
                 break;
         }
-        //window.location.replace(window.location.href);
     }
 </script>

@@ -70,21 +70,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4 text-zinc-100">
-      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-6 relative overflow-hidden backdrop-blur-md">
-        
-        {/* Decorative background glow in deep yellow & dark grey */}
-        <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-yellow-500/10 rounded-full blur-2xl pointer-events-none" />
+    <div className="min-h-screen bg-[#080c14] flex flex-col justify-center px-6 py-8 text-zinc-100 relative overflow-hidden">
+      {/* Ambient background glow */}
+      <div className="absolute top-1/6 left-1/2 -translate-x-1/2 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-60 h-60 bg-orange-600/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* Brand Header */}
-        <div className="text-center space-y-3">
-          <div className="flex justify-center">
-            <CompanyLogo className="h-12" variant="badge" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-white tracking-tight">HC Interior Operation</h1>
-          </div>
+      <div className="w-full max-w-sm mx-auto relative z-10 space-y-6">
+        {/* Glowing Brand Logo Card */}
+        <div className="flex justify-center">
+          <CompanyLogo className="h-28 w-28" variant="glowing" />
+        </div>
+
+        {/* Headings */}
+        <div className="text-center space-y-1">
+          <p className="text-amber-500 font-extrabold tracking-widest text-sm uppercase">HC INTERIOR</p>
+          <h1 className="text-2xl font-black text-white tracking-tight">Welcome Back</h1>
+          <p className="text-xs text-zinc-400 font-medium">Login to continue to your account</p>
         </div>
 
         {/* Error Alert */}
@@ -103,18 +104,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           {/* Username Field */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-zinc-300">Username</label>
+            <label className="block text-[11px] font-black tracking-wider text-amber-500 uppercase">
+              USERNAME
+            </label>
             <div className="relative flex items-center">
-              <User className="w-4 h-4 absolute left-3 text-zinc-400 pointer-events-none" />
+              <User className="w-4 h-4 absolute left-4 text-amber-500/80 pointer-events-none" />
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter username"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all font-medium"
+                className="w-full bg-[#101422] border border-amber-500/60 rounded-2xl pl-11 pr-4 py-3.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium"
                 required
               />
             </div>
@@ -123,29 +126,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           {/* Password Field */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-zinc-300">Password</label>
+              <label className="block text-[11px] font-black tracking-wider text-amber-500 uppercase">
+                PASSWORD
+              </label>
               <button
                 type="button"
-                onClick={() => alert('Password reset request logged for mobile API.')}
-                className="text-[11px] font-bold text-amber-400 hover:text-amber-300 cursor-pointer transition-colors"
+                onClick={() => alert('Please contact administrator at support@hcinterior.in to reset your password.')}
+                className="text-xs font-bold text-amber-500 hover:text-amber-400 cursor-pointer transition-colors"
               >
                 Forgot?
               </button>
             </div>
             <div className="relative flex items-center">
-              <Lock className="w-4 h-4 absolute left-3 text-zinc-400 pointer-events-none" />
+              <Lock className="w-4 h-4 absolute left-4 text-amber-500/80 pointer-events-none" />
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter password"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-10 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-all font-medium"
+                className="w-full bg-[#101422] border border-amber-500/60 rounded-2xl pl-11 pr-11 py-3.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 text-zinc-400 hover:text-zinc-200 cursor-pointer p-0.5"
+                className="absolute right-4 text-amber-500/80 hover:text-amber-400 cursor-pointer p-0.5"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -153,15 +158,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </div>
 
           {/* Remember Me */}
-          <div className="flex items-center justify-between text-xs pt-1">
-            <label className="flex items-center space-x-2 cursor-pointer text-zinc-400 hover:text-zinc-200">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-3.5 h-3.5 rounded bg-zinc-950 border-zinc-800 text-amber-400 focus:ring-amber-400 focus:ring-offset-zinc-950"
-              />
-              <span>Remember session</span>
+          <div className="flex items-center space-x-2 pt-1">
+            <input
+              type="checkbox"
+              id="rememberMe"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 rounded bg-[#101422] border-amber-500/60 text-amber-500 focus:ring-amber-500 accent-amber-500 cursor-pointer"
+            />
+            <label htmlFor="rememberMe" className="text-xs font-medium text-zinc-400 cursor-pointer select-none">
+              Remember Me
             </label>
           </div>
 
@@ -169,23 +175,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-2.5 bg-amber-400 hover:bg-amber-500 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50"
+            className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 font-black text-sm rounded-2xl shadow-[0_8px_25px_rgba(245,158,11,0.35)] flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-98 disabled:opacity-50 mt-4"
           >
             {isLoading ? (
               <span className="inline-block w-4 h-4 border-2 border-zinc-950/30 border-t-zinc-950 rounded-full animate-spin" />
             ) : (
               <>
                 <span>Login</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
               </>
             )}
           </button>
         </form>
 
         {/* Footer Security Badge */}
-        <div className="flex items-center justify-center space-x-1.5 text-[10px] text-zinc-500 pt-2">
-          <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-          <span>HC Interior Operation</span>
+        <div className="flex items-center justify-center space-x-1.5 text-[10px] text-zinc-500 pt-4">
+          <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+          <span>HC Interior CRM & Attendance System</span>
         </div>
       </div>
     </div>

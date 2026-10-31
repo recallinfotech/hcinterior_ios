@@ -774,7 +774,7 @@ In cases where the project has been handed over to the Design/Operations team or
                  <tr>
                      <td>4</td>
                      <td>
-                         <strong>HARDWARES:-</strong> Hardware & fittings as, <strong>Century or Equivalent</strong>
+                         <strong>HARDWARES:-</strong> Hardware & fittings as, <strong>HCI or Equivalent</strong>
                          (with 10 years warranty).(Handle range upto Rs 350 rs/ pc for 12inches ,8inches-300/rs, 4
                          inches 150/rs, drawers channels-soft close channels. (if channels will increase the difference
                          will pay by the client's)
@@ -783,7 +783,7 @@ In cases where the project has been handed over to the Design/Operations team or
                  <tr>
                      <td>5</td>
                      <td>
-                         <strong>KITCHEN:-</strong> "<strong>Century or Equivalent</strong>" make will be provided for
+                         <strong>KITCHEN:-</strong> "<strong>HCI or Equivalent</strong>" make will be provided for
                          Channels, Baskets or hardware. Wire baskets will be provided and max 7 nos of baskets will be
                          provided including grain trolley/ multi-purpose basket/bottle pullout/cup-saucer/bin- basket &
                          GTPT etc. Price of Innotech baskets will be extra. Profile Handles will provided. Max 2 nos of

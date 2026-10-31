@@ -203,6 +203,11 @@ $project_value = !empty($latestProposal) ? $latestProposal->totalToBePaid : '0';
 
  if(isset($_POST['ajax']) && $_POST['ajax'] == 1){
 
+    if ($user_type != 1 && !check_permission('design_timeline_date_edit')) {
+        echo "denied";
+        exit;
+    }
+
     $client_id = $_POST['client_id'];
     $field = $_POST['field'];
     $value = $_POST['value'];
@@ -252,6 +257,11 @@ $existing = $this->db
 
 
     if(isset($_POST['action']) && $_POST['action']=='mark_done'){
+
+    if ($user_type != 1 && !check_permission('timeline_mark_done')) {
+        echo json_encode(['status' => false, 'message' => 'Permission denied']);
+        exit;
+    }
 
     $client_id = $_POST['client_id'];
     $task_name = $_POST['task_name'];
@@ -376,12 +386,30 @@ function final_date($manual, $auto){
 
 <?php 
 // Show condition match hone par true hoga
-$can_view = ($user_type == 1 || check_permission('design_timeline_view')); 
+$can_view = (
+    $user_type == 1 || 
+    check_permission('design_timeline_view') || 
+    check_permission('design_timeline_date_edit') || 
+    check_permission('timeline_mark_done') ||
+    has_client_permission($client_details->client_id, 'designing_timeline')
+); 
 ?>
 
-
-
- 
+<?php if (!$can_view) { ?>
+ <section class="panel panel-custom" >
+     <div class="panel-heading">
+         <div class="panel-title">
+             <strong><?= lang('Timelines') ?></strong>
+         </div>
+     </div>
+     <div class="panel-body">
+         <div class="alert alert-danger" style="margin-bottom:0;">
+             <i class="fa fa-lock"></i> You do not have permission to view Designing Timeline.
+         </div>
+     </div>
+ </section>
+<?php return; } ?>
+  
  <section class="panel panel-custom" >
      <div class="panel-heading">
          <div class="panel-title">
@@ -389,7 +417,7 @@ $can_view = ($user_type == 1 || check_permission('design_timeline_view'));
          </div>
      </div>
 
-     <div class="panel-body" style="<?php echo $can_view ? '' : 'display: none !important;'; ?>">
+     <div class="panel-body">
 
          <!-- Tabs -->
          <ul class="nav nav-tabs">

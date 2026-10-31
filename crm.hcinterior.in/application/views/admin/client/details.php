@@ -1663,6 +1663,36 @@ $designation_id     = $this->session->userdata('designations_id');
 
                     </div>
                 </div>
+
+                <?php if (!empty($client_details->is_gst) && $client_details->is_gst == 'Yes'): ?>
+                    <div class="inline-fields">
+                        <div class="label-col">GSTIN Number</div>
+                        <div class="value-col">
+                            <span class="label label-info" style="font-size: 12px; font-family: monospace; letter-spacing: 0.5px;">
+                                <?= html_escape($client_details->gst_number) ?>
+                            </span>
+                        </div>
+                    </div>
+
+                    <?php if (!empty($client_details->gst_file)): ?>
+                        <?php $gst = json_decode($client_details->gst_file); ?>
+                        <div class="inline-fields">
+                            <div class="label-col">GST Document</div>
+                            <div class="value-col">
+                                <?php if (!empty($gst->path)): ?>
+                                    <?php if (!empty($gst->is_image) && $gst->is_image == 1): ?>
+                                        <img src="<?= base_url($gst->path) ?>"
+                                            style="max-width:200px;border:1px solid #ccc;padding:5px;border-radius:6px;">
+                                    <?php else: ?>
+                                        <a href="<?= base_url($gst->path) ?>" target="_blank" class="btn btn-sm btn-primary">
+                                            <i class="fa fa-file-pdf-o"></i> View GST File
+                                        </a>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
 
             <!-- ================= SALES PERSON DETAILS ================= -->

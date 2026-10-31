@@ -1485,7 +1485,10 @@ if ($prev_url) {
         'payment_screenshot', 'lead_city', 'lead_region', 'proposal_id',
 
         // KYC Fields
-        'aadhaar_number', 'pan_card_number'
+        'aadhaar_number', 'pan_card_number',
+
+        // GST Fields
+        'is_gst', 'gst_number'
     ]);
 
 
@@ -1515,6 +1518,21 @@ if ($aadhaar_back) {
 $pan_file = upload_single_file('pan_card_file', $allowed_ext);
 if ($pan_file) {
     $data['pan_card_file'] = json_encode($pan_file);
+}
+
+/* GST PDF / File Upload */
+$is_gst = $this->input->post('is_gst');
+if ($is_gst === 'Yes') {
+    $data['is_gst'] = 'Yes';
+    $data['gst_number'] = strtoupper(trim((string)$this->input->post('gst_number')));
+    $gst_file = upload_single_file('gst_file', $allowed_ext);
+    if ($gst_file) {
+        $data['gst_file'] = json_encode($gst_file);
+    }
+} else {
+    $data['is_gst'] = 'No';
+    $data['gst_number'] = null;
+    $data['gst_file'] = null;
 }
 
  
@@ -1550,6 +1568,11 @@ if ($pan_file) {
 
         // update to tbl_leads
         $u_data['converted_client_id'] = $return_id;
+        $u_data['is_gst'] = $data['is_gst'];
+        $u_data['gst_number'] = $data['gst_number'];
+        if (!empty($data['gst_file'])) {
+            $u_data['gst_file'] = $data['gst_file'];
+        }
         $this->items_model->_table_name = 'tbl_leads';
         $this->items_model->_primary_key = "leads_id";
         $this->items_model->save($u_data, $leads_id);

@@ -219,8 +219,8 @@ endif;
                             </div>
                         </div>
                     </div>
+                    <?php if (false): // Awards module hidden ?>
                     <div class="mt-lg row-table row-flush">
-                        
                         <div class="pull-left">
                             <div class="">
                                 <h4 class="mt-sm mb0"><?php
@@ -237,6 +237,7 @@ endif;
                             </div>
                         </div>
                     </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

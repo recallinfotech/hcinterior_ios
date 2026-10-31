@@ -1196,6 +1196,13 @@ class User extends Admin_Controller
                 }
                 $profile_data['user_id'] = $id;
                 
+                $raw_client_access = $this->input->post('client_access');
+                $client_access_val = ($raw_client_access !== null && $raw_client_access !== '') ? (int)$raw_client_access : 1;
+
+                if ($this->db->field_exists('client_access', 'tbl_account_details')) {
+                    $profile_data['client_access'] = $client_access_val;
+                }
+
                 $this->user_model->_table_name = 'tbl_account_details'; // table name
                 $this->user_model->_primary_key = 'account_details_id'; // $id
                 if (!empty($account_details_id)) {
@@ -1204,10 +1211,26 @@ class User extends Admin_Controller
                     $this->user_model->save($profile_data);
                 }
 
-                if (empty($profile_data['app_access']) || strtolower(trim($profile_data['app_access'])) === 'none') {
-                    $this->db->where('user_id', $id);
-                    $this->db->update('tbl_users', array('api_token' => NULL));
+                if ($this->db->field_exists('client_access', 'tbl_users')) {
+                    $this->db->where('user_id', $id)->update('tbl_users', ['client_access' => $client_access_val]);
                 }
+
+                $raw_op_role = $this->input->post('operation_role_id', true);
+                if (empty($raw_op_role) && !empty($profile_data['designations_id'])) {
+                    $this->load->helper('permission_helper');
+                    if (function_exists('resolve_operation_role_from_designation')) {
+                        $raw_op_role = resolve_operation_role_from_designation($profile_data['designations_id']);
+                    }
+                }
+                if (!empty($raw_op_role)) {
+                    $this->db->where('user_id', $id)->update('tbl_users', ['operation_role_id' => $raw_op_role]);
+                }
+
+                // App access check bypassed - do not revoke token for active users
+                // if (empty($profile_data['app_access']) || strtolower(trim($profile_data['app_access'])) === 'none') {
+                //     $this->db->where('user_id', $id);
+                //     $this->db->update('tbl_users', array('api_token' => NULL));
+                // }
                 if (!empty($profile_data['designations_id'])) {
                     $desig = $this->db->where('designations_id', $profile_data['designations_id'])->get('tbl_designations')->row();
                     $department_head_id = $this->input->post('department_head_id', true);
