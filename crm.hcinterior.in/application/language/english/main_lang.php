@@ -666,3 +666,8 @@ $lang['purchase_item_brand'] = 'Purchase Item Brand';
 $lang['face_id_management'] = 'Face ID Management';
 $lang['face_id_requests'] = 'Face ID Management';
 $lang['office_locations'] = 'Office Locations';
+
+$lang['my_attendance'] = 'My Attendance';
+$lang['my_team_attendance'] = 'My Team Attendance';
+$lang['mark_attendance'] = 'Live Attendance';
+$lang['out_of_range_approvals'] = 'Out of Office Approval';

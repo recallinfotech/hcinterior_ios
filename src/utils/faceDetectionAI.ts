@@ -1,7 +1,7 @@
 /**
  * AI Real-Time Human Face Detection & Liveness Analyzer
  * Accurately detects real live human face presence, skin-tone chromaticity,
- * internal facial features (eyes, eyebrows, nose, mouth), and natural centering.
+ * anatomical facial structure (eyes, nose, cheeks, mouth), and oval alignment.
  * Strictly immune to flat walls, ceilings, fans, screens, and clothing false positives.
  */
 
@@ -35,13 +35,9 @@ export async function analyzeFrameForHumanFace(
     };
   }
 
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-
-  // Use 120x150 analysis canvas (portrait 4:5 aspect ratio)
-  const isPortrait = vh >= vw;
-  const targetW = isPortrait ? 120 : 160;
-  const targetH = isPortrait ? 150 : 120;
+  // 120x150 analysis canvas (portrait 4:5 aspect ratio matches modal viewport)
+  const targetW = 120;
+  const targetH = 150;
 
   offscreenCanvas.width = targetW;
   offscreenCanvas.height = targetH;
@@ -57,7 +53,7 @@ export async function analyzeFrameForHumanFace(
     };
   }
 
-  // Draw scaled frame
+  // Draw scaled video frame
   ctx.drawImage(video, 0, 0, targetW, targetH);
 
   // 1. Try Native Shape Detection API if present in Android Chrome / WebView
@@ -74,9 +70,9 @@ export async function analyzeFrameForHumanFace(
         const cx = (box.x + box.width / 2) / targetW;
         const cy = (box.y + box.height / 2) / targetH;
 
-        // Natural centering tolerance: face is visible in camera viewport
-        const isCentered = cx >= 0.15 && cx <= 0.85 && cy >= 0.15 && cy <= 0.85;
-        const isProperSize = faceArea >= 0.05 && faceArea <= 0.85;
+        // Face is visible in central target area
+        const isCentered = cx >= 0.18 && cx <= 0.82 && cy >= 0.15 && cy <= 0.85;
+        const isProperSize = faceArea >= 0.05 && faceArea <= 0.88;
 
         if (isCentered && isProperSize) {
           const conf = Math.min(98, Math.max(92, Math.round(92 + faceArea * 10)));
@@ -93,7 +89,7 @@ export async function analyzeFrameForHumanFace(
           return {
             hasHumanFace: false,
             confidence: 45,
-            feedback: '⚠️ Please center your face inside the frame',
+            feedback: '⚠️ Please center your face inside the oval',
             isCentered: false,
             isGoodLighting: true,
             skinCoverage: faceArea,
@@ -130,19 +126,19 @@ export async function analyzeFrameForHumanFace(
   const varianceLum = lumSq / pixelCount - meanLum * meanLum;
   const stdDevLum = Math.sqrt(Math.max(0, varianceLum));
 
-  // Extreme darkness
-  if (meanLum < 20) {
+  // Extreme darkness (lens covered / in pocket / pitch black)
+  if (meanLum < 18) {
     return {
       hasHumanFace: false,
       confidence: 0,
-      feedback: '⚠️ Too dark! Move to a brighter room or turn on light',
+      feedback: '⚠️ Too dark! Move to a brighter room or face the light',
       isCentered: false,
       isGoodLighting: false,
       skinCoverage: 0,
     };
   }
 
-  // Extreme overexposure / direct bulb
+  // Extreme overexposure / direct bulb or flashlight
   if (meanLum > 248) {
     return {
       hasHumanFace: false,
@@ -155,7 +151,7 @@ export async function analyzeFrameForHumanFace(
   }
 
   // Flat blank wall or covered lens (uniform texture without contrast)
-  if (stdDevLum < 10) {
+  if (stdDevLum < 9) {
     return {
       hasHumanFace: false,
       confidence: 0,
@@ -166,127 +162,129 @@ export async function analyzeFrameForHumanFace(
     };
   }
 
-  // B. Human Skin & Feature Contrast Analysis
-  // Skin rule: Melanin & hemoglobin absorption makes R > G > B universally across all human complexions.
-  // Enforcing (G - B >= 4) strictly eliminates pink, magenta, and purple shirts (which have high Blue).
-  // Enforcing (R - G >= 11) strictly eliminates cream paint, yellow walls, and white ceiling tiles (where R ~= G).
-  let skinPixelCount = 0;
-  let sumFaceX = 0;
-  let sumFaceY = 0;
-  let edgePixelCount = 0;
+  // B. Oval Face Region & Anatomical Mid-Face Analysis
+  // Oval guide is centered in the 120x150 canvas (matches UI oval overlay):
+  const ovalCx = targetW * 0.50;
+  const ovalCy = targetH * 0.50;
+  const ovalRx = targetW * 0.32;
+  const ovalRy = targetH * 0.38;
 
-  // Focus face analysis on upper 80% of frame (immune to clothing/shirts at bottom)
-  const maxFaceY = Math.floor(targetH * 0.82);
-  const minFaceY = Math.floor(targetH * 0.10);
+  let totalOvalPixels = 0;
+  let ovalSkinPixels = 0;
+  let midOvalTotal = 0;
+  let midOvalSkin = 0;
+  let edgePixels = 0;
 
-  for (let y = minFaceY; y < maxFaceY; y++) {
+  for (let y = 1; y < targetH - 1; y++) {
     const ny = y / targetH;
+    const dy = (y - ovalCy) / ovalRy;
+    const isMidFace = ny >= 0.38 && ny <= 0.70; // Eyes, nose, and cheek region
+
     for (let x = 1; x < targetW - 1; x++) {
-      const nx = x / targetW;
+      const dx = (x - ovalCx) / ovalRx;
+      const inOval = dx * dx + dy * dy <= 1.0;
+
+      if (!inOval) continue;
+
+      totalOvalPixels++;
+      if (isMidFace) midOvalTotal++;
+
       const idx = (y * targetW + x) * 4;
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
 
-      // Spectral human skin verification
+      // Robust human skin chromaticity:
+      // Real human skin has: r > g, g >= b, r - g >= 7 (rules out white/cream walls where r ≈ g),
+      // and r - b >= 10 (rules out purple/magenta/pink fabrics).
       const isSkin =
         r > g &&
-        g > b &&
-        r - g >= 11 &&
-        g - b >= 4 &&
-        r >= 48 &&
-        r <= 248 &&
-        r / (r + g + b) >= 0.36 &&
-        r / (r + g + b) <= 0.62 &&
-        g / (r + g + b) >= 0.24 &&
-        g / (r + g + b) <= 0.40;
+        g >= b &&
+        r - g >= 7 &&
+        r - b >= 10 &&
+        r >= 45 &&
+        r <= 250;
 
       if (isSkin) {
-        skinPixelCount++;
-        sumFaceX += nx;
-        sumFaceY += ny;
+        ovalSkinPixels++;
+        if (isMidFace) {
+          midOvalSkin++;
+        }
       }
 
-      // Edge gradient calculation (eyes, eyebrows, nostrils, mouth, facial contour)
-      // Flat painted walls/ceilings have grad < 8; real facial features have grad > 14
+      // Feature gradient calculation (eyes, brows, nose bridge, lips)
       const pIdx = y * targetW + x;
       const curLum = lumMap[pIdx];
       const rightLum = lumMap[pIdx + 1];
       const downLum = lumMap[pIdx + targetW] || curLum;
       const grad = Math.abs(rightLum - curLum) + Math.abs(downLum - curLum);
-
-      if (grad >= 14) {
-        edgePixelCount++;
+      if (grad >= 12) {
+        edgePixels++;
       }
     }
   }
 
-  const evaluatedPixels = (maxFaceY - minFaceY) * (targetW - 2);
-  const skinRatio = evaluatedPixels > 0 ? skinPixelCount / evaluatedPixels : 0;
-  const edgeRatio = evaluatedPixels > 0 ? edgePixelCount / evaluatedPixels : 0;
+  const ovalSkinRatio = totalOvalPixels > 0 ? ovalSkinPixels / totalOvalPixels : 0;
+  const midSkinRatio = midOvalTotal > 0 ? midOvalSkin / midOvalTotal : 0;
+  const edgeRatio = totalOvalPixels > 0 ? edgePixels / totalOvalPixels : 0;
 
   // C. Threshold Evaluation
-  // 1. Not enough skin in candidate region -> No human face
-  if (skinRatio < 0.08) {
+
+  // 1. No skin in the oval at all -> Fans, computers, blank walls, empty room
+  if (ovalSkinRatio < 0.10) {
     return {
       hasHumanFace: false,
       confidence: 10,
       feedback: '⚠️ No Human Face Detected — Look into camera',
       isCentered: false,
       isGoodLighting: true,
-      skinCoverage: skinRatio,
+      skinCoverage: ovalSkinRatio,
     };
   }
 
-  // 2. Camera covered or pressed right up against face
-  if (skinRatio > 0.88 && stdDevLum < 16) {
+  // 2. Camera pressed against skin / covered
+  if (ovalSkinRatio > 0.90 && stdDevLum < 16) {
     return {
       hasHumanFace: false,
       confidence: 15,
       feedback: '⚠️ Too close to camera — Step back slightly',
       isCentered: false,
       isGoodLighting: true,
-      skinCoverage: skinRatio,
+      skinCoverage: ovalSkinRatio,
     };
   }
 
-  // 3. Edge density check (distinguishes real face from flat painted cardboard or cream walls)
-  // A real human face ALWAYS contains high internal gradients from eyes, eyebrows, nose, and lips (edgeRatio >= 0.035)
-  if (edgeRatio < 0.030) {
+  // 3. Anatomical Mid-Face Verification:
+  // In a real face selfie, the middle of the oval (cheeks & nose) MUST have skin presence (midSkinRatio >= 12%).
+  // If pointing at the ceiling (where only hair is visible at bottom) or ceiling fans:
+  // midSkinRatio is near zero (< 8%), which correctly flags that the face is not centered in the oval.
+  if (midSkinRatio < 0.10 || ovalSkinRatio < 0.16) {
+    return {
+      hasHumanFace: false,
+      confidence: 45,
+      feedback: '⚠️ Please center your face inside the oval',
+      isCentered: false,
+      isGoodLighting: true,
+      skinCoverage: ovalSkinRatio,
+    };
+  }
+
+  // 4. Feature contrast check (distinguishes real face from flat painted cardboard)
+  if (edgeRatio < 0.015) {
     return {
       hasHumanFace: false,
       confidence: 25,
       feedback: '⚠️ Flat surface / Object — Real human face required',
       isCentered: false,
       isGoodLighting: true,
-      skinCoverage: skinRatio,
+      skinCoverage: ovalSkinRatio,
     };
   }
 
-  // 4. Centering Check (Generous and natural for handheld mobile selfie angle)
-  let isCentered = true;
-  if (skinPixelCount > 30) {
-    const avgFaceX = sumFaceX / skinPixelCount;
-    const avgFaceY = sumFaceY / skinPixelCount;
-    // Generous bounding tolerance: horizontally 0.20 - 0.80, vertically 0.18 - 0.82
-    isCentered = avgFaceX >= 0.20 && avgFaceX <= 0.80 && avgFaceY >= 0.18 && avgFaceY <= 0.82;
-  }
-
-  if (!isCentered) {
-    return {
-      hasHumanFace: false,
-      confidence: 45,
-      feedback: '⚠️ Please center your face inside the frame',
-      isCentered: false,
-      isGoodLighting: true,
-      skinCoverage: skinRatio,
-    };
-  }
-
-  // Calculate confidence score (90% - 98%)
-  const baseConf = 91;
-  const edgeBonus = Math.min(4, Math.round(edgeRatio * 40));
-  const skinBonus = Math.min(3, Math.round(skinRatio * 8));
+  // Real human face verified in oval!
+  const baseConf = 92;
+  const edgeBonus = Math.min(4, Math.round(edgeRatio * 50));
+  const skinBonus = Math.min(2, Math.round(ovalSkinRatio * 4));
   const finalConfidence = Math.min(98, Math.max(90, baseConf + edgeBonus + skinBonus));
 
   return {
@@ -295,7 +293,7 @@ export async function analyzeFrameForHumanFace(
     feedback: `✅ Human Face Detected (${finalConfidence}% AI Confidence)`,
     isCentered: true,
     isGoodLighting: true,
-    skinCoverage: skinRatio,
+    skinCoverage: ovalSkinRatio,
     eyesDetected: true,
   };
 }

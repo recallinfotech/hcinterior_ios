@@ -1795,6 +1795,8 @@ foreach ($designation_role_permission_map as $designation_id => $config) {
         if ($this->input->is_ajax_request()) {
             $delete_comments = $this->input->post('delete_comments', true); // <-- add this
             $delete_activities = $this->input->post('delete_activities', true); // <-- add this
+            $update_created_date = $this->input->post('update_created_date', true);
+            $custom_created_date = $this->input->post('custom_created_date', true);
             $selected_leads_ids_str = $this->input->post('selected_leads_ids', true);
             $lead_status_id = $this->input->post('lead_status_id');
             $selected_leads_ids = explode(',', $selected_leads_ids_str);
@@ -1808,6 +1810,19 @@ foreach ($designation_role_permission_map as $designation_id => $config) {
             if (empty($assigned_to_users)) {
                 echo json_encode(['success' => false, 'message' => lang('assigned_to') . ' ' . lang('Fiels is Required')]); // Or a more specific message
                 return;
+            }
+
+            $formatted_created_time = null;
+            if (!empty($update_created_date) && !empty($custom_created_date)) {
+                $custom_created_date = trim($custom_created_date);
+                $parsed_time = strtotime($custom_created_date);
+                if ($parsed_time) {
+                    if (strlen($custom_created_date) <= 10) {
+                        $formatted_created_time = date('Y-m-d', $parsed_time) . ' ' . date('H:i:s');
+                    } else {
+                        $formatted_created_time = date('Y-m-d H:i:s', $parsed_time);
+                    }
+                }
             }
 
             $assigned_permission_data = [];
@@ -1866,6 +1881,10 @@ foreach ($designation_role_permission_map as $designation_id => $config) {
                     'lead_assign_date' => date('Y-m-d H:i:s'),
                     'lead_followup_date' => date('Y-m-d H:i:s'),
                 ];
+            }
+
+            if (!empty($formatted_created_time)) {
+                $data['created_time'] = $formatted_created_time;
             }
  
                 $this->items_model->_table_name = "tbl_leads";

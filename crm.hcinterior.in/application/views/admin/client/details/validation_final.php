@@ -42,36 +42,59 @@ $validation_start_date = $query ? $query->start_date : '';
 
       
 
-<!-- 2D Design Preview Modal -->
-<div class="modal fade" id="designPreviewModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-xl modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Moduler Design Preview</h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
+<!-- Design Preview Modal -->
+<div class="modal fade" id="designPreviewModal" tabindex="-1" role="dialog" aria-labelledby="designPreviewModalLabel">
+    <div class="modal-dialog modal-lg" role="document" style="width: 92%; max-width: 1400px; margin: 25px auto;">
+        <div class="modal-content" style="border-radius: 6px; overflow: hidden; box-shadow: 0 5px 25px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="background: #232733; color: #fff; padding: 12px 20px;">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #fff; opacity: 0.8; font-size: 24px; margin-top: -2px;">
+                    <span aria-hidden="true">&times;</span>
                 </button>
+                <a href="#" target="_blank" class="btn btn-xs btn-primary pull-right previewModalFullBtn" style="margin-right: 15px; font-weight: 600; padding: 4px 12px; display: none;">
+                    <i class="fa fa-external-link"></i> View Full PDF
+                </a>
+                <h4 class="modal-title" id="designPreviewModalLabel" style="color: #fff; font-weight: 600; font-size: 16px; margin: 0;">
+                    <i class="fa fa-file-text-o mr-sm"></i> Modular Design Preview
+                </h4>
             </div>
-            <div class="modal-body text-center" id="designPreviewContent">
+            <div class="modal-body text-center" id="designPreviewContent" style="padding: 10px; background: #525659; min-height: 400px;">
                 <!-- Dynamic content -->
+            </div>
+            <div class="modal-footer" style="padding: 10px 20px; background: #f8fafc; margin-top: 0; border-top: 1px solid #e2e8f0;">
+                <a href="#" target="_blank" class="btn btn-sm btn-info pull-left previewModalFullBtn" style="display: none;">
+                    <i class="fa fa-external-link"></i> View Full PDF (Open in New Tab)
+                </a>
+                <button type="button" class="btn btn-sm btn-default" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-$(document).on('click', '.preview-design', function() {
-
+$(document).on('click', '.preview-design', function(e) {
+    e.preventDefault();
     var filePath = $(this).data('path');
-    var fileType = $(this).data('type');
+    var fileType = $(this).data('type') || '';
+    var fileName = $(this).text().trim() || 'File Preview';
     var html = '';
+    var cleanPath = (filePath || '').split('?')[0].toLowerCase();
+    var isPdf = cleanPath.endsWith('.pdf') || fileType === 'pdf';
+    var isImage = fileType === 'image' || cleanPath.endsWith('.jpg') || cleanPath.endsWith('.jpeg') || cleanPath.endsWith('.png') || cleanPath.endsWith('.gif') || cleanPath.endsWith('.webp');
 
-    if (fileType === 'image') {
-        html = '<img src="' + filePath + '" class="img-fluid" style="width:100%;">';
-    } else if (filePath.toLowerCase().endsWith('.pdf')) {
-        html = '<iframe src="' + filePath + '" width="100%" height="600px"></iframe>';
+    if (fileName && fileName !== 'Download File') {
+        $('#designPreviewModalLabel').html('<i class="fa fa-file-text-o mr-sm"></i> ' + $('<div>').text(fileName).html());
+    }
+
+    if (isPdf) {
+        var pdfViewerUrl = filePath + (filePath.indexOf('#') === -1 ? '#toolbar=1' : '');
+        $('.previewModalFullBtn').attr('href', filePath).html('<i class="fa fa-external-link"></i> View Full PDF').show();
+        html = '<iframe src="' + pdfViewerUrl + '" width="100%" style="width:100%; height:82vh; min-height:680px; border:none; display:block; background:#525659;"></iframe>';
+    } else if (isImage) {
+        $('.previewModalFullBtn').attr('href', filePath).html('<i class="fa fa-external-link"></i> View Full Image').show();
+        html = '<div style="background:#fff; padding:15px; border-radius:4px;"><img src="' + filePath + '" class="img-responsive" style="max-height:80vh; margin:0 auto; box-shadow:0 2px 10px rgba(0,0,0,0.15);"></div>';
     } else {
-        html = '<a href="' + filePath + '" target="_blank" class="btn btn-primary">Download File</a>';
+        $('.previewModalFullBtn').attr('href', filePath).html('<i class="fa fa-download"></i> Download File').show();
+        html = '<div style="background:#fff; padding:60px 20px; border-radius:4px;"><i class="fa fa-file-text-o fa-4x text-muted"></i><br><br><a href="' + filePath + '" target="_blank" class="btn btn-lg btn-primary"><i class="fa fa-download"></i> Download / View File</a></div>';
     }
 
     $('#designPreviewContent').html(html);
@@ -91,6 +114,22 @@ $(document).on('click', '.preview-design', function() {
     border-radius: 6px;
     cursor: pointer;
 }
+
+#designPreviewModal .modal-dialog {
+    width: 92% !important;
+    max-width: 1400px !important;
+    margin: 25px auto !important;
+}
+#designPreviewModal .modal-body {
+    padding: 10px !important;
+}
+#designPreviewModal iframe {
+    width: 100% !important;
+    height: 82vh !important;
+    min-height: 680px !important;
+    border: none !important;
+}
+
 </style>
 
 
@@ -163,7 +202,7 @@ if (!empty($two_d_design)) {
                     <th>Modular Design File</th>
                     <th>Loose Furniture File</th>
                     <th><?= lang('Design Type') ?></th>
-                    <th  class="col-sm-3"><?= lang('URL') ?></th>
+                    <th><?= lang('URL') ?></th>
                     <th><?= lang('Status') ?></th>
                     <th><?= lang('Uploaded By') ?></th>
                     <th class="col-sm-2"><?= lang('date') ?> </th>
@@ -232,7 +271,18 @@ if (!empty($two_d_design)) {
                     </td>
 
                     <td> <?= $design->design_type ?></a> </td>
-                                        <td> <p class="nowrap"> <?= $design->upload_url ?></a> </p> </td>
+                                        <td>
+                                            <?php if (!empty($design->upload_url)) { 
+                                                $url = trim($design->upload_url);
+                                                $href = (preg_match('#^https?://#i', $url)) ? $url : 'http://' . $url;
+                                            ?>
+                                                <a href="<?= htmlspecialchars($href) ?>" target="_blank" class="btn btn-xs btn-info" title="<?= htmlspecialchars($url) ?>">
+                                                    <i class="fa fa-external-link"></i> View URL
+                                                </a>
+                                            <?php } else { ?>
+                                                <span class="text-muted">-</span>
+                                            <?php } ?>
+                                        </td>
                                         <td>
     <span class="label label-<?= 
         $design->status == 'Approved' ? 'success' :
@@ -351,42 +401,7 @@ if (!empty($two_d_design)) {
 
 
 
-<!-- 2D Design Preview Modal -->
-<div class="modal fade" id="designPreviewModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-xl modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Modular Design Preview</h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
-            </div>
-            <div class="modal-body text-center" id="designPreviewContent">
-                <!-- Dynamic content -->
-            </div>
-        </div>
-    </div>
-</div>
 
-<script>
-$(document).on('click', '.preview-design', function() {
-
-    var filePath = $(this).data('path');
-    var fileType = $(this).data('type');
-    var html = '';
-
-    if (fileType === 'image') {
-        html = '<img src="' + filePath + '" class="img-fluid" style="width:100%;">';
-    } else if (filePath.toLowerCase().endsWith('.pdf')) {
-        html = '<iframe src="' + filePath + '" width="100%" height="600px"></iframe>';
-    } else {
-        html = '<a href="' + filePath + '" target="_blank" class="btn btn-primary">Download File</a>';
-    }
-
-    $('#designPreviewContent').html(html);
-    $('#designPreviewModal').modal('show');
-});
-</script>
 
 
 

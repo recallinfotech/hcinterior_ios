@@ -54,6 +54,54 @@ class Menu
             $user_menu = array_merge($user_menu, $module_menu);
         }
 
+        // Ensure My Attendance is universally available for all logged-in staff
+        $has_my_attendance = false;
+        foreach ($user_menu as $v_m) {
+            if (!empty($v_m->label) && $v_m->label === 'my_attendance') {
+                $has_my_attendance = true;
+                break;
+            }
+        }
+        if (!$has_my_attendance) {
+            $my_att_row = $CI->db->where('label', 'my_attendance')->where('status', 1)->get('tbl_menu')->row();
+            if ($my_att_row) {
+                $user_menu[] = $my_att_row;
+            }
+        }
+
+        // Department Head Check: Only Department Heads (and Admins) get "My Team Attendance"
+        $user_id = $CI->session->userdata('user_id');
+        $is_dept_head = false;
+        if (!empty($user_id)) {
+            $is_dept_head = $CI->db->where('department_head_id', $user_id)->get('tbl_departments')->num_rows() > 0;
+        }
+        $can_view_team_attendance = ($user_type == 1 || $is_dept_head);
+
+        if (!$can_view_team_attendance) {
+            // Hide My Team Attendance from regular staff who are not department heads
+            foreach ($user_menu as $k => $v_m) {
+                if (!empty($v_m->label) && $v_m->label === 'my_team_attendance') {
+                    unset($user_menu[$k]);
+                }
+            }
+            $user_menu = array_values($user_menu);
+        } else {
+            // Ensure My Team Attendance is present in the menu for Department Heads and Admins
+            $has_team_att = false;
+            foreach ($user_menu as $v_m) {
+                if (!empty($v_m->label) && $v_m->label === 'my_team_attendance') {
+                    $has_team_att = true;
+                    break;
+                }
+            }
+            if (!$has_team_att) {
+                $team_att_row = $CI->db->where('label', 'my_team_attendance')->where('status', 1)->get('tbl_menu')->row();
+                if ($team_att_row) {
+                    $user_menu[] = $team_att_row;
+                }
+            }
+        }
+
         $user_menu = apply_filters('sidebar_menu', $user_menu);
         // Create a multidimensional array to conatin a list of items and parents
         $menu = array(

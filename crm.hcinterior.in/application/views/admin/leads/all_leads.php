@@ -833,6 +833,8 @@ $(document).ready(function() {
                     $('#select_all').prop('checked', false);
                     $('#department_mutli_select').val(''); // Clear department dropdown
                     $('#user_mutli_select').empty().append('<option value="">Select User</option>'); // Clear users
+                    $('#update_created_date').prop('checked', false);
+                    $('#created_date_container').hide();
                 } else {
                     toastr.error(response.message);
                 }
@@ -842,6 +844,29 @@ $(document).ready(function() {
                 toastr.error('<?= lang('error_occurred') ?>');
             }
         });
+    });
+
+    // Toggle custom created datepicker and auto-open calendar
+    $('#update_created_date').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('#created_date_container').stop(true, true).fadeIn(150, function() {
+                $('#custom_created_date').datepicker('show');
+            });
+        } else {
+            $('#created_date_container').stop(true, true).fadeOut(150);
+            $('#custom_created_date').datepicker('hide');
+        }
+    });
+
+    $('#btn_open_custom_date').on('click', function(e) {
+        e.stopPropagation();
+        $('#custom_created_date').datepicker('show');
+    });
+
+    $('#bulkAssignModal').on('hidden.bs.modal', function() {
+        $('#update_created_date').prop('checked', false);
+        $('#created_date_container').hide();
+        $('#custom_created_date').datepicker('hide');
     });
 
     // --- Existing filter-related JS (keep as is) ---
@@ -987,6 +1012,24 @@ $(document).ready(function() {
                                                     <input type="checkbox" name="delete_activities" value="1"> Delete all
                                                     related Activities of selected leads
                                                 </label>
+                                            </div>
+
+                                            <div class=" " style="margin-top: 10px;">
+                                                <div class="row" style="align-items: center;">
+                                                    <div class="col-sm-6" style="padding-top: 6px;">
+                                                        <label style="font-weight: normal; margin-bottom: 0; cursor: pointer;">
+                                                            <input type="checkbox" name="update_created_date" id="update_created_date" value="1"> Update Created Date
+                                                        </label>
+                                                    </div>
+                                                    <div class="col-sm-6" id="created_date_container" style="display: none;">
+                                                        <div class="input-group">
+                                                            <input type="text" class="form-control datepicker" name="custom_created_date" id="custom_created_date" value="<?= date('Y-m-d') ?>" data-format="yyyy-mm-dd" autocomplete="off" placeholder="YYYY-MM-DD">
+                                                            <div class="input-group-addon" style="cursor: pointer;" id="btn_open_custom_date">
+                                                                <i class="fa fa-calendar"></i>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
 
                                         </div>
@@ -1413,5 +1456,8 @@ $('#apply_forwored_date_filter').on('click', function(e) {
 
     .form-control {
         width: 100% !important;
+    }
+    .datepicker.dropdown-menu {
+        z-index: 1060 !important;
     }
     </style>

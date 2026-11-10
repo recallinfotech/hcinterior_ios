@@ -653,3 +653,8 @@ $lang['face_id_requests'] = 'Face ID Management';
 /* End of file main_lang.php */
 /* Location: ./application/language/hindi/main_lang.php */
 
+
+$lang['my_attendance'] = 'मेरी उपस्थिति';
+$lang['my_team_attendance'] = 'मेरी टीम उपस्थिति';
+$lang['mark_attendance'] = 'Live Attendance';
+$lang['out_of_range_approvals'] = 'Out of Office Approval';

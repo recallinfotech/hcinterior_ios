@@ -21,6 +21,223 @@ class Attendance extends Admin_Controller
         $this->lang->load('main');
     }
 
+    /**
+     * My Attendance - Common menu for ALL users to view their own attendance calendar and logs in CRM
+     */
+    public function my_attendance()
+    {
+        $data['title'] = (lang('my_attendance') && lang('my_attendance') !== 'my_attendance') ? lang('my_attendance') : 'My Attendance';
+        // Always force user_id to currently logged-in user
+        $data['user_id'] = $this->session->userdata('user_id');
+        $data['is_my_attendance'] = true;
+        $data['edit'] = true;
+        $data['active'] = date('Y');
+
+        $attendance_info = get_order_by('tbl_attendance', array('user_id' => $data['user_id']), 'date_in', true);
+        $data['mytime_info'] = $this->get_mytime_info($attendance_info);
+
+        $data['all_employee'] = array();
+        $data['selected_user'] = $this->db->where('user_id', $data['user_id'])->get('tbl_account_details')->row();
+        $has_bio = $this->db->table_exists('tbl_user_biometrics');
+        $data['pending_approvals_count'] = 0;
+        $data['pending_face_count'] = 0;
+        $data['user_biometrics'] = $has_bio ? $this->db->where('user_id', $data['user_id'])->get('tbl_user_biometrics')->row() : null;
+
+        $data['subview'] = $this->load->view('admin/attendance/time_history', $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
+
+    /**
+     * Get date-wise structured attendance logs for an employee (used by time_history and my_attendance)
+     */
+    public function get_user_date_wise_logs($user_id)
+    {
+        if (empty($user_id)) {
+            return array();
+        }
+
+        $records = $this->db->where('user_id', $user_id)
+            ->order_by('date_in', 'DESC')
+            ->limit(100)
+            ->get('tbl_attendance')->result();
+
+        if (empty($records)) {
+            return array();
+        }
+
+        $att_ids = array();
+        foreach ($records as $r) {
+            $att_ids[] = $r->attendance_id;
+        }
+
+        $clocks = array();
+        if (!empty($att_ids)) {
+            $clock_rows = $this->db->where_in('attendance_id', $att_ids)
+                ->order_by('clock_id', 'ASC')
+                ->get('tbl_clock')->result();
+            foreach ($clock_rows as $c) {
+                $clocks[$c->attendance_id][] = $c;
+            }
+        }
+
+        $face_logs = array();
+        if ($this->db->table_exists('tbl_attendance_face_logs')) {
+            $face_rows = $this->db->where('user_id', $user_id)
+                ->order_by('log_id', 'DESC')
+                ->get('tbl_attendance_face_logs')->result();
+            foreach ($face_rows as $fl) {
+                $d = date('Y-m-d', strtotime($fl->punch_time));
+                if (!isset($face_logs[$d])) {
+                    $face_logs[$d] = $fl;
+                }
+            }
+        }
+
+        $logs = array();
+        foreach ($records as $att) {
+            $date = $att->date_in;
+            $att_clocks = isset($clocks[$att->attendance_id]) ? $clocks[$att->attendance_id] : array();
+
+            $clockin_str = '-';
+            $clockout_str = '-';
+            $duration_str = '-';
+            $lat = null;
+            $lng = null;
+            $location = '';
+            $distance_str = '';
+            $is_inside_geo = null;
+            $photo_url = null;
+
+            if (!empty($att_clocks)) {
+                $first_clock = reset($att_clocks);
+                $last_clock = end($att_clocks);
+
+                if (!empty($first_clock->clockin_time)) {
+                    $clockin_str = date('h:i A', strtotime($first_clock->clockin_time));
+                }
+                if (!empty($last_clock->clockout_time) && $last_clock->clockout_time !== '00:00:00') {
+                    $clockout_str = date('h:i A', strtotime($last_clock->clockout_time));
+                }
+
+                $total_seconds = 0;
+                foreach ($att_clocks as $clk) {
+                    if (!empty($clk->clockin_time)) {
+                        $start = strtotime($date . ' ' . $clk->clockin_time);
+                        $end = (!empty($clk->clockout_time) && $clk->clockout_time !== '00:00:00') 
+                            ? strtotime($date . ' ' . $clk->clockout_time) 
+                            : ($clk->clocking_status == 1 ? time() : $start);
+                        if ($end > $start) {
+                            $total_seconds += ($end - $start);
+                        }
+                    }
+                    if (empty($lat) && !empty($clk->latitude)) {
+                        $lat = $clk->latitude;
+                        $lng = $clk->longitude;
+                        $location = !empty($clk->location) ? $clk->location : '';
+                    }
+                }
+                if ($total_seconds > 0) {
+                    $hrs = floor($total_seconds / 3600);
+                    $mins = floor(($total_seconds % 3600) / 60);
+                    $duration_str = $hrs . 'h : ' . str_pad($mins, 2, '0', STR_PAD_LEFT) . 'm';
+                }
+            }
+
+            if (isset($face_logs[$date])) {
+                $fl = $face_logs[$date];
+                if (empty($lat) && !empty($fl->lat)) {
+                    $lat = $fl->lat;
+                    $lng = $fl->lng;
+                    $location = $fl->address;
+                }
+                $is_inside_geo = isset($fl->is_inside_geofence) ? (int)$fl->is_inside_geofence : null;
+                if (!empty($fl->distance_from_office) && floatval($fl->distance_from_office) < 999000) {
+                    $dm = floatval($fl->distance_from_office);
+                    $distance_str = ($dm >= 1000) ? round($dm / 1000, 1) . ' km' : round($dm) . ' m';
+                }
+                $p_src = !empty($fl->photo_path) ? $fl->photo_path : (!empty($fl->photo_thumbnail) ? $fl->photo_thumbnail : null);
+                if (!empty($p_src)) {
+                    $photo_url = (strpos($p_src, 'uploads/') === 0) ? base_url($p_src) : $p_src;
+                }
+            }
+
+            $status_code = $att->attendance_status;
+            if ($status_code == 1) {
+                $status_label = 'Present';
+                $status_class = 'success';
+            } elseif ($status_code == 2) {
+                $status_label = 'Pending Approval';
+                $status_class = 'warning';
+            } elseif ($status_code == 3) {
+                $status_label = 'On Leave';
+                $status_class = 'info';
+            } elseif ($status_code == 'H') {
+                $status_label = 'Holiday';
+                $status_class = 'primary';
+            } else {
+                $status_label = 'Absent';
+                $status_class = 'danger';
+            }
+
+            $logs[] = array(
+                'attendance_id'  => $att->attendance_id,
+                'date'           => $date,
+                'formatted_date' => date('d M Y, D', strtotime($date)),
+                'status_code'    => $status_code,
+                'status_label'   => $status_label,
+                'status_class'   => $status_class,
+                'clockin'        => $clockin_str,
+                'clockout'       => $clockout_str,
+                'duration'       => $duration_str,
+                'lat'            => $lat,
+                'lng'            => $lng,
+                'location'       => $location,
+                'distance'       => $distance_str,
+                'is_inside_geo'  => $is_inside_geo,
+                'photo'          => $photo_url,
+            );
+        }
+
+        return $logs;
+    }
+
+    /**
+     * Out of Range Approvals - Dedicated page after Face ID Management
+     */
+    public function out_of_range_approvals()
+    {
+        $this->ensure_biometric_tables_and_columns();
+        $this->lang->load('utilities');
+        $this->lang->load('main');
+
+        $data['title'] = (lang('out_of_range_approvals') && lang('out_of_range_approvals') !== 'out_of_range_approvals')
+            ? lang('out_of_range_approvals')
+            : 'Out of Office Approval';
+
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        $team_user_ids = array();
+        if (empty($admin) && $user_type != 1) {
+            $team_user_ids = $this->get_team_user_ids_for_head($logged_user_id);
+        }
+
+        $this->db->where('tbl_attendance.attendance_status', 2);
+        if (empty($admin) && $user_type != 1) {
+            if (!empty($team_user_ids)) {
+                $this->db->where_in('tbl_attendance.user_id', $team_user_ids);
+            } else {
+                $this->db->where('tbl_attendance.user_id', 0);
+            }
+        }
+        $data['pending_approvals_count'] = $this->db->count_all_results('tbl_attendance');
+        $data['all_departments'] = $this->db->get('tbl_departments')->result();
+
+        $data['subview'] = $this->load->view('admin/attendance/out_of_range_approvals', $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
+
     public function time_history()
     {
         $data['title'] = lang('time_history');
@@ -42,16 +259,349 @@ class Attendance extends Admin_Controller
 
         $attendance_info = get_order_by('tbl_attendance', array('user_id' => $data['user_id']), 'date_in', true);
         $data['mytime_info'] = $this->get_mytime_info($attendance_info);
+        $data['date_wise_logs'] = $this->get_user_date_wise_logs($data['user_id']);
+        $data['date_wise_logs'] = $this->get_user_date_wise_logs($data['user_id']);
 
         // retrive all data from department table
         $data['all_employee'] = $this->attendance_model->get_all_employee();
         $data['selected_user'] = $this->db->where('user_id', $data['user_id'])->get('tbl_account_details')->row();
         $has_bio = $this->db->table_exists('tbl_user_biometrics');
-        $data['pending_approvals_count'] = $this->db->where('attendance_status', 2)->count_all_results('tbl_attendance');
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        $team_user_ids = array();
+        if (empty($admin) && $user_type != 1) {
+            $team_user_ids = $this->get_team_user_ids_for_head($logged_user_id);
+        }
+
+        $this->db->where('tbl_attendance.attendance_status', 2);
+        if (empty($admin) && $user_type != 1) {
+            if (!empty($team_user_ids)) {
+                $this->db->where_in('tbl_attendance.user_id', $team_user_ids);
+            } else {
+                $this->db->where('tbl_attendance.user_id', 0);
+            }
+        }
+        $data['pending_approvals_count'] = $this->db->count_all_results('tbl_attendance');
         $data['pending_face_count'] = $has_bio ? $this->db->where('is_approved', 0)->where('face_descriptor IS NOT NULL', null, false)->count_all_results('tbl_user_biometrics') : 0;
         $data['user_biometrics'] = $has_bio ? $this->db->where('user_id', $data['user_id'])->get('tbl_user_biometrics')->row() : null;
 
         $data['subview'] = $this->load->view('admin/attendance/time_history', $data, TRUE);
+        $this->load->view('admin/_layout_main', $data);
+    }
+
+    /**
+     * Get team user IDs for a given Department Head
+     */
+    public function get_team_user_ids_for_head($head_user_id)
+    {
+        $dept_ids = $this->db->select('departments_id')
+            ->where('department_head_id', $head_user_id)
+            ->get('tbl_departments')->result_array();
+        if (empty($dept_ids)) {
+            return [];
+        }
+        $dept_ids_arr = array_column($dept_ids, 'departments_id');
+
+        $users = $this->db->select('u.user_id')
+            ->from('tbl_users u')
+            ->join('tbl_account_details ad', 'ad.user_id = u.user_id', 'left')
+            ->join('tbl_designations des', 'des.designations_id = ad.designations_id', 'left')
+            ->where_in('des.departments_id', $dept_ids_arr)
+            ->where('u.activated', 1)
+            ->where('u.banned', 0)
+            ->where('u.role_id !=', 2)
+            ->get()->result_array();
+
+        $ids = array_column($users, 'user_id');
+
+        // Include direct reporting subordinates if mapped
+        $reps = $this->db->select('user_id')
+            ->where('reporting_to', $head_user_id)
+            ->or_where('team_leader_id', $head_user_id)
+            ->get('tbl_account_details')->result_array();
+        if (!empty($reps)) {
+            $rep_ids = array_column($reps, 'user_id');
+            $ids = array_unique(array_merge($ids, $rep_ids));
+        }
+
+        return array_map('intval', $ids);
+    }
+
+    /**
+     * Check if a manager has permission to manage/approve target employee attendance
+     */
+    public function can_user_manage_employee_attendance($manager_user_id, $target_user_id)
+    {
+        if (empty($manager_user_id) || empty($target_user_id)) {
+            return false;
+        }
+        $team_ids = $this->get_team_user_ids_for_head($manager_user_id);
+        return in_array((int)$target_user_id, $team_ids);
+    }
+
+    /**
+     * My Team Attendance - For Department Heads & Admins
+     */
+    public function team_attendance()
+    {
+        $this->ensure_biometric_tables_and_columns();
+
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        // Check if user is department head
+        $dept_records = $this->db->where('department_head_id', $logged_user_id)->get('tbl_departments')->result();
+        $is_dept_head = !empty($dept_records);
+
+        if (empty($admin) && $user_type != 1 && !$is_dept_head) {
+            set_message('error', 'Access denied. Only Department Heads and Admins can view Team Attendance.');
+            redirect('admin/attendance/my_attendance');
+        }
+
+        $data['title'] = (lang('my_team_attendance') && lang('my_team_attendance') !== 'my_team_attendance') ? lang('my_team_attendance') : 'My Team Attendance';
+        $data['is_dept_head'] = $is_dept_head;
+        $data['is_admin'] = (!empty($admin) || $user_type == 1);
+
+        // Date filter (defaults to today)
+        $selected_date = $this->input->get('date', TRUE) ?: date('Y-m-d');
+        $data['selected_date'] = $selected_date;
+
+        // Department filter
+        $selected_dept_id = $this->input->get('department_id', TRUE);
+        $data['selected_dept_id'] = $selected_dept_id;
+
+        // Available departments for this viewer
+        if (!empty($admin) || $user_type == 1) {
+            $data['available_departments'] = $this->db->order_by('deptname', 'ASC')->get('tbl_departments')->result();
+        } else {
+            $data['available_departments'] = $dept_records;
+        }
+
+        // Determine which department IDs to query
+        $target_dept_ids = [];
+        if (!empty($selected_dept_id)) {
+            $target_dept_ids = [(int)$selected_dept_id];
+        } else {
+            foreach ($data['available_departments'] as $d) {
+                $target_dept_ids[] = (int)$d->departments_id;
+            }
+        }
+        $data['target_dept_ids'] = $target_dept_ids;
+
+        // Fetch team members
+        $team_members = [];
+        if (!empty($target_dept_ids)) {
+            $this->db->select('u.user_id, u.username, u.email, ad.fullname, ad.employment_id, ad.emp_code, ad.avatar, ad.mobile, des.designations, dep.deptname, dep.departments_id');
+            $this->db->from('tbl_users u');
+            $this->db->join('tbl_account_details ad', 'ad.user_id = u.user_id', 'left');
+            $this->db->join('tbl_designations des', 'des.designations_id = ad.designations_id', 'left');
+            $this->db->join('tbl_departments dep', 'dep.departments_id = des.departments_id', 'left');
+            $this->db->where_in('dep.departments_id', $target_dept_ids);
+            $this->db->where('u.activated', 1);
+            $this->db->where('u.banned', 0);
+            $this->db->where('u.role_id !=', 2);
+            $this->db->order_by('ad.fullname', 'ASC');
+            $team_members = $this->db->get()->result();
+        }
+        $data['team_members'] = $team_members;
+
+        // Collect team member user IDs
+        $team_user_ids = [];
+        foreach ($team_members as $m) {
+            $team_user_ids[] = (int)$m->user_id;
+        }
+        $data['team_user_ids'] = $team_user_ids;
+
+        // For each team member, get attendance on $selected_date
+        $attendance_data = [];
+        $summary = [
+            'total_members' => count($team_members),
+            'present'       => 0,
+            'pending'       => 0,
+            'absent'        => 0,
+            'leave'         => 0,
+        ];
+
+        if (!empty($team_user_ids)) {
+            // Fetch attendances for selected date
+            $atts = $this->db->where_in('user_id', $team_user_ids)
+                ->where('date_in', $selected_date)
+                ->get('tbl_attendance')->result();
+            $att_by_user = [];
+            foreach ($atts as $at) {
+                $att_by_user[$at->user_id] = $at;
+            }
+
+            // Fetch approved leaves for selected date
+            $leaves = $this->db->where_in('user_id', $team_user_ids)
+                ->where('application_status', 2)
+                ->where('leave_start_date <=', $selected_date)
+                ->where('leave_end_date >=', $selected_date)
+                ->get('tbl_leave_application')->result();
+            $leave_by_user = [];
+            foreach ($leaves as $lv) {
+                $leave_by_user[$lv->user_id] = $lv;
+            }
+
+            // Fetch face logs for selected date for punch photos & geo info
+            $face_logs = $this->db->where_in('user_id', $team_user_ids)
+                ->like('punch_time', $selected_date)
+                ->order_by('log_id', 'DESC')
+                ->get('tbl_attendance_face_logs')->result();
+            $face_log_by_user = [];
+            foreach ($face_logs as $fl) {
+                if (!isset($face_log_by_user[$fl->user_id])) {
+                    $face_log_by_user[$fl->user_id] = $fl;
+                }
+            }
+
+            foreach ($team_members as $m) {
+                $uid = $m->user_id;
+                $at = isset($att_by_user[$uid]) ? $att_by_user[$uid] : null;
+                $lv = isset($leave_by_user[$uid]) ? $leave_by_user[$uid] : null;
+                $fl = isset($face_log_by_user[$uid]) ? $face_log_by_user[$uid] : null;
+
+                $clock_records = [];
+                $total_seconds = 0;
+                $in_time = null;
+                $out_time = null;
+
+                if (!empty($at)) {
+                    $clocks = $this->db->where('attendance_id', $at->attendance_id)
+                        ->order_by('clock_id', 'ASC')->get('tbl_clock')->result();
+                    $clock_records = $clocks;
+                    if (!empty($clocks)) {
+                        $first_c = reset($clocks);
+                        $last_c = end($clocks);
+                        $in_time = !empty($first_c->clockin_time) ? $first_c->clockin_time : null;
+                        $out_time = !empty($last_c->clockout_time) ? $last_c->clockout_time : null;
+                        foreach ($clocks as $c) {
+                            if (!empty($c->clockin_time) && !empty($c->clockout_time)) {
+                                $total_seconds += (strtotime($c->clockout_time) - strtotime($c->clockin_time));
+                            } elseif (!empty($c->clockin_time) && empty($c->clockout_time) && $selected_date == date('Y-m-d')) {
+                                $total_seconds += (time() - strtotime($c->clockin_time));
+                            }
+                        }
+                    }
+                }
+
+                // Resolve status
+                $status = 'absent';
+                $status_code = 0;
+                $status_label = 'Absent';
+                $status_class = 'danger';
+
+                if (!empty($lv)) {
+                    $status = 'leave';
+                    $status_code = 3;
+                    $status_label = 'On Leave';
+                    $status_class = 'warning';
+                    $summary['leave']++;
+                } elseif (!empty($at)) {
+                    if ($at->attendance_status == 1) {
+                        $status = 'present';
+                        $status_code = 1;
+                        $status_label = 'Present';
+                        $status_class = 'success';
+                        $summary['present']++;
+                    } elseif ($at->attendance_status == 2) {
+                        $status = 'pending';
+                        $status_code = 2;
+                        $status_label = 'Pending Approval (Out of Range)';
+                        $status_class = 'warning';
+                        $summary['pending']++;
+                    } elseif ($at->attendance_status == 0) {
+                        $status = 'absent';
+                        $status_code = 0;
+                        $status_label = 'Absent / Rejected';
+                        $status_class = 'danger';
+                        $summary['absent']++;
+                    }
+                } else {
+                    $summary['absent']++;
+                }
+
+                // Format work hours
+                $hours = floor($total_seconds / 3600);
+                $minutes = floor(($total_seconds % 3600) / 60);
+                $work_duration = ($hours > 0 || $minutes > 0) ? "{$hours}h {$minutes}m" : '-';
+
+                $attendance_data[] = [
+                    'member'         => $m,
+                    'attendance'     => $at,
+                    'status'         => $status,
+                    'status_code'    => $status_code,
+                    'status_label'   => $status_label,
+                    'status_class'   => $status_class,
+                    'clockin_time'   => $in_time ? display_time($in_time) : '-',
+                    'clockout_time'  => $out_time ? display_time($out_time) : ($in_time ? '<span class="text-success"><i class="fa fa-spinner fa-spin"></i> Working</span>' : '-'),
+                    'work_duration'  => $work_duration,
+                    'photo'          => !empty($fl->photo_path) ? $fl->photo_path : (!empty($fl->photo_thumbnail) ? $fl->photo_thumbnail : ''),
+                    'lat'            => !empty($fl->lat) ? $fl->lat : '',
+                    'lng'            => !empty($fl->lng) ? $fl->lng : '',
+                    'address'        => !empty($fl->address) ? $fl->address : '',
+                    'distance'       => !empty($fl->distance_from_office) ? round($fl->distance_from_office) . 'm' : '',
+                    'is_inside_geo'  => isset($fl->is_inside_geofence) ? (int)$fl->is_inside_geofence : null,
+                ];
+            }
+        }
+
+        $data['attendance_data'] = $attendance_data;
+        $data['summary'] = $summary;
+
+        // Fetch pending out-of-range attendances for this team
+        $pending_approvals = [];
+        if (!empty($team_user_ids)) {
+            $this->db->select('tbl_attendance.*, tbl_account_details.fullname, tbl_account_details.employment_id, tbl_account_details.avatar, tbl_designations.designations, tbl_departments.deptname');
+            $this->db->from('tbl_attendance');
+            $this->db->join('tbl_account_details', 'tbl_account_details.user_id = tbl_attendance.user_id', 'left');
+            $this->db->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left');
+            $this->db->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left');
+            $this->db->where('tbl_attendance.attendance_status', 2);
+            $this->db->where_in('tbl_attendance.user_id', $team_user_ids);
+            $this->db->order_by('tbl_attendance.date_in', 'DESC');
+            $pendings = $this->db->get()->result();
+
+            foreach ($pendings as $p) {
+                $clock = $this->db->where('attendance_id', $p->attendance_id)->order_by('clock_id', 'ASC')->get('tbl_clock')->row();
+                $face_log = $this->db->where('attendance_id', $p->attendance_id)->order_by('log_id', 'DESC')->get('tbl_attendance_face_logs')->row();
+
+                $lat = (!empty($clock) && !empty($clock->latitude)) ? $clock->latitude : (!empty($face_log) ? $face_log->lat : '');
+                $lng = (!empty($clock) && !empty($clock->longitude)) ? $clock->longitude : (!empty($face_log) ? $face_log->lng : '');
+                $location = (!empty($clock) && !empty($clock->location)) ? $clock->location : (!empty($face_log) ? $face_log->address : '');
+                $distance = (!empty($face_log) && !empty($face_log->distance_from_office)) ? round($face_log->distance_from_office) . 'm' : '';
+
+                $maps_url = (!empty($lat) && !empty($lng)) ? 'https://www.google.com/maps?q=' . urlencode($lat . ',' . $lng) : '';
+            $photo = (!empty($face_log) && !empty($face_log->photo_path)) ? base_url($face_log->photo_path) : ((!empty($face_log) && !empty($face_log->photo_thumbnail)) ? base_url($face_log->photo_thumbnail) : '');
+
+                $pending_approvals[] = [
+                    'attendance_id' => $p->attendance_id,
+                    'user_id'       => $p->user_id,
+                    'fullname'      => $p->fullname ?: 'Employee #' . $p->user_id,
+                    'employment_id' => $p->employment_id ?: '',
+                    'avatar'        => $p->avatar,
+                    'designations'  => $p->designations ?: '',
+                    'deptname'      => $p->deptname ?: '',
+                    'date'          => $p->date_in,
+                    'clockin'       => (!empty($clock) && !empty($clock->clockin_time)) ? display_time($clock->clockin_time) : '-',
+                    'clockout'      => (!empty($clock) && !empty($clock->clockout_time)) ? display_time($clock->clockout_time) : '-',
+                    'lat'           => $lat,
+                    'lng'           => $lng,
+                    'location'      => $location,
+                    'distance'      => $distance,
+                    'maps_url'      => $maps_url,
+                    'photo'         => (!empty($face_log) && !empty($face_log->photo_path)) ? $face_log->photo_path : ((!empty($face_log) && !empty($face_log->photo_thumbnail)) ? $face_log->photo_thumbnail : ''),
+                    'comments'      => !empty($clock) ? $clock->comments : ''
+                ];
+            }
+        }
+        $data['pending_approvals'] = $pending_approvals;
+        $data['pending_count'] = count($pending_approvals);
+
+        $data['subview'] = $this->load->view('admin/attendance/team_attendance', $data, TRUE);
         $this->load->view('admin/_layout_main', $data);
     }
 
@@ -2580,16 +3130,20 @@ class Attendance extends Admin_Controller
         if (empty($attendance_id)) {
             $attendance_id = $this->input->post('attendance_id', TRUE);
         }
-        $admin = admin();
-        $user_type = $this->session->userdata('user_type');
-        if (empty($admin) && $user_type != 1) {
-            echo json_encode(array('status' => 'error', 'message' => 'Unauthorized action.'));
-            exit();
-        }
 
         $att = $this->db->where('attendance_id', $attendance_id)->get('tbl_attendance')->row();
         if (empty($att)) {
             echo json_encode(array('status' => 'error', 'message' => 'Attendance record not found.'));
+            exit();
+        }
+
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        $is_authorized = (!empty($admin) || $user_type == 1 || $this->can_user_manage_employee_attendance($logged_user_id, $att->user_id));
+        if (!$is_authorized) {
+            echo json_encode(array('status' => 'error', 'message' => 'Unauthorized action. Only Admin or Department Head can approve.'));
             exit();
         }
 
@@ -2612,16 +3166,20 @@ class Attendance extends Admin_Controller
         if (empty($attendance_id)) {
             $attendance_id = $this->input->post('attendance_id', TRUE);
         }
-        $admin = admin();
-        $user_type = $this->session->userdata('user_type');
-        if (empty($admin) && $user_type != 1) {
-            echo json_encode(array('status' => 'error', 'message' => 'Unauthorized action.'));
-            exit();
-        }
 
         $att = $this->db->where('attendance_id', $attendance_id)->get('tbl_attendance')->row();
         if (empty($att)) {
             echo json_encode(array('status' => 'error', 'message' => 'Attendance record not found.'));
+            exit();
+        }
+
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        $is_authorized = (!empty($admin) || $user_type == 1 || $this->can_user_manage_employee_attendance($logged_user_id, $att->user_id));
+        if (!$is_authorized) {
+            echo json_encode(array('status' => 'error', 'message' => 'Unauthorized action. Only Admin or Department Head can reject.'));
             exit();
         }
 
@@ -2643,13 +3201,30 @@ class Attendance extends Admin_Controller
     {
         $user_id = $this->input->post('user_id', TRUE) ?: $this->input->get('user_id', TRUE);
         
-        $this->db->select('tbl_attendance.*, tbl_account_details.fullname, tbl_account_details.employment_id, tbl_designations.designations');
+        $admin = admin();
+        $user_type = $this->session->userdata('user_type');
+        $logged_user_id = $this->session->userdata('user_id');
+
+        $team_user_ids = array();
+        if (empty($admin) && $user_type != 1) {
+            $team_user_ids = $this->get_team_user_ids_for_head($logged_user_id);
+            if (empty($team_user_ids)) {
+                echo json_encode(array('status' => 'success', 'data' => array()));
+                exit();
+            }
+        }
+
+        $this->db->select('tbl_attendance.*, tbl_account_details.fullname, tbl_account_details.employment_id, tbl_designations.designations, tbl_departments.deptname');
         $this->db->from('tbl_attendance');
         $this->db->join('tbl_account_details', 'tbl_account_details.user_id = tbl_attendance.user_id', 'left');
         $this->db->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left');
+        $this->db->join('tbl_departments', 'tbl_departments.departments_id = tbl_designations.departments_id', 'left');
         $this->db->where('tbl_attendance.attendance_status', 2);
+
         if (!empty($user_id)) {
             $this->db->where('tbl_attendance.user_id', $user_id);
+        } elseif (empty($admin) && $user_type != 1) {
+            $this->db->where_in('tbl_attendance.user_id', $team_user_ids);
         }
         $this->db->order_by('tbl_attendance.date_in', 'DESC');
         $pending = $this->db->get()->result();
@@ -2662,9 +3237,21 @@ class Attendance extends Admin_Controller
             $lat = (!empty($clock) && !empty($clock->latitude)) ? $clock->latitude : (!empty($face_log) ? $face_log->lat : '');
             $lng = (!empty($clock) && !empty($clock->longitude)) ? $clock->longitude : (!empty($face_log) ? $face_log->lng : '');
             $location = (!empty($clock) && !empty($clock->location)) ? $clock->location : (!empty($face_log) ? $face_log->address : '');
-            $distance = (!empty($face_log) && !empty($face_log->distance_from_office)) ? round($face_log->distance_from_office) . 'm' : '';
+            $distance = '';
+            if (!empty($face_log) && !empty($face_log->distance_from_office) && floatval($face_log->distance_from_office) < 999000) {
+                $dm = floatval($face_log->distance_from_office);
+                $distance = ($dm >= 1000) ? round($dm / 1000, 1) . ' km' : round($dm) . ' m';
+            }
 
             $maps_url = (!empty($lat) && !empty($lng)) ? 'https://www.google.com/maps?q=' . urlencode($lat . ',' . $lng) : '';
+
+            $photo = null;
+            if (!empty($face_log)) {
+                $p_src = !empty($face_log->photo_path) ? $face_log->photo_path : (!empty($face_log->photo_thumbnail) ? $face_log->photo_thumbnail : null);
+                if (!empty($p_src)) {
+                    $photo = (strpos($p_src, 'uploads/') === 0) ? base_url($p_src) : $p_src;
+                }
+            }
 
             $result[] = array(
                 'attendance_id' => $p->attendance_id,
@@ -2672,6 +3259,7 @@ class Attendance extends Admin_Controller
                 'fullname'      => $p->fullname ?: 'Employee #' . $p->user_id,
                 'employment_id' => $p->employment_id ?: '',
                 'designations'  => $p->designations ?: '',
+                'deptname'      => !empty($p->deptname) ? $p->deptname : '',
                 'date'          => $p->date_in,
                 'clockin'       => (!empty($clock) && !empty($clock->clockin_time)) ? display_time($clock->clockin_time) : '-',
                 'clockout'      => (!empty($clock) && !empty($clock->clockout_time)) ? display_time($clock->clockout_time) : '-',
@@ -2680,6 +3268,7 @@ class Attendance extends Admin_Controller
                 'location'      => $location,
                 'distance'      => $distance,
                 'maps_url'      => $maps_url,
+                'photo'         => $photo,
                 'comments'      => !empty($clock) ? $clock->comments : ''
             );
         }
@@ -3224,6 +3813,77 @@ class Attendance extends Admin_Controller
             UNIQUE KEY `idx_user_bio` (`user_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
+        // 5. Ensure out_of_range_approvals menu exists in tbl_menu after face_id_requests
+        if ($this->db->table_exists('tbl_menu')) {
+            $range_chk = $this->db->where('label', 'out_of_range_approvals')->get('tbl_menu')->row();
+            if (empty($range_chk)) {
+                $max_m = $this->db->select_max('menu_id')->get('tbl_menu')->row();
+                $new_mid = (!empty($max_m) && !empty($max_m->menu_id)) ? ((int)$max_m->menu_id + 1) : 224;
+                $this->db->where('parent', 105)->where('label', 'office_locations')->update('tbl_menu', array('sort' => 5));
+                $this->db->insert('tbl_menu', array(
+                    'menu_id' => $new_mid,
+                    'label'   => 'out_of_range_approvals',
+                    'link'    => 'admin/attendance/out_of_range_approvals',
+                    'icon'    => 'fa fa-map-marker',
+                    'parent'  => 105,
+                    'sort'    => 4,
+                    'status'  => 1
+                ));
+                if ($this->db->table_exists('tbl_user_role')) {
+                    $desigs = array(1, 38, 156);
+                    $max_r = $this->db->select_max('user_role_id')->get('tbl_user_role')->row();
+                    $curr_r = (!empty($max_r) && !empty($max_r->user_role_id)) ? (int)$max_r->user_role_id : 3500;
+                    foreach ($desigs as $d) {
+                        $curr_r++;
+                        $this->db->insert('tbl_user_role', array(
+                            'user_role_id'    => $curr_r,
+                            'designations_id' => $d,
+                            'menu_id'         => $new_mid,
+                            'view'            => $new_mid,
+                            'created'         => $new_mid,
+                            'edited'          => $new_mid,
+                            'deleted'         => 0
+                        ));
+                    }
+                }
+            }
+        }
+
+        // 4. Ensure my_attendance menu exists in tbl_menu and tbl_user_role for all designations
+        if ($this->db->table_exists('tbl_menu')) {
+            $menu_chk = $this->db->where('label', 'my_attendance')->get('tbl_menu')->row();
+            if (empty($menu_chk)) {
+                $max_m = $this->db->select_max('menu_id')->get('tbl_menu')->row();
+                $new_mid = (!empty($max_m) && !empty($max_m->menu_id)) ? ((int)$max_m->menu_id + 1) : 216;
+                $this->db->insert('tbl_menu', [
+                    'menu_id' => $new_mid,
+                    'label'   => 'my_attendance',
+                    'link'    => 'admin/attendance/my_attendance',
+                    'icon'    => 'fa fa-calendar-check-o',
+                    'parent'  => 0,
+                    'sort'    => 1,
+                    'status'  => 1
+                ]);
+                if ($this->db->table_exists('tbl_user_role') && $this->db->table_exists('tbl_designations')) {
+                    $desigs = $this->db->select('designations_id')->get('tbl_designations')->result();
+                    $max_r = $this->db->select_max('user_role_id')->get('tbl_user_role')->row();
+                    $curr_r = (!empty($max_r) && !empty($max_r->user_role_id)) ? (int)$max_r->user_role_id : 3000;
+                    foreach ($desigs as $d) {
+                        $curr_r++;
+                        $this->db->insert('tbl_user_role', [
+                            'user_role_id'    => $curr_r,
+                            'designations_id' => $d->designations_id,
+                            'menu_id'         => $new_mid,
+                            'view'            => 1,
+                            'created'         => 0,
+                            'edited'          => 0,
+                            'deleted'         => 0
+                        ]);
+                    }
+                }
+            }
+        }
+
         // Ensure approval columns in tbl_user_biometrics if table already existed without them
         if ($this->db->table_exists('tbl_user_biometrics')) {
             if (!$this->db->field_exists('is_approved', 'tbl_user_biometrics')) {
@@ -3258,7 +3918,42 @@ class Attendance extends Admin_Controller
             KEY `idx_user_punch` (`user_id`, `punch_time`),
             KEY `idx_punch_type_geofence` (`punch_type`, `is_inside_geofence`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        // 5. Ensure out_of_range_approvals menu exists in tbl_menu after face_id_requests
+        if ($this->db->table_exists('tbl_menu')) {
+            $range_chk = $this->db->where('label', 'out_of_range_approvals')->get('tbl_menu')->row();
+            if (empty($range_chk)) {
+                $max_m = $this->db->select_max('menu_id')->get('tbl_menu')->row();
+                $new_mid = (!empty($max_m) && !empty($max_m->menu_id)) ? ((int)$max_m->menu_id + 1) : 224;
+                $this->db->where('parent', 105)->where('label', 'office_locations')->update('tbl_menu', array('sort' => 5));
+                $this->db->insert('tbl_menu', array(
+                    'menu_id' => $new_mid,
+                    'label'   => 'out_of_range_approvals',
+                    'link'    => 'admin/attendance/out_of_range_approvals',
+                    'icon'    => 'fa fa-map-marker',
+                    'parent'  => 105,
+                    'sort'    => 4,
+                    'status'  => 1
+                ));
+                if ($this->db->table_exists('tbl_user_role')) {
+                    $desigs = array(1, 38, 156);
+                    $max_r = $this->db->select_max('user_role_id')->get('tbl_user_role')->row();
+                    $curr_r = (!empty($max_r) && !empty($max_r->user_role_id)) ? (int)$max_r->user_role_id : 3500;
+                    foreach ($desigs as $d) {
+                        $curr_r++;
+                        $this->db->insert('tbl_user_role', array(
+                            'user_role_id'    => $curr_r,
+                            'designations_id' => $d,
+                            'menu_id'         => $new_mid,
+                            'view'            => $new_mid,
+                            'created'         => $new_mid,
+                            'edited'          => $new_mid,
+                            'deleted'         => 0
+                        ));
+                    }
+                }
+            }
+        }
+
     }
 }
-
-

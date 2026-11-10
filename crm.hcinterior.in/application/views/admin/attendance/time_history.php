@@ -2,7 +2,7 @@
 <?php echo message_box('error'); ?>
 <?php
 $user_type = $this->session->userdata('user_type');
-if ($user_type == '1') { ?>
+if ($user_type == '1' && empty($is_my_attendance)) { ?>
 <div class="row">
     <div class="col-sm-12" data-offset="0">
         <div class="panel panel-custom" data-collapsed="0">
@@ -196,7 +196,8 @@ $admin = admin();
             <!-- Default panel contents -->
             <div class="panel-heading">
                 <div class="panel-title">
-                    <strong><?= $name . ' ' . lang('time_logs') ?></strong>
+                    <?php $is_own_view = (!empty($is_my_attendance) || (empty($admin) && $user_type != 1) || $user_id == $this->session->userdata('user_id')); ?>
+                    <strong><i class="fa fa-calendar-check-o text-primary" style="margin-right: 6px;"></i> <?= $is_own_view ? (lang('my_attendance') ?: 'My Attendance') : ($name . ' ' . lang('time_logs')) ?></strong>
                     <div class="pull-right hidden-print" style="margin-top: -3px;">
                         <!-- Face ID Biometric Admin Actions -->
                         <?php if (!empty($user_biometrics) && !empty($user_biometrics->face_descriptor)) { ?>
@@ -285,15 +286,17 @@ $admin = admin();
             <!-- View Switch Tabs -->
             <ul class="nav nav-tabs" style="margin-bottom: 0; background: #fafafa; border-bottom: 2px solid #ddd; padding: 6px 15px 0;">
                 <li class="active">
-                    <a href="#tab_calendar_view" data-toggle="tab">
-                        <i class="fa fa-calendar text-primary"></i> <strong>Attendance Calendar</strong>
+                    <a href="#tab_date_wise_list" data-toggle="tab">
+                        <i class="fa fa-list text-primary"></i> <strong>Date-Wise Attendance</strong>
+                        <span class="badge" style="background:#3498db; margin-left:4px;"><?= !empty($date_wise_logs) ? count($date_wise_logs) : 0 ?></span>
                     </a>
                 </li>
                 <li>
-                    <a href="#tab_time_logs_list" data-toggle="tab">
-                        <i class="fa fa-list text-info"></i> <strong>Time Logs (List View)</strong>
+                    <a href="#tab_calendar_view" data-toggle="tab">
+                        <i class="fa fa-calendar text-info"></i> <strong>Monthly Calendar</strong>
                     </a>
                 </li>
+                <?php if ($user_type == 1 || !empty($admin)) { ?>
                 <li id="li_pending_tab">
                     <a href="#tab_pending_approvals" data-toggle="tab">
                         <i class="fa fa-map-marker text-danger"></i> <strong>Out-of-Range Approvals</strong>
@@ -306,11 +309,12 @@ $admin = admin();
                         <span class="badge" style="background:#d35400; margin-left:4px;" id="badge_face_pending_count"><?= !empty($pending_face_count) ? $pending_face_count : 0 ?></span>
                     </a>
                 </li>
+                <?php } ?>
             </ul>
 
             <div class="tab-content" style="padding: 15px;">
-                <!-- TAB 1: CALENDAR VIEW -->
-                <div class="tab-pane active" id="tab_calendar_view">
+                <!-- TAB 1: DATE-WISE ATTENDANCE LIST (DEFAULT VIEW) -->
+                <div class="tab-pane active" id="tab_date_wise_list">
                     <!-- Earn Leave & Sick Leave Balance Quick Banner -->
                     <div class="row" style="margin-bottom: 15px;">
                         <div class="col-sm-6 col-xs-12">
@@ -397,6 +401,100 @@ $admin = admin();
                         </div>
                     </div>
 
+                    <!-- Date-Wise Table -->
+                    <div class="table-responsive" style="margin-top: 15px;">
+                        <table class="table table-bordered table-striped table-hover dataTable" id="date_wise_logs_table">
+                            <thead>
+                                <tr style="background: #f5f7fa; color: #2c3e50;">
+                                    <th style="width: 55px;" class="text-center">Photo</th>
+                                    <th>Date & Day</th>
+                                    <th>Status</th>
+                                    <th>Clock In</th>
+                                    <th>Clock Out</th>
+                                    <th>Working Hours</th>
+                                    <th>Location & Geofence</th>
+                                    <?php if (!empty($admin) || $user_type == 1) { ?>
+                                    <th style="width: 90px;" class="text-center">Action</th>
+                                    <?php } ?>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (!empty($date_wise_logs)): foreach ($date_wise_logs as $log): 
+                                    $has_photo = !empty($log['photo']);
+                                    $photo_url = $has_photo ? $log['photo'] : base_url('assets/img/user/default_avatar.jpg');
+                                ?>
+                                <tr>
+                                    <td class="text-center">
+                                        <?php if ($has_photo): ?>
+                                            <img src="<?= $photo_url ?>" alt="Punch Photo" style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; border: 2px solid #23b7e5; cursor: pointer;" onclick="openPhotoModal('<?= $photo_url ?>', '<?= htmlspecialchars($log['formatted_date']) ?>', '<?= $log['clockin'] ?>', '<?= htmlspecialchars($log['location']) ?>', '<?= $log['distance'] ?>')" title="Click to view full photo">
+                                        <?php else: ?>
+                                            <span class="text-muted" title="No photo uploaded"><i class="fa fa-user-circle-o fa-2x" style="color: #ccc;"></i></span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <strong style="font-size: 13px; color: #2c3e50;"><?= $log['formatted_date'] ?></strong>
+                                    </td>
+                                    <td>
+                                        <span class="label label-<?= $log['status_class'] ?>" style="font-size: 11px; padding: 4px 8px;">
+                                            <?= $log['status_label'] ?>
+                                        </span>
+                                        <?php if ($log['is_inside_geo'] === 0): ?>
+                                            <br><span class="label label-warning" style="font-size: 9px; margin-top: 3px; display: inline-block;">Outside Office</span>
+                                        <?php elseif ($log['is_inside_geo'] === 1): ?>
+                                            <br><span class="label label-success" style="font-size: 9px; margin-top: 3px; display: inline-block;">In Office</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <strong class="text-success"><i class="fa fa-sign-in"></i> <?= $log['clockin'] ?></strong>
+                                    </td>
+                                    <td>
+                                        <strong class="text-danger"><i class="fa fa-sign-out"></i> <?= $log['clockout'] ?></strong>
+                                    </td>
+                                    <td>
+                                        <span class="badge" style="background: #6c7a89; font-size: 12px; padding: 5px 8px;"><?= $log['duration'] ?></span>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($log['lat']) && !empty($log['lng'])): ?>
+                                            <a href="https://www.google.com/maps?q=<?= urlencode($log['lat'] . ',' . $log['lng']) ?>" target="_blank" class="text-primary font-bold" title="Open Google Maps">
+                                                <i class="fa fa-map-marker text-danger"></i> <?= !empty($log['location']) ? htmlspecialchars(mb_strimwidth($log['location'], 0, 32, '...')) : 'View Maps' ?>
+                                            </a>
+                                            <?php if (!empty($log['distance'])): ?>
+                                                <br><small class="text-muted"><i class="fa fa-road"></i> <?= $log['distance'] ?> from office</small>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <span class="text-muted"><?= $log['location'] ?: '-' ?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <?php if (!empty($admin) || $user_type == 1) { ?>
+                                    <td class="text-center">
+                                        <?php if ($log['status_code'] == 2): ?>
+                                            <button type="button" class="btn btn-xs btn-success" onclick="approvePendingAtt(<?= $log['attendance_id'] ?>)" title="Approve">
+                                                <i class="fa fa-check"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-xs btn-danger" onclick="rejectPendingAtt(<?= $log['attendance_id'] ?>)" title="Reject">
+                                                <i class="fa fa-times"></i>
+                                            </button>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <?php } ?>
+                                </tr>
+                                <?php endforeach; else: ?>
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted" style="padding: 25px;">
+                                        <i class="fa fa-calendar-times-o fa-2x"></i>
+                                        <p style="margin-top: 8px;">No attendance logs found.</p>
+                                    </td>
+                                </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 2: CALENDAR VIEW -->
+                <div class="tab-pane" id="tab_calendar_view">
                     <!-- Legend & Quick Info -->
                     <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 10px 15px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
                         <div>
@@ -418,215 +516,7 @@ $admin = admin();
                     <div id="attendance_calendar"></div>
                 </div>
 
-                <!-- TAB 2: TIME LOGS LIST (ORIGINAL VIEW) -->
-                <div class="tab-pane" id="tab_time_logs_list">
-                    <div class="custom-tabs" role="tabpanel">
-                        <!-- Nav tabs -->
-                        <ul class="nav nav-tabs" role="tablist">
-                            <?php
-                            if (!empty($mytime_info)) : foreach ($mytime_info as $year => $v_time_info) :
-                            ?>
-                            <?php if (!empty($v_time_info)) : ?>
-                            <li role="presentation" class="<?php
-                                                                        if ($year == $active) {
-                                                                            echo 'active';
-                                                                        }
-                                                                        ?>"><a href="#time_year_<?php echo $year ?>" aria-controls="home"
-                                    role="tab" data-toggle="tab"><?php echo $year ?></a></li>
-                            <?php endif; ?>
-                            <?php endforeach; ?>
-                            <?php endif; ?>
-                        </ul>
-
-                        <!-- Tab panes -->
-                        <div class="tab-content" id="custom-tab-content" style="padding-top: 15px;">
-                            <?php if (!empty($mytime_info)) :
-                                foreach ($mytime_info as $year => $v_time_info) :
-                            ?>
-                            <div role="tabpanel" class="tab-pane <?php
-                                                                            if ($year == $active) {
-                                                                                echo 'active';
-                                                                            }
-                                                                            ?>" id="time_year_<?php echo $year ?>">
-                                <?php if (!empty($v_time_info)) : foreach ($v_time_info as $week => $time_info) : ?>
-                                <?php if (!empty($time_info)) : ?>
-                                <div class="panel-group" id="accordion_<?= $year ?>_<?= $week ?>" role="tablist" aria-multiselectable="true">
-                                    <div class="panel panel-custom">
-                                        <div class="panel-heading" role="tab" id="heading_<?= $year ?>_<?= $week ?>">
-                                            <h4 class="panel-title time-color">
-                                                <a data-toggle="collapse" data-parent="#accordion_<?= $year ?>_<?= $week ?>" href="#collapse_<?= $year ?>_<?= $week ?>"
-                                                    aria-expanded="true" aria-controls="collapse_<?= $year ?>_<?= $week ?>">
-                                                    Week : <?php echo $week; ?>
-                                                </a>
-                                            </h4>
-                                        </div>
-                                        <div id="collapse_<?= $year ?>_<?= $week ?>" class="panel-collapse collapse" role="tabpanel"
-                                            aria-labelledby="heading_<?= $year ?>_<?= $week ?>">
-                                            <div class="panel-body table-responsive">
-                                                <table class="table table-bordered table-hover">
-                                                    <thead>
-                                                        <tr>
-                                                            <th><?= lang('clock_in_time') ?></th>
-                                                            <th><?= lang('clock_out_time') ?></th>
-                                                            <th><?= lang('ip_address') ?></th>
-                                                            <th><?= lang('hours') ?></th>
-                                                            <th class="hidden-print"><?= lang('action') ?></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <?php
-                                                        $total_hh = 0;
-                                                        $total_mm = 0;
-
-                                                        if (!empty($time_info)) : foreach ($time_info as $key => $v_mytime) :
-                                                        ?>
-                                                        <td colspan="5" class="attendance_report"><?php echo $key; ?></td>
-
-                                                        <?php
-                                                        $vtimeinfo = $v_mytime[0];
-                                                        if ($vtimeinfo->attendance_status == 1) {
-                                                            $timeinfo = get_result('tbl_clock', array('attendance_id' => $vtimeinfo->attendance_id));
-
-                                                            foreach ($timeinfo as $mytime) : ?>
-                                                        <tr id="table_<?= strtotime($key) ?>">
-                                                            <td><?php echo display_time($mytime->clockin_time); ?></td>
-                                                            <td><?php
-                                                                    if (empty($mytime->clockout_time)) {
-                                                                        echo '<span class="text-danger">' . lang("currently_clock_in") . '<span>';
-                                                                    } else {
-                                                                        echo display_time($mytime->clockout_time);
-                                                                    }
-                                                                    ?>
-                                                            </td>
-                                                            <td>
-                                                                <?= $mytime->ip_address ?>
-                                                                <?php if (!empty($mytime->latitude) && !empty($mytime->longitude)) { ?>
-                                                                    <br>
-                                                                    <a href="https://www.google.com/maps?q=<?= urlencode($mytime->latitude . ',' . $mytime->longitude) ?>" target="_blank" class="btn btn-xs btn-link" style="padding:0; font-size:11px; color:#d35400; font-weight:600;" title="View exact location on Google Maps">
-                                                                        <i class="fa fa-map-marker text-danger"></i> <?= !empty($mytime->location) ? htmlspecialchars($mytime->location) : 'View on Google Maps' ?>
-                                                                    </a>
-                                                                <?php } ?>
-                                                            </td>
-                                                            <td><?php
-                                                                    if (!empty($mytime->clockout_time)) {
-                                                                        $startdatetime = strtotime($vtimeinfo->date_in . " " . $mytime->clockin_time);
-                                                                        $enddatetime = strtotime($vtimeinfo->date_out . " " . $mytime->clockout_time);
-                                                                        $difference = $enddatetime - $startdatetime;
-                                                                        $years = abs(floor($difference / 31536000));
-                                                                        $days = abs(floor(($difference - ($years * 31536000)) / 86400));
-                                                                        $hours = abs(floor(($difference - ($years * 31536000) - ($days * 86400)) / 3600));
-                                                                        $mins = abs(floor(($difference - ($years * 31536000) - ($days * 86400)) - ($hours * 3600)) / 60);
-                                                                        $total_mm += $mins;
-                                                                        $total_hh += $hours;
-                                                                        echo $hours . " : " . $mins . " m";
-                                                                    }
-                                                                    ?></td>
-                                                            <?php if (!empty($mytime->clock_id)) { ?>
-                                                            <td class="hidden-print">
-                                                                <?php if (!empty($edited)) { ?>
-                                                                <?php echo btn_edit_modal('admin/attendance/edit_mytime/' . $mytime->clock_id) ?>
-                                                                <?php }
-                                                                if (!empty($admin)) { ?>
-                                                                <?php echo ajax_anchor(base_url('admin/attendance/delete_mytime/' . $mytime->clock_id), "<i class='btn btn-xs btn-danger fa fa-trash-o'></i>", array("class" => "", "title" => lang('delete'), "data-fade-out-on-success" => "#table_" . strtotime($key))) ?>
-                                                                <?php } ?>
-                                                            </td>
-                                                            <?php } ?>
-                                                        </tr>
-                                                        <?php endforeach; ?>
-                                                        <?php } else if ($vtimeinfo->attendance_status == 2) { 
-                                                            $timeinfo = get_result('tbl_clock', array('attendance_id' => $vtimeinfo->attendance_id));
-                                                            $flog = $this->db->where('attendance_id', $vtimeinfo->attendance_id)->order_by('log_id', 'DESC')->get('tbl_attendance_face_logs')->row();
-                                                            foreach ($timeinfo as $mytime) : 
-                                                                $t_lat = !empty($mytime->latitude) ? $mytime->latitude : (!empty($flog) ? $flog->lat : '');
-                                                                $t_lng = !empty($mytime->longitude) ? $mytime->longitude : (!empty($flog) ? $flog->lng : '');
-                                                                $t_loc = !empty($mytime->location) ? $mytime->location : (!empty($flog) ? $flog->address : 'Outside Office Range');
-                                                        ?>
-                                                        <tr id="table_<?= strtotime($key) ?>" style="background: #fef9e7;">
-                                                            <td>
-                                                                <strong><?php echo display_time($mytime->clockin_time); ?></strong>
-                                                                <br><span class="label" style="background:#e67e22; font-size:10px;"><i class="fa fa-exclamation-triangle"></i> Pending Approval (Out of Range)</span>
-                                                            </td>
-                                                            <td><?php
-                                                                    if (empty($mytime->clockout_time)) {
-                                                                        echo '<span class="text-danger">' . lang("currently_clock_in") . '<span>';
-                                                                    } else {
-                                                                        echo display_time($mytime->clockout_time);
-                                                                    }
-                                                                    ?>
-                                                            </td>
-                                                            <td>
-                                                                <?php if (!empty($t_lat) && !empty($t_lng)) { ?>
-                                                                    <a href="https://www.google.com/maps?q=<?= urlencode($t_lat . ',' . $t_lng) ?>" target="_blank" class="btn btn-xs btn-default" style="color:#d35400; font-weight:600; border-color:#e67e22;" title="View on Google Maps">
-                                                                        <i class="fa fa-map-marker text-danger"></i> <?= htmlspecialchars($t_loc) ?>
-                                                                    </a>
-                                                                    <br><small class="text-muted"><i class="fa fa-globe"></i> <?= round($t_lat, 4) ?>, <?= round($t_lng, 4) ?></small>
-                                                                <?php } else { ?>
-                                                                    <?= $mytime->ip_address ?>
-                                                                <?php } ?>
-                                                            </td>
-                                                            <td>-</td>
-                                                            <td class="hidden-print">
-                                                                <?php if (!empty($admin) || $user_type == 1) { ?>
-                                                                <button type="button" class="btn btn-xs btn-success" onclick="approvePendingAtt(<?= $vtimeinfo->attendance_id ?>)" title="Approve Attendance">
-                                                                    <i class="fa fa-check"></i> Approve
-                                                                </button>
-                                                                <button type="button" class="btn btn-xs btn-danger" onclick="rejectPendingAtt(<?= $vtimeinfo->attendance_id ?>)" title="Reject Attendance">
-                                                                    <i class="fa fa-times"></i> Reject
-                                                                </button>
-                                                                <?php } ?>
-                                                            </td>
-                                                        </tr>
-                                                        <?php endforeach; ?>
-                                                        <?php } else if ($vtimeinfo->attendance_status == 0) { ?>
-                                                        <tr>
-                                                            <td colspan="5"><span class="label label-danger"><?= lang('absent') ?></span></td>
-                                                        </tr>
-                                                        <?php } elseif ($vtimeinfo->attendance_status == 3) { ?>
-                                                        <tr>
-                                                            <td colspan="5"><span class="label label-warning"><?= lang('on_leave') ?></span></td>
-                                                        </tr>
-                                                        <?php } ?>
-
-                                                        <?php endforeach; ?>
-                                                        <table>
-                                                            <tr>
-                                                                <td colspan="2" class="text-right">
-                                                                    <strong style="margin-right: 10px; "><?= lang('total_working_hour') ?>: </strong>
-                                                                </td>
-                                                                <td>
-                                                                    <?php
-                                                                    if ($total_mm > 59) {
-                                                                        $total_hh += intval($total_mm / 60);
-                                                                        $total_mm = intval($total_mm % 60);
-                                                                    }
-                                                                    echo $total_hh . " : " . $total_mm . " m";
-                                                                    ?>
-                                                                </td>
-                                                            </tr>
-                                                        </table>
-                                                        <?php else : ?>
-                                                        <tr>
-                                                            <td colspan="5"><?= lang('nothing_to_display') ?></td>
-                                                        </tr>
-                                                        <?php endif; ?>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endif; ?>
-                                <?php endforeach; ?>
-                            </div>
-                            <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                        <?php else : ?>
-                        <div class="alert alert-info"><?= lang('nothing_to_display') ?></div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
+                <?php if ($user_type == 1 || !empty($admin)) { ?>
                 <!-- TAB 3: PENDING APPROVALS (OUT OF RANGE) -->
                 <div class="tab-pane" id="tab_pending_approvals">
                     <div style="background: #fcf3cf; border: 1px solid #f9e79f; border-radius: 6px; padding: 12px 18px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between;">
@@ -662,6 +552,7 @@ $admin = admin();
                         </table>
                     </div>
                 </div>
+                <?php } ?>
             </div>
         </div>
     </div>
@@ -775,6 +666,42 @@ $admin = admin();
 </div>
 
 <script src='<?= base_url() ?>assets/plugins/fullcalendar/moment.min.js'></script>
+
+<!-- Photo Modal -->
+<div class="modal fade" id="photoPreviewModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-sm" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: #2c3e50; color: #fff; padding: 12px 16px;">
+                <button type="button" class="close" data-dismiss="modal" style="color: #fff; opacity: 0.8;">&times;</button>
+                <h4 class="modal-title" style="font-size: 15px; font-weight: 600;"><i class="fa fa-camera"></i> Punch Photo</h4>
+            </div>
+            <div class="modal-body text-center" style="padding: 16px;">
+                <img id="photoModalImg" src="" alt="Punch photo" style="width: 100%; max-height: 380px; object-fit: contain; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                <div id="photoModalMeta" style="margin-top: 12px; font-size: 12px; text-align: left; background: #f9fbfd; padding: 10px; border-radius: 6px; border: 1px solid #eef2f5;">
+                    <div><strong>Date:</strong> <span id="photoMetaDate">-</span></div>
+                    <div><strong>Punch In:</strong> <span id="photoMetaTime">-</span></div>
+                    <div><strong>Location:</strong> <span id="photoMetaLoc">-</span></div>
+                    <div><strong>Distance:</strong> <span id="photoMetaDist">-</span></div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 10px 16px;">
+                <button type="button" class="btn btn-default btn-sm" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openPhotoModal(imgUrl, date, time, loc, dist) {
+    $('#photoModalImg').attr('src', imgUrl);
+    $('#photoMetaDate').text(date || '-');
+    $('#photoMetaTime').text(time || '-');
+    $('#photoMetaLoc').text(loc || '-');
+    $('#photoMetaDist').text(dist ? dist + ' from office' : '-');
+    $('#photoPreviewModal').modal('show');
+}
+</script>
+
 <script src='<?= base_url() ?>assets/plugins/fullcalendar/fullcalendar.min.js'></script>
 
 <script type="text/javascript">
@@ -802,7 +729,7 @@ $(document).ready(function() {
             header: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'month,agendaWeek,listMonth'
+                right: 'month,listMonth'
             },
             defaultView: 'month',
             editable: false,
@@ -1101,6 +1028,11 @@ function loadPendingApprovalsTable() {
         }
     });
 }
+
+// Re-render calendar when calendar tab is shown
+$('a[href="#tab_calendar_view"]').on('shown.bs.tab', function() {
+    $('#attendance_calendar').fullCalendar('render');
+});
 
 // Load pending table when tab is clicked
 $('a[href="#tab_pending_approvals"]').on('shown.bs.tab', function() {

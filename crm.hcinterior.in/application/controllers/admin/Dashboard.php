@@ -622,11 +622,8 @@ class Dashboard extends Admin_Controller
         $end_date = $date->modify('last day of this month')->format('Y-m-d');
 
         if (!empty(attendance_access())) {
-            if (preg_match('/./', $row) && $row != 1) {
-                $row = '';
-            }
-            if (preg_match('/./', $redirect) && $row != 1) {
-                $redirect = '';
+            if ($row == 0) {
+                $row = null;
             }
             if ($id == 0) {
                 $id = null;
@@ -766,21 +763,132 @@ class Dashboard extends Admin_Controller
     {
         $clock_in = $this->input->post('clock_in', true);
         $clock_out = $this->input->post('clock_out', true);
-        if (!empty($clock_in)) {
+        $date = $this->input->post('attend_date', true);
+        if (empty($date)) {
+            $date = date('Y-m-d');
+        }
+        $time = date('H:i:s');
+        $in_count = 0;
+        $out_count = 0;
+
+        // Process bulk clock-in
+        if (!empty($clock_in) && is_array($clock_in)) {
             foreach ($clock_in as $user_id) {
-                $this->set_clocking(0, $user_id, true, true);
+                $user_id = (int)$user_id;
+                if ($user_id <= 0) continue;
+
+                $att = $this->db->where('user_id', $user_id)->where('date_in', $date)->get('tbl_attendance')->row();
+                if (empty($att)) {
+                    $this->db->insert('tbl_attendance', [
+                        'user_id'           => $user_id,
+                        'date_in'           => $date,
+                        'date_out'          => $date,
+                        'attendance_status' => 1,
+                        'clocking_status'   => 1
+                    ]);
+                    $attendance_id = $this->db->insert_id();
+                } else {
+                    $attendance_id = $att->attendance_id;
+                    $this->db->where('attendance_id', $attendance_id)->update('tbl_attendance', [
+                        'attendance_status' => 1,
+                        'clocking_status'   => 1,
+                        'date_out'          => $date
+                    ]);
+                }
+
+                $open_clock = $this->db->where('attendance_id', $attendance_id)->where('clocking_status', 1)->get('tbl_clock')->row();
+                if (empty($open_clock)) {
+                    $this->db->insert('tbl_clock', [
+                        'attendance_id'   => $attendance_id,
+                        'clockin_time'    => $time,
+                        'clockout_time'   => null,
+                        'clocking_status' => 1,
+                        'comments'        => 'Clocked in by Admin (Bulk Update)',
+                        'ip_address'      => $this->input->ip_address()
+                    ]);
+                    $in_count++;
+                }
             }
         }
-        if (!empty($clock_out)) {
-            foreach ($clock_out as $clock_out_id) {
-                $clock_id = $this->input->post($clock_out_id, true);
-                $this->set_clocking($clock_id, $clock_out_id, 0, true);
+
+        // Process bulk clock-out (Mark all checkout)
+        if (!empty($clock_out) && is_array($clock_out)) {
+            foreach ($clock_out as $user_id) {
+                $user_id = (int)$user_id;
+                if ($user_id <= 0) continue;
+
+                $clock_id = (int)$this->input->post($user_id, true);
+                if (empty($clock_id)) {
+                    $clock_ids = $this->input->post('clock_id', true);
+                    if (!empty($clock_ids) && !empty($clock_ids[$user_id])) {
+                        $clock_id = (int)$clock_ids[$user_id];
+                    }
+                }
+
+                $open_clock = null;
+                if (!empty($clock_id)) {
+                    $open_clock = $this->db->where('clock_id', $clock_id)->get('tbl_clock')->row();
+                }
+                if (empty($open_clock) || (int)$open_clock->clocking_status === 0) {
+                    $open_clock = $this->db->select('c.*')
+                        ->from('tbl_clock c')
+                        ->join('tbl_attendance a', 'c.attendance_id = a.attendance_id')
+                        ->where('a.user_id', $user_id)
+                        ->where('c.clocking_status', 1)
+                        ->order_by('c.clock_id', 'DESC')
+                        ->get()->row();
+                }
+
+                if (!empty($open_clock)) {
+                    $this->db->where('clock_id', $open_clock->clock_id)->update('tbl_clock', [
+                        'clockout_time'   => $time,
+                        'clocking_status' => 0,
+                        'comments'        => !empty($open_clock->comments) ? $open_clock->comments . ' | Clocked out by Admin' : 'Clocked out by Admin (Bulk Update)',
+                        'ip_address'      => $this->input->ip_address()
+                    ]);
+                    $this->db->where('attendance_id', $open_clock->attendance_id)->update('tbl_attendance', [
+                        'clocking_status' => 0,
+                        'date_out'        => $date
+                    ]);
+                    $out_count++;
+                } else {
+                    $att = $this->db->where('user_id', $user_id)->where('date_in', $date)->get('tbl_attendance')->row();
+                    if (!empty($att)) {
+                        $this->db->where('attendance_id', $att->attendance_id)->update('tbl_attendance', [
+                            'clocking_status' => 0,
+                            'date_out'        => $date
+                        ]);
+                        $this->db->where('attendance_id', $att->attendance_id)->where('clocking_status', 1)->update('tbl_clock', [
+                            'clockout_time'   => $time,
+                            'clocking_status' => 0
+                        ]);
+                        $out_count++;
+                    }
+                }
             }
         }
-        if (empty($_SERVER['HTTP_REFERER'])) {
-            redirect('admin/dashboard');
+
+        if ($in_count > 0 || $out_count > 0) {
+            $msg_parts = [];
+            if ($out_count > 0) $msg_parts[] = "$out_count staff clocked out";
+            if ($in_count > 0) $msg_parts[] = "$in_count staff clocked in";
+            set_message('success', 'Attendance updated: ' . implode(', ', $msg_parts) . ' successfully.');
         } else {
+            set_message('warning', 'No attendance changes were submitted.');
+        }
+
+        $office_id = $this->input->post('office_location_id', true);
+        if (!empty($date) && $date !== date('Y-m-d')) {
+            $this->session->set_flashdata('attend_date', $date);
+        }
+        if (!empty($office_id)) {
+            $this->session->set_flashdata('office_location_id', $office_id);
+        }
+
+        if (!empty($_SERVER['HTTP_REFERER'])) {
             redirect($_SERVER['HTTP_REFERER']);
+        } else {
+            redirect('admin/mark_attendance');
         }
     }
 
@@ -829,28 +937,50 @@ class Dashboard extends Admin_Controller
         $this->load->model('attendance_model');
 
         $data['title'] = lang('mark_attendance');
-        $date = $this->input->post('attend_date', TRUE);
-
-        if (empty($date)) {
-            $date = date('Y-m-d');
-        }
+        $date = $this->input->post('attend_date', TRUE) ?: ($this->input->get('attend_date', TRUE) ?: ($this->session->flashdata('attend_date') ?: date('Y-m-d')));
         $data['date'] = $date;
+
+        $selected_office_id = $this->input->post('office_location_id', TRUE);
+        if ($selected_office_id === null || $selected_office_id === '') {
+            $selected_office_id = $this->input->get('office_location_id', TRUE);
+        }
+        if ($selected_office_id === null || $selected_office_id === '') {
+            $selected_office_id = $this->session->flashdata('office_location_id');
+        }
+        $data['selected_office_id'] = $selected_office_id;
+
+        // Fetch active office locations for branch filter & distance calculations
+        $office_locations = [];
+        $office_locations_map = [];
+        if ($this->db->table_exists('tbl_office_locations')) {
+            $office_locations = $this->db->where('status', 1)->order_by('id', 'ASC')->get('tbl_office_locations')->result();
+            if (!empty($office_locations)) {
+                foreach ($office_locations as $ol) {
+                    $office_locations_map[$ol->id] = $ol;
+                }
+            }
+        }
+        $data['office_locations'] = $office_locations;
+        $data['office_locations_map'] = $office_locations_map;
 
         $month = date('n', strtotime($date));
         $year = date('Y', strtotime($date));
         $day = date('d', strtotime($date));
 
-        $staff_query = $this->db->select('u.*, ad.*, u.user_id as user_id, dept.deptname, desig.designations')
+        $this->db->select('u.*, ad.*, u.user_id as user_id, dept.deptname, desig.designations')
             ->from('tbl_users u')
             ->join('tbl_account_details ad', 'u.user_id = ad.user_id', 'left')
             ->join('tbl_designations desig', 'ad.designations_id = desig.designations_id', 'left')
             ->join('tbl_departments dept', 'desig.departments_id = dept.departments_id', 'left')
             ->where('u.role_id !=', 2)
-            ->where('u.activated', 1)
-            ->order_by('ad.fullname', 'ASC')
-            ->get()->result();
+            ->where('u.activated', 1);
 
-        $data['users'] = !empty($staff_query) ? $staff_query : get_staff_details();
+        if (!empty($selected_office_id)) {
+            $this->db->where('ad.office_location_id', $selected_office_id);
+        }
+
+        $staff_query = $this->db->order_by('ad.fullname', 'ASC')->get()->result();
+        $data['users'] = !empty($staff_query) ? $staff_query : [];
 
         $holidays = $this->common_model->get_holidays(); //tbl working Days Holiday
 
@@ -916,6 +1046,10 @@ class Dashboard extends Admin_Controller
 
             if (!empty($all_logs_query)) {
                 foreach ($all_logs_query as $log_item) {
+                    // Sanitize dummy distance value (999999.99)
+                    if (!empty($log_item->distance_from_office) && floatval($log_item->distance_from_office) >= 999000) {
+                        $log_item->distance_from_office = null;
+                    }
                     if ($log_item->punch_type === 'in' && !isset($punch_in_map[$log_item->user_id])) {
                         $punch_in_map[$log_item->user_id] = $log_item;
                     }

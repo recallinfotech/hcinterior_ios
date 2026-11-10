@@ -181,7 +181,7 @@ $lang['recaptcha_error'] = 'Please verify that you are not a robot';
 $lang['recaptcha_site_key'] = 'Recaptcha site key';
 $lang['recaptcha_secret_key'] = 'Recaptcha secret key';
 $lang['recaptcha_help'] = 'Go to  <a href="https://www.google.com/recaptcha/admin" target="_blank">https://www.google.com/recaptcha/admin</a> to setup Recaptcha';
-$lang['mark_attendance'] = 'Mark Attendance';
+$lang['mark_attendance'] = 'Live Attendance';
 $lang['clocking_hours'] = 'Clocking Hours';
 $lang['clocking_status'] = 'Clocking Status';
 $lang['mark_all'] = 'Mark all';
@@ -320,3 +320,7 @@ $lang['module_name'] = "Module Name";
 $lang['preview_image'] = "Preview Image";
 $lang['preview_url'] = "Preview Url";
 
+
+$lang['my_attendance'] = 'My Attendance';
+$lang['my_team_attendance'] = 'My Team Attendance';
+$lang['out_of_range_approvals'] = 'Out of Office Approval';

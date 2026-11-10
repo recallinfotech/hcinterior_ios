@@ -379,6 +379,9 @@ class Departments extends Admin_Controller
                     'deptname',
                     'associate_with'
                 ]);
+            if ($this->input->post('department_head_id') !== null) {
+                $post['department_head_id'] = $this->input->post('department_head_id') ? $this->input->post('department_head_id') : null;
+            }
             if (!empty($post['deptname'])) {
                 $this->department_model->_table_name = "tbl_departments"; // table name
                 $this->department_model->_primary_key = "departments_id"; // $id
@@ -419,6 +422,15 @@ class Departments extends Admin_Controller
                 $data['inline'] = true;
             }
             $data['department_info'] = $this->db->where('departments_id', $id)->get('tbl_departments')->row();
+            $data['all_employees'] = $this->db->select('tbl_users.user_id, tbl_account_details.fullname, tbl_designations.designations')
+                ->from('tbl_users')
+                ->join('tbl_account_details', 'tbl_account_details.user_id = tbl_users.user_id', 'left')
+                ->join('tbl_designations', 'tbl_designations.designations_id = tbl_account_details.designations_id', 'left')
+                ->where('tbl_users.role_id !=', 2)
+                ->where('tbl_users.activated', 1)
+                ->where('tbl_users.banned', 0)
+                ->order_by('tbl_account_details.fullname', 'ASC')
+                ->get()->result();
             $data['modal_subview'] = $this->load->view('admin/department/edit_departments', $data, FALSE);
             $this->load->view('admin/_layout_modal', $data);
         }

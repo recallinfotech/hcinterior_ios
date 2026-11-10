@@ -50,6 +50,20 @@ if (!empty($created) || !empty($edited)) {
                 </div>
 
 
+                <div class="form-group">
+                    <label class="col-lg-4 control-label"><?= lang('department_head') ?></label>
+                    <div class="col-lg-5">
+                        <select class="form-control select_box" style="width:100%" name="department_head_id" id="department_head_id">
+                            <option value=""><?= lang('none') ?></option>
+                            <?php if (!empty($all_employees)): foreach ($all_employees as $emp): ?>
+                                <option value="<?= $emp->user_id ?>" <?= (!empty($department_info->department_head_id) && $department_info->department_head_id == $emp->user_id) ? 'selected' : '' ?>>
+                                    <?= $emp->fullname ?> <?= !empty($emp->designations) ? '(' . $emp->designations . ')' : '' ?>
+                                </option>
+                            <?php endforeach; endif; ?>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="modal-footer">
                     <button type="button" class="btn btn-default" data-dismiss="modal"><?= lang('close') ?></button>
                     <button type="submit" class="btn btn-primary"><?= lang('update') ?></button>

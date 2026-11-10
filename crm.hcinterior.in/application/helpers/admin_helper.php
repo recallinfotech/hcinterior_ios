@@ -4360,6 +4360,7 @@ function client_details_tabs_old($id)
             'url' => $url . $id . '/filemanager',
             'count' => '',
             'view' => $url . 'filemanager',
+            'hidden' => true
         ],
           'notes' => [
             'position' => 13,
@@ -4367,7 +4368,8 @@ function client_details_tabs_old($id)
              'tab_name' => 'Notes',
             'url' => $url . $id . '/notes',
             'count' => '',
-            'view' => $url . 'notes'
+            'view' => $url . 'notes',
+            'hidden' => true
         ],
         
 
@@ -4537,6 +4539,7 @@ function client_details_tabs_old($id)
             'url' => $url . $id . '/filemanager',
             'count' => '',
             'view' => $url . 'filemanager',
+            'hidden' => true
         ],
           'notes' => [
             'position' => 17,
@@ -4544,7 +4547,8 @@ function client_details_tabs_old($id)
              'tab_name' => 'Notes',
             'url' => $url . $id . '/notes',
             'count' => '',
-            'view' => $url . 'notes'
+            'view' => $url . 'notes',
+            'hidden' => true
         ],
 
         'payment_record' => [

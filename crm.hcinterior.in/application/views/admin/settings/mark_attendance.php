@@ -195,6 +195,19 @@
 </style>
 
 <?php
+if (!function_exists('att_haversine_distance')) {
+    function att_haversine_distance($lat1, $lon1, $lat2, $lon2) {
+        if (empty($lat1) || empty($lon1) || empty($lat2) || empty($lon2)) return null;
+        $earthRadius = 6371000;
+        $latDelta = deg2rad(floatval($lat2) - floatval($lat1));
+        $lonDelta = deg2rad(floatval($lon2) - floatval($lon1));
+        $a = sin($latDelta / 2) * sin($latDelta / 2) +
+             cos(deg2rad(floatval($lat1))) * cos(deg2rad(floatval($lat2))) *
+             sin($lonDelta / 2) * sin($lonDelta / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $earthRadius * $c;
+    }
+}
 // Pre-calculate statistics
 $total_staff = !empty($users) ? count($users) : 0;
 $count_logged_in = 0;
@@ -243,7 +256,7 @@ if (!empty($users)) {
             $clockout_lat = $outside_info->lat;
             $clockout_lng = $outside_info->lng;
             $clockout_address = $outside_info->address;
-            if (!empty($outside_info->distance_from_office)) {
+            if (!empty($outside_info->distance_from_office) && floatval($outside_info->distance_from_office) < 999000) {
                 $dist_m = floatval($outside_info->distance_from_office);
                 $clockout_dist_str = ($dist_m >= 1000) ? round($dist_m / 1000, 1) . ' km' : round($dist_m) . ' m';
             }
@@ -272,7 +285,7 @@ if (!empty($users)) {
                 $clockout_lng = $out_log->lng;
                 $clockout_address = $out_log->address;
             }
-            if (empty($clockout_dist_str) && !empty($out_log->distance_from_office)) {
+            if (empty($clockout_dist_str) && !empty($out_log->distance_from_office) && floatval($out_log->distance_from_office) < 999000) {
                 $dist_m = floatval($out_log->distance_from_office);
                 $clockout_dist_str = ($dist_m >= 1000) ? round($dist_m / 1000, 1) . ' km' : round($dist_m) . ' m';
             }
@@ -393,6 +406,24 @@ if (!empty($users)) {
             }
         }
 
+        // Real distance to employee's assigned office
+        $emp_office_id = !empty($u->office_location_id) ? (int)$u->office_location_id : (!empty($u->office_id) ? (int)$u->office_id : 1);
+        $emp_office = isset($office_locations_map[$emp_office_id]) ? $office_locations_map[$emp_office_id] : (isset($office_locations_map[1]) ? $office_locations_map[1] : null);
+
+        if (!empty($clockout_lat) && !empty($clockout_lng) && !empty($emp_office) && !empty($emp_office->latitude) && !empty($emp_office->longitude)) {
+            $real_dist_m = att_haversine_distance($clockout_lat, $clockout_lng, $emp_office->latitude, $emp_office->longitude);
+            if ($real_dist_m !== null) {
+                $office_radius = floatval(!empty($emp_office->allowed_radius) ? $emp_office->allowed_radius : 250);
+                if ($real_dist_m <= $office_radius) {
+                    $is_outside_logout = false;
+                    $clockout_dist_str = round($real_dist_m) . ' m';
+                } else {
+                    $is_outside_logout = true;
+                    $clockout_dist_str = ($real_dist_m >= 1000) ? round($real_dist_m / 1000, 1) . ' km' : round($real_dist_m) . ' m';
+                }
+            }
+        }
+
         $processed_users[] = array(
             'user'               => $u,
             'status_key'         => $status_key,
@@ -424,6 +455,8 @@ if (!empty($users)) {
 
 <!-- Main Attendance & Clock Management Form -->
 <form action="<?= base_url() ?>admin/dashboard/update_clock" method="post" id="attendance_bulk_form">
+    <input type="hidden" name="attend_date" value="<?= $date; ?>">
+    <input type="hidden" name="office_location_id" value="<?= !empty($selected_office_id) ? $selected_office_id : ''; ?>">
     <div class="panel panel-custom">
         <!-- Clean, Balanced Panel Header -->
         <div class="panel-heading" style="padding: 12px 18px;">
@@ -438,9 +471,25 @@ if (!empty($users)) {
                     </span>
                 </div>
 
-                <!-- Right Date Filter & Top Update Button -->
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div class="input-group input-group-sm" style="width: 200px;">
+                <!-- Right Filters & Action Buttons -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <!-- Office Branch Filter -->
+                    <div class="input-group input-group-sm" style="width: 220px;">
+                        <span class="input-group-addon" style="background: #fff; padding: 4px 8px;"><i class="fa fa-building-o text-muted"></i></span>
+                        <select id="office_branch_filter" class="form-control" style="font-weight: 600; height: 31px; border-radius: 0 3px 3px 0;">
+                            <option value="">🏢 All Branches</option>
+                            <?php if (!empty($office_locations)) : ?>
+                                <?php foreach ($office_locations as $ol) : ?>
+                                    <option value="<?= $ol->id ?>" <?= (!empty($selected_office_id) && $selected_office_id == $ol->id) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($ol->location_name) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </select>
+                    </div>
+
+                    <!-- Date Filter -->
+                    <div class="input-group input-group-sm" style="width: 190px;">
                         <span class="input-group-addon" style="background: #fff; padding: 4px 8px;"><i class="fa fa-calendar text-muted"></i></span>
                         <input type="text" id="attend_date_picker" class="form-control datepicker" value="<?= $date; ?>" data-format="yyyy-mm-dd" style="font-weight: 600; height: 31px;" placeholder="Select Date">
                         <span class="input-group-btn">
@@ -467,6 +516,12 @@ if (!empty($users)) {
                     <a href="javascript:void(0);" class="att-tab-btn" data-status="all">
                         <i class="fa fa-users text-primary"></i> All Staff
                         <span class="badge" style="background: #0284c7; margin-left: 5px; font-weight: 600;"><?= $total_staff; ?></span>
+                    </a>
+                </li>
+                <li>
+                    <a href="javascript:void(0);" class="att-tab-btn" data-status="logged_in,clocked_out" title="Total staff who logged in / punched attendance today">
+                        <i class="fa fa-check-circle" style="color: #059669;"></i> Total Login Present
+                        <span class="badge" style="background: #059669; margin-left: 5px; font-weight: 700;"><?= $count_logged_in + $count_clocked_out; ?></span>
                     </a>
                 </li>
                 <li>
@@ -614,6 +669,7 @@ if (!empty($users)) {
                                     (!empty($u->deptname) ? $u->deptname : '') . ' ' .
                                     (!empty($u->designations) ? $u->designations : '') . ' ' .
                                     $status_label . ' ' .
+                                    (!empty($office_locations_map[$u->office_location_id]) ? $office_locations_map[$u->office_location_id]->location_name : '') . ' ' .
                                     $clockin_address . ' ' .
                                     $clockout_address . ' ' .
                                     ($is_outside_logout ? 'outside logout bahar se punch out field logout' : '')
@@ -622,13 +678,14 @@ if (!empty($users)) {
                                 $avatar_img = !empty($u->avatar) ? base_url($u->avatar) : base_url('uploads/default_avatar.jpg');
                                 $row_status_str = $status_key . ($is_outside_logout ? ',outside_logout' : '');
                             ?>
-                                <tr data-status="<?= $row_status_str ?>" data-search-text="<?= htmlspecialchars($search_haystack, ENT_QUOTES) ?>">
+                                <tr data-status="<?= $row_status_str ?>" data-office-id="<?= !empty($u->office_location_id) ? $u->office_location_id : '' ?>" data-search-text="<?= htmlspecialchars($search_haystack, ENT_QUOTES) ?>">
                                     <!-- Custom Checkbox for Bulk Update -->
                                     <td style="text-align: center; vertical-align: middle;">
                                         <label class="att-custom-check" style="margin: 0;">
                                             <input type="checkbox" class="<?= $chk_name ?>" name="<?= $chk_name ?>[]" value="<?= $u->user_id; ?>">
                                             <span class="att-box" style="margin-right: 0;"><i class="fa fa-check"></i></span>
                                         </label>
+                                        <input type="hidden" name="clock_id[<?= $u->user_id; ?>]" value="<?= $clock_id; ?>">
                                         <input type="hidden" name="<?= $u->user_id; ?>" value="<?= $clock_id; ?>">
                                     </td>
 
@@ -767,21 +824,25 @@ if (!empty($users)) {
                                                         <i class="fa fa-map-marker"></i> Outside Logout
                                                     </span>
                                                     <?php 
-                                                        $dist_str = !empty($clockout_dist_str) ? $clockout_dist_str : '';
+                                                        $dist_str = (!empty($clockout_dist_str) && stripos($clockout_dist_str, '1000') === false) ? $clockout_dist_str : '';
                                                         if (empty($dist_str)) {
-                                                            if (!empty($outside_info->distance_from_office)) {
+                                                            if (!empty($outside_info->distance_from_office) && floatval($outside_info->distance_from_office) < 999000) {
                                                                 $dist_str = ($outside_info->distance_from_office >= 1000) ? round($outside_info->distance_from_office / 1000, 1) . ' km' : round($outside_info->distance_from_office) . ' m';
-                                                            } elseif (!empty($outside_info->address) && preg_match('/\(~([0-9]+)m\)/', $outside_info->address, $matches)) {
+                                                            } elseif (!empty($outside_info->address) && preg_match('/\(~([0-9]+)m\)/', $outside_info->address, $matches) && intval($matches[1]) < 999000) {
                                                                 $dist_m = intval($matches[1]);
                                                                 $dist_str = ($dist_m >= 1000) ? round($dist_m / 1000, 1) . ' km' : $dist_m . ' m';
                                                             }
                                                         }
                                                     ?>
-                                                    <?php if (!empty($dist_str)) : ?>
+                                                    <?php if (!empty($dist_str) && stripos($dist_str, '1000') === false) : ?>
                                                         <div style="font-size: 10px; color: #b45309; font-weight: 600; margin-top: 1px;">
                                                             ~<?= $dist_str ?> from office
                                                         </div>
                                                     <?php endif; ?>
+                                                </div>
+                                            <?php elseif (!empty($clockout_dist_str) && stripos($clockout_dist_str, '1000') === false) : ?>
+                                                <div style="font-size: 10px; color: #10b981; font-weight: 600; margin-top: 2px;" title="Logged out within office radius">
+                                                    <i class="fa fa-check-circle"></i> In Office (<?= $clockout_dist_str ?>)
                                                 </div>
                                             <?php endif; ?>
 
@@ -970,16 +1031,28 @@ $(document).ready(function () {
         }
     });
 
-    // 5. Date Change Button Handler
+    // 5. Office Branch Filter Handler
+    $('#office_branch_filter').on('change', function () {
+        var selectedOffice = $(this).val();
+        var selectedDate = $('#attend_date_picker').val() || '<?= $date; ?>';
+        var form = $('<form action="<?= base_url() ?>admin/mark_attendance" method="post">' +
+                     '<input type="hidden" name="attend_date" value="' + selectedDate + '">' +
+                     '<input type="hidden" name="office_location_id" value="' + selectedOffice + '">' +
+                     '</form>');
+        $('body').append(form);
+        form.submit();
+    });
+
+    // 5b. Date Change Button Handler
     $('#btn_change_date').on('click', function () {
-        var selectedDate = $('#attend_date_picker').val();
-        if (selectedDate) {
-            var form = $('<form action="<?= base_url() ?>admin/mark_attendance" method="post">' +
-                         '<input type="hidden" name="attend_date" value="' + selectedDate + '">' +
-                         '</form>');
-            $('body').append(form);
-            form.submit();
-        }
+        var selectedDate = $('#attend_date_picker').val() || '<?= $date; ?>';
+        var selectedOffice = $('#office_branch_filter').val() || '';
+        var form = $('<form action="<?= base_url() ?>admin/mark_attendance" method="post">' +
+                     '<input type="hidden" name="attend_date" value="' + selectedDate + '">' +
+                     '<input type="hidden" name="office_location_id" value="' + selectedOffice + '">' +
+                     '</form>');
+        $('body').append(form);
+        form.submit();
     });
 
     // 6. Action Button Loading State

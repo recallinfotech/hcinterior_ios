@@ -13322,7 +13322,7 @@ class Client extends CI_Controller
             }
         }
 
-        $distance = 9999999;
+        $distance = null;
         $matched_office_name = $target_office->location_name;
         $is_inside_geofence = false;
 
@@ -13380,7 +13380,7 @@ class Client extends CI_Controller
                      ->update('tbl_clock', [
                          'clockout_time'   => $time,
                          'clocking_status' => 0,
-                         'comments'        => !empty($comments) ? $comments : (!$is_inside_geofence ? 'Outside Logout (~' . round($distance) . 'm)' : 'Office Logout'),
+                         'comments'        => !empty($comments) ? $comments : (!$is_inside_geofence ? (!empty($distance) ? 'Outside Logout (~' . round($distance) . 'm)' : 'Mobile App Clock Out (No GPS)') : 'Office Logout'),
                          'clockout_latitude'  => !empty($lat) ? $lat : null,
                          'clockout_longitude' => !empty($long) ? $long : null,
                          'clockout_location'  => !empty($location) ? $location : null
@@ -13403,7 +13403,7 @@ class Client extends CI_Controller
                 'lng'                  => !empty($long) ? $long : null,
                 'address'              => !empty($location) ? $location : 'Punch Out',
                 'photo_thumbnail'      => null,
-                'distance_from_office' => round($distance, 2),
+                'distance_from_office' => !empty($distance) ? round($distance, 2) : null,
                 'is_inside_geofence'   => $is_inside_geofence ? 1 : 0
             ]);
 
@@ -14143,7 +14143,7 @@ class Client extends CI_Controller
         }
 
         $is_inside_geofence = false;
-        $distance = 9999999;
+        $distance = null;
         $matched_office_name = $target_office->location_name;
 
         if (!empty($lat) && !empty($lng)) {
@@ -14391,7 +14391,7 @@ class Client extends CI_Controller
             'lng'                   => $lng,
             'address'               => $address,
             'photo_thumbnail'       => !empty($photo_relative_path) ? $photo_relative_path : (!empty($photo) ? substr($photo, 0, 50000) : null),
-            'distance_from_office'  => $distance_from_office,
+            'distance_from_office'  => (!empty($distance_from_office) && $distance_from_office < 999000) ? $distance_from_office : null,
             'is_inside_geofence'    => $is_inside_geofence ? 1 : 0
         ];
         if ($this->db->field_exists('photo_path', 'tbl_attendance_face_logs')) {
@@ -14409,7 +14409,7 @@ class Client extends CI_Controller
             'punch_time'         => date('h:i A'),
             'punch_date'         => $today,
             'face_score'         => $face_score,
-            'distance_meters'    => round($distance_from_office),
+            'distance_meters'    => (!empty($distance_from_office) && $distance_from_office < 999000) ? round($distance_from_office) : null,
             'is_inside_geofence' => $is_inside_geofence,
             'attendance_status'  => $curr_att_status,
             'is_pending'         => ($curr_att_status === 2),
